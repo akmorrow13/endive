@@ -1,2 +1,2 @@
 # endive
-Building blocks for sequence and epigenetic prediction
+Building blocks for epigenetic prediction
