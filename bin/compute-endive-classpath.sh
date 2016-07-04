@@ -11,8 +11,8 @@ REPO="$SCRIPT_DIR/repo"
 
 # Fallback to source repo
 if [ ! -f $ENDIVE_CMD ]; then
-ENDIVE_CMD="$SCRIPT_DIR/mango-cli/target/appassembler/bin/endive"
-REPO="$SCRIPT_DIR/mango-cli/target/appassembler/repo"
+ENDIVE_CMD="$SCRIPT_DIR/target/appassembler/bin/endive"
+REPO="$SCRIPT_DIR/target/appassembler/repo"
 fi
 
 if [ ! -f "$ENDIVE_CMD" ]; then

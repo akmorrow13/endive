@@ -52,6 +52,7 @@
     <scala.version.prefix>2.10</scala.version.prefix>
     <spark.version>1.6.1</spark.version>
     <bdg-utils.version>0.2.7</bdg-utils.version>
+    <mllib.version>1.3.0</mllib.version>
   </properties>
 
   <build>
@@ -218,6 +219,11 @@
   </profiles>
 
   <dependencies>
+    <dependency>
+      <groupId>org.apache.spark</groupId>
+      <artifactId>spark-mllib_${scala.version.prefix}</artifactId>
+      <version>${mllib.version}</version>
+    </dependency>
     <dependency>
       <groupId>org.apache.parquet</groupId>
       <artifactId>parquet-avro</artifactId>

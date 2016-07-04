@@ -16,7 +16,6 @@ for ARG in "$@"; do
   fi
   PRE_DD+=("$ARG")
 done
-
 if [[ $DD == True ]]; then
   SPARK_ARGS="${PRE_DD[@]}"
   ENDIVE_ARGS="${POST_DD[@]}"
@@ -33,16 +32,17 @@ fi
 
 # Figure out where endive is installed
 SCRIPT_DIR="$(cd `dirname $0`/..; pwd)"
-
 # Get list of required jars for endive
 ENDIVE_JARS=$("$SCRIPT_DIR"/bin/compute-endive-jars.sh)
 
+
 # Split out the CLI jar, since it will be passed to Spark as the "primary resource".
 ENDIVE_CLI_JAR=${ENDIVE_JARS##*,}
-ENDIVE_JARS=$(echo "$ENDIVE_JARS" | rev | cut -d',' -f2- | rev)
+#ENDIVE_JARS=$(echo "$ENDIVE_JARS" | rev | cut -d',' -f2- | rev)
 
 # append ENDIVE_JARS to the --jars option, if any
-SPARK_ARGS=$("$SCRIPT_DIR"/bin/append_to_option.py , --jars $ENDIVE_JARS $SPARK_ARGS)
+# SPARK_ARGS=$("$SCRIPT_DIR"/bin/append_to_option.py , --jars $ENDIVE_JARS $SPARK_ARGS)
+SPARK_ARGS=$(echo "--jars $ENDIVE_JARS $SPARK_ARGS")
 
 # Find spark-submit script
 if [ -z "$SPARK_HOME" ]; then
@@ -62,7 +62,7 @@ echo "Using SPARK_SUBMIT=$SPARK_SUBMIT"
   --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \
   --conf spark.kryo.registrator=net.akmorrow13.endive.EndiveKryoRegistrator \
   --conf spark.dynamicAllocation.executorIdleTimeout=10d \
+  --conf spark.executor.memory=20g \
   $SPARK_ARGS \
   $ENDIVE_CLI_JAR \
   $ENDIVE_ARGS
-
