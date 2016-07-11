@@ -62,20 +62,6 @@ object Endive extends Serializable with Logging {
       sc.stop()
     }
   }
-}
-
-class EndiveArgs extends Args4jBase {
-  @Argument(required = true, metaVar = "TRAIN FILE", usage = "Training file formatted as tsv", index = 0)
-  var train: String = null
-  @Argument(required = true, metaVar = "TEST FILE", usage = "Test file formatted as tsv", index = 1)
-  var test: String = null
-  @Argument(required = true, metaVar = "REFERENCE", usage = "A fa file for the reference genome.", index = 2)
-  var reference: String = null
-  @Args4jOption(required = false, name = "-kmerLength", usage = "kmer length")
-  var kmerLength: Int = 8
-  @Args4jOption(required = false, name = "-sequenceLength", usage = "sequence length around peaks")
-  var sequenceLength: Int = 100
-}
 
   def run(sc: SparkContext, conf: EndiveConf) {
 
@@ -83,7 +69,7 @@ class EndiveArgs extends Args4jBase {
 
     // create new sequence with reference path
     val referencePath = conf.reference
-    val reference = new Sequence(referencePath, sc)
+    val reference = Sequence(referencePath, sc)
 
     val train: Seq[(ReferenceRegion, Seq[Int])]  =
       Seq((ReferenceRegion("chr10", 600, 800), Seq(0,0,0)),
@@ -98,7 +84,7 @@ class EndiveArgs extends Args4jBase {
     val sequences: RDD[(ReferenceRegion, String, Seq[Int])] = reference.extractSequences(train)
 
     // extract kmer counts from sequences
-    val kmers: RDD[MultiLabeledPoint] = Sequence.extractKmers(sequences, args.kmerLength)
+    val kmers: RDD[MultiLabeledPoint] = Sequence.extractKmers(sequences, conf.kmerLength)
 
   }
 
