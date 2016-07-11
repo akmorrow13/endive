@@ -35,9 +35,13 @@ object Endive extends BDGCommandCompanion {
 }
 
 class EndiveArgs extends Args4jBase {
-  @Argument(required = true, metaVar = "REFERENCE", usage = "A 2bit file for the reference genome.", index = 0)
+  @Argument(required = true, metaVar = "TRAIN FILE", usage = "Training file formatted as tsv", index = 0)
+  var train: String = null
+  @Argument(required = true, metaVar = "TEST FILE", usage = "Test file formatted as tsv", index = 1)
+  var test: String = null
+  @Argument(required = true, metaVar = "REFERENCE", usage = "A fa file for the reference genome.", index = 1)
   var reference: String = null
-  @Argument(required = true, metaVar = "CHIPSEQ", usage = "Peak file for CHIPSEQ", index = 1)
+  @Argument(required = true, metaVar = "CHIPSEQ", usage = "Peak file for CHIPSEQ", index = 2)
   var chipPeaks: String = null
 @Args4jOption(required = false, name = "-kmerLength", usage = "kmer length")
   var kmerLength: Int = 8
@@ -50,18 +54,28 @@ class Endive(protected val args: EndiveArgs) extends BDGSparkCommand[EndiveArgs]
 
   def run(sc: SparkContext) {
 
+    val trainPath = args.train
+    val testPath = args.test
+
     // create new sequence with reference path
-    val sequence = new Sequence(args.reference, sc)
+    val referencePath = args.reference
+    val reference = new Sequence(referencePath, sc)
 
-    // get chip seq peaks
-    val chipPeaks: RDD[Feature] = loadFeatures(sc, args.chipPeaks)
+    val train: Seq[(ReferenceRegion, Seq[Int])]  =
+      Seq((ReferenceRegion("chr10", 600, 800), Seq(0,0,0)),
+          (ReferenceRegion("chr10", 650, 850), Seq(0,0,0)),
+          (ReferenceRegion("chr10", 700, 900), Seq(0,0,0)),
+          (ReferenceRegion("chr10", 700, 900), Seq(0,0,0)),
+          (ReferenceRegion("chr10", 750, 950), Seq(0,0,0)),
+          (ReferenceRegion("chr10", 850, 1000), Seq(0,0,0)),
+          (ReferenceRegion("chr10", 1000, 1200), Seq(0,0,0)))
 
-    // get list of kmers for all peaks around center of peak
-    // results in SequenceSet: RDD[SparseVector], RDD[Double]
-    var features = sequence.extractSequences(chipPeaks, args.sequenceLength, args.kmerLength)
+    val trainRDD: RDD[(ReferenceRegion, Seq[Int])] = sc.parallelize(train)
 
-    // regress on features
+    val sequences = reference.extractSequences(trainRDD)
 
+    println(sequences.first)
+    
   }
 
 
