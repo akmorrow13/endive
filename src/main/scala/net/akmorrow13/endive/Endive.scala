@@ -16,10 +16,11 @@
 package net.akmorrow13.endive
 
 import net.akmorrow13.endive.preprocessing.Sequence
+import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
+import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.formats.avro._
 import org.bdgenomics.utils.cli._
 import org.kohsuke.args4j.{Argument, Option => Args4jOption}
@@ -48,27 +49,34 @@ class Endive(protected val args: EndiveArgs) extends BDGSparkCommand[EndiveArgs]
   val companion = Endive
 
   def run(sc: SparkContext) {
-    println(args.reference)
-    println(args.chipPeaks)
 
-  // extract reference from two bit file
-  val reference: TwoBitFile = Sequence.load2Bit(args.reference)
+    // create new sequence with reference path
+    val sequence = new Sequence(args.reference, sc)
 
-  // get chip peaks
-  val chipPeaks: RDD[Feature] = loadFeatures(sc, args.chipPeaks)
+    // get chip seq peaks
+    val chipPeaks: RDD[Feature] = loadFeatures(sc, args.chipPeaks)
 
-  // get list of kmers for all peaks around center of peak
-  val sequences = Sequence.extractSequences(reference, chipPeaks, args.sequenceLength, args.kmerLength)
-  println(sequences.count)
+    // get list of kmers for all peaks around center of peak
+    // results in SequenceSet: RDD[SparseVector], RDD[Double]
+    var features = sequence.extractSequences(chipPeaks, args.sequenceLength, args.kmerLength)
 
-    // perform regression on sequences and peaks
+    // regress on features
+
   }
 
 
+  /**
+   * Loads bed file over optional region
+   * @param sc SparkContext
+   * @param featurePath Feature path to load
+   * @param region Optional region to load features from
+   * @return RDD of Features
+   */
+  def loadFeatures(sc: SparkContext, featurePath: String, region: Option[ReferenceRegion] = None): RDD[Feature] = {
+    val predicate =  Some((BinaryColumn("contig.contigName") === region.get.referenceName))
 
-  def loadFeatures(sc: SparkContext, featurePath: String): RDD[Feature] = {
-    if (featurePath.endsWith(".adam")) sc.loadParquetFeatures(featurePath)
-    else if (featurePath.endsWith("bed")) sc.loadFeatures(featurePath)
+      if (featurePath.endsWith(".adam")) sc.loadParquetFeatures(featurePath, predicate)
+    else if (featurePath.toLowerCase.endsWith("bed")) sc.loadFeatures(featurePath)
     else throw new Exception("File type not supported")
   }
 

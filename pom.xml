@@ -53,6 +53,7 @@
     <spark.version>1.6.1</spark.version>
     <bdg-utils.version>0.2.7</bdg-utils.version>
     <mllib.version>1.3.0</mllib.version>
+    <keystoneml.version>0.3.0</keystoneml.version>
   </properties>
 
   <build>
@@ -285,6 +286,17 @@
         </exclusion>
         <exclusion>
           <groupId>org.sonatype.sisu.inject</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>edu.berkeley.cs.amplab</groupId>
+      <artifactId>keystoneml_${scala.version.prefix}</artifactId>
+      <version>${keystoneml.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.github.fommil.netlib</groupId>
           <artifactId>*</artifactId>
         </exclusion>
       </exclusions>

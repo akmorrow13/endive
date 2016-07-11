@@ -62,7 +62,8 @@ echo "Using SPARK_SUBMIT=$SPARK_SUBMIT"
   --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \
   --conf spark.kryo.registrator=net.akmorrow13.endive.EndiveKryoRegistrator \
   --conf spark.dynamicAllocation.executorIdleTimeout=10d \
-  --conf spark.executor.memory=20g \
+  --conf spark.executor.memory=10g \
+  --conf spark.driver.memory=10g \
   $SPARK_ARGS \
   $ENDIVE_CLI_JAR \
   $ENDIVE_ARGS

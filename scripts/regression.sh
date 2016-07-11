@@ -1,1 +1,1 @@
-bin/endive-submit ./workfiles/hg19.2bit ./workfiles/ENCFF863KXR.bigBed
+bin/endive-submit ./workfiles/hg19.2bit ./workfiles/ENCFF103GMI.bed
