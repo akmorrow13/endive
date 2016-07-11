@@ -17,48 +17,58 @@ package net.akmorrow13.endive
 
 import net.akmorrow13.endive.preprocessing.Sequence
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
-import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
+import org.apache.spark.SparkContext
+import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.formats.avro._
 import org.bdgenomics.utils.cli._
 import org.kohsuke.args4j.{Argument, Option => Args4jOption}
+import pipelines.Logging
 
-object Endive extends BDGCommandCompanion {
+import org.apache.log4j.Level
+import org.apache.log4j.Logger
+import org.yaml.snakeyaml.constructor.Constructor
+import org.yaml.snakeyaml.Yaml
+
+object Endive extends Serializable with Logging {
   val commandName = "endive"
   val commandDescription = "computational methods for sequences and epigenomic datasets"
+  /**
+   * The actual driver receives its configuration parameters from spark-submit usually.
+   * @param args
+   */
+  def main(args: Array[String]) = {
 
-  def apply(cmdLine: Array[String]) = {
-    new Endive(Args4j[EndiveArgs](cmdLine))
+    if (args.size < 1) {
+      println("Incorrect number of arguments...Exiting now.")
+    } else {
+      val configfile = scala.io.Source.fromFile(args(0))
+      val configtext = try configfile.mkString finally configfile.close()
+      println(configtext)
+      val yaml = new Yaml(new Constructor(classOf[EndiveConf]))
+      val appConfig = yaml.load(configtext).asInstanceOf[EndiveConf]
+      EndiveConf.validate(appConfig)
+      val conf = new SparkConf().setAppName("ENDIVE")
+      Logger.getLogger("org").setLevel(Level.WARN)
+      Logger.getLogger("akka").setLevel(Level.WARN)
+      // NOTE: ONLY APPLICABLE IF YOU CAN DONE COPY-DIR
+      conf.remove("spark.jars")
+      conf.setIfMissing("spark.master", "local[16]")
+      conf.set("spark.driver.maxResultSize", "0")
+      val sc = new SparkContext(conf)
+      run(sc, appConfig)
+      sc.stop()
+    }
   }
-}
 
-class EndiveArgs extends Args4jBase {
-  @Argument(required = true, metaVar = "TRAIN FILE", usage = "Training file formatted as tsv", index = 0)
-  var train: String = null
-  @Argument(required = true, metaVar = "TEST FILE", usage = "Test file formatted as tsv", index = 1)
-  var test: String = null
-  @Argument(required = true, metaVar = "REFERENCE", usage = "A fa file for the reference genome.", index = 1)
-  var reference: String = null
-  @Argument(required = true, metaVar = "CHIPSEQ", usage = "Peak file for CHIPSEQ", index = 2)
-  var chipPeaks: String = null
-@Args4jOption(required = false, name = "-kmerLength", usage = "kmer length")
-  var kmerLength: Int = 8
-  @Args4jOption(required = false, name = "-sequenceLength", usage = "sequence length around peaks")
-  var sequenceLength: Int = 100
-}
+  def run(sc: SparkContext, conf: EndiveConf) {
 
-class Endive(protected val args: EndiveArgs) extends BDGSparkCommand[EndiveArgs] {
-  val companion = Endive
-
-  def run(sc: SparkContext) {
-
-    val trainPath = args.train
-    val testPath = args.test
+    val labelsPath = conf.labels
 
     // create new sequence with reference path
-    val referencePath = args.reference
+    val referencePath = conf.reference
     val reference = new Sequence(referencePath, sc)
 
     val train: Seq[(ReferenceRegion, Seq[Int])]  =
@@ -75,7 +85,6 @@ class Endive(protected val args: EndiveArgs) extends BDGSparkCommand[EndiveArgs]
     val sequences = reference.extractSequences(trainRDD)
 
     println(sequences.first)
-    
   }
 
 
@@ -93,5 +102,5 @@ class Endive(protected val args: EndiveArgs) extends BDGSparkCommand[EndiveArgs]
     else if (featurePath.toLowerCase.endsWith("bed")) sc.loadFeatures(featurePath)
     else throw new Exception("File type not supported")
   }
-
 }
+
