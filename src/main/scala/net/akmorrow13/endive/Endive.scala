@@ -32,6 +32,19 @@ import org.apache.log4j.Logger
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 
+class EndiveArgs extends Args4jBase {
+  @Argument(required = true, metaVar = "TRAIN FILE", usage = "Training file formatted as tsv", index = 0)
+  var train: String = null
+  @Argument(required = true, metaVar = "TEST FILE", usage = "Test file formatted as tsv", index = 1)
+  var test: String = null
+  @Argument(required = true, metaVar = "REFERENCE", usage = "A fa file for the reference genome.", index = 2)
+  var reference: String = null
+  @Args4jOption(required = false, name = "-kmerLength", usage = "kmer length")
+  var kmerLength: Int = 8
+  @Args4jOption(required = false, name = "-sequenceLength", usage = "sequence length around peaks")
+  var sequenceLength: Int = 100
+}
+
 object Endive extends Serializable with Logging {
   val commandName = "endive"
   val commandDescription = "computational methods for sequences and epigenomic datasets"
