@@ -13,80 +13,104 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.akmorrow13.endive.preprocessing
+package net.akmorrow13.endive.processing
 
+import nodes.nlp.{NGramsFeaturizer, Tokenizer}
 import org.apache.spark.SparkContext
+import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile}
 import org.bdgenomics.formats.avro.NucleotideContigFragment
 
-import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
 
-class Sequence(referencePath: String, @transient sc: SparkContext) {
+class Sequence(reference: ReferenceFile, @transient sc: SparkContext) {
 
-  // Load reference Path
-  val reference: RDD[NucleotideContigFragment] =
-    if (referencePath.endsWith(".fa") || referencePath.endsWith(".fasta"))
-      sc.loadSequences(referencePath)
-    else
-      throw new IllegalArgumentException("Unsupported reference file format")
+
 
   /**
    * Extracts sequence from a referenceRegion
    * @param points
    */
-  def extractSequences(points: RDD[(ReferenceRegion, Seq[Int])]): RDD[(ReferenceRegion, String, Seq[Int])] = {
+  def extractSequences(points: Seq[(ReferenceRegion, Seq[Int])]): RDD[(ReferenceRegion, String, Seq[Int])] = {
     // used to get middle of pek sized at the sequence size
-    // TODO: broadcast reference
-    val parsedSequences: RDD[(ReferenceRegion, String, Seq[Int])] =
+    val referenceFileB = sc.broadcast(reference)
+    println("extracting sequences")
+    val parsedSequences: Seq[(ReferenceRegion, String, Seq[Int])] =
       points.map(r => {
-        (r._1, reference.getReferenceString(r._1), r._2)
+        (r._1, referenceFileB.value.extract(r._1).toUpperCase(), r._2)
     })
-    parsedSequences
+    sc.parallelize(parsedSequences)
   }
 }
 
+case class MultiLabeledPoint(label: Seq[Int], features: Vector)
+
 object Sequence {
 
-//  def extractKmers(rdd: RDD[(Feature, NucleotideContigFragment)], kmerLength: Int): SequenceSet[SparseVector, Double] = {
-//    // extract sequences
-//    val sequences = rdd.map(_._2.getFragmentSequence)
-//
-//    // featurize sequences to 8mers
-//    val featurizer = Tokenizer("") andThen NGramsFeaturizer[String](Seq(8))
-//
-//    // extract all 8mers in each training point
-//    val results: RDD[Seq[String]] = featurizer(sequences).map(s => s.map(r => r.seq.reduce((x,y) => (x + y))))
-//
-//    // count all kmers
-//    val vectors = countKmers(results, kmerLength)
-//
-//    // map labels and vectors
-//    SequenceSet[SparseVector, Double](vectors, rdd.map(_._1.getScore))
-//
-//  }
+  def apply(referencePath: String, sc: SparkContext): Sequence = {
+    // Load reference Path
+    val reference: ReferenceFile =
+      if (referencePath.endsWith(".fa") || referencePath.endsWith(".fasta"))
+        sc.loadReferenceFile(referencePath, 10000)
+      else
+        throw new IllegalArgumentException("Unsupported reference file format")
+    new Sequence(reference, sc)
+  }
 
-//  def countKmers(rdd: RDD[Seq[String]], kmerLength: Int): RDD[SparseVector] = {
-//    val kmers = generateAllKmers(kmerLength) // gets all possible kmers of this length
-//
-//    val vectors = rdd.map(s => {
-//                     val kmerMap = kmers.map(r => (r, 0)).toMap
-//                      s.foreach(f => kmerMap(f) += 1 )
-//                    kmerMap.values
-//                  })
-//
-//  }
+  // for testing purposes
+  def apply(reference: RDD[NucleotideContigFragment], sc: SparkContext): Sequence = {
+    new Sequence(ReferenceContigMap(reference), sc)
+  }
 
-  def generateAllKmers(k: Int): List[String] = {
+  def extractKmers(rdd: RDD[(ReferenceRegion, String, Seq[Int])], kmerLength: Int): RDD[MultiLabeledPoint] = {
+    // extract sequences
+    val sequences = rdd.map(_._2)
+
+    // featurize sequences to 8mers
+    val featurizer = Tokenizer("") andThen NGramsFeaturizer[String](Seq(kmerLength))
+
+    // extract all 8mers in each training point
+    val results: RDD[Seq[String]] = featurizer(sequences).map(s => s.map(r => r.seq.reduce((x,y) => (x + y))))
+
+    // count all kmers
+    val vectors: RDD[Vector] = countKmers(results, kmerLength)
+
+    // map labels and vectors
+    val labeled: RDD[MultiLabeledPoint] = rdd.map(_._3).zip(vectors).map(r => MultiLabeledPoint(r._1, r._2))
+
+    // return multilabeled rdd
+    labeled
+  }
+
+  def countKmers(rdd: RDD[Seq[String]], kmerLength: Int): RDD[Vector] = {
+    val kmers = generateAllKmers(kmerLength) // gets all possible kmers of this length
+    val kmerCount = kmers.length
+
+    val vectors: RDD[Vector] = rdd.map(s => {
+                      val sparse: Seq[(Int, Double)] = s.groupBy(identity) // group by kmer
+                                                .map(r => (r._1, r._2.length))  // count kmer occurances
+                                                .map(r => (kmers.indexOf(r._1), r._2.toDouble)) // map to position in list of all kmers
+                                                .toSeq
+                     Vectors.sparse(kmers.length, sparse)
+                  })
+
+    vectors
+
+  }
+
+  def generateAllKmers(k: Int): Array[String] = {
+    generateKmer("", k - 1)
+  }
+
+  def generateKmer(s: String, pos: Int): Array[String] = {
     val bases = Array('A','T','G','C')
-
-    val kmers: ListBuffer[String] = new ListBuffer[String]()
-
-    // TODO get all kmers
-    kmers.toList
-
+    if (pos < 0) {
+        return Array(s)
+    }
+    bases.flatMap(b => generateKmer(s + b, pos - 1))
   }
 }
 

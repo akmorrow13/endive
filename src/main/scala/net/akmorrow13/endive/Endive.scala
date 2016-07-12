@@ -15,7 +15,7 @@
  */
 package net.akmorrow13.endive
 
-import net.akmorrow13.endive.preprocessing.Sequence
+import net.akmorrow13.endive.processing.{MultiLabeledPoint, Sequence}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
@@ -62,6 +62,20 @@ object Endive extends Serializable with Logging {
       sc.stop()
     }
   }
+}
+
+class EndiveArgs extends Args4jBase {
+  @Argument(required = true, metaVar = "TRAIN FILE", usage = "Training file formatted as tsv", index = 0)
+  var train: String = null
+  @Argument(required = true, metaVar = "TEST FILE", usage = "Test file formatted as tsv", index = 1)
+  var test: String = null
+  @Argument(required = true, metaVar = "REFERENCE", usage = "A fa file for the reference genome.", index = 2)
+  var reference: String = null
+  @Args4jOption(required = false, name = "-kmerLength", usage = "kmer length")
+  var kmerLength: Int = 8
+  @Args4jOption(required = false, name = "-sequenceLength", usage = "sequence length around peaks")
+  var sequenceLength: Int = 100
+}
 
   def run(sc: SparkContext, conf: EndiveConf) {
 
@@ -80,11 +94,12 @@ object Endive extends Serializable with Logging {
           (ReferenceRegion("chr10", 850, 1000), Seq(0,0,0)),
           (ReferenceRegion("chr10", 1000, 1200), Seq(0,0,0)))
 
-    val trainRDD: RDD[(ReferenceRegion, Seq[Int])] = sc.parallelize(train)
+    // extract sequences from reference over training regions
+    val sequences: RDD[(ReferenceRegion, String, Seq[Int])] = reference.extractSequences(train)
 
-    val sequences = reference.extractSequences(trainRDD)
+    // extract kmer counts from sequences
+    val kmers: RDD[MultiLabeledPoint] = Sequence.extractKmers(sequences, args.kmerLength)
 
-    println(sequences.first)
   }
 
 
