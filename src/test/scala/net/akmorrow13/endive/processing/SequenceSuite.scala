@@ -1,6 +1,6 @@
 package net.akmorrow13.endive.processing
 
-import net.akmorrow13.endive.EndiveFunSuite
+import net.akmorrow13.endive.{Endive, EndiveFunSuite}
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.formats.avro.{Contig, NucleotideContigFragment}
@@ -11,14 +11,7 @@ class SequenceSuite extends EndiveFunSuite {
   val chr = "chr10"
 
   // training data of region and labels
-  val train: Seq[(ReferenceRegion, Seq[Int])]  =
-    Seq((ReferenceRegion(chr, 600, 800), Seq(0,0,0)),
-      (ReferenceRegion(chr, 650, 850), Seq(0,0,0)),
-      (ReferenceRegion(chr, 700, 900), Seq(0,0,0)),
-      (ReferenceRegion(chr, 700, 900), Seq(0,0,0)),
-      (ReferenceRegion(chr, 750, 950), Seq(0,0,0)),
-      (ReferenceRegion(chr, 850, 1000), Seq(0,0,0)),
-      (ReferenceRegion(chr, 1000, 1200), Seq(0,0,0)))
+  var labelPath = resourcePath("ARID3A.train.labels.head30.tsv")
 
   // fragment used for reference
   val sequence = "TTGGAAAGAGGACGTGGGACTGGGATTTACTCGGCCACCAAAACACTCAC" * 200;
@@ -44,19 +37,29 @@ class SequenceSuite extends EndiveFunSuite {
   }
 
   sparkTest("should extract reference sequences using reference and regions") {
-    val reference = Sequence(sc.parallelize(Seq(fragment)), sc)
-    val sequences: RDD[(ReferenceRegion, String, Seq[Int])] = reference.extractSequences(train)
+    val trainRDD = Endive.loadTsv(sc, labelPath)
+    // assert tsv loader only loads unbould labels
+    assert(trainRDD.count == 29)
+    assert(trainRDD.filter(r => r._2 == -1.0).count() == 1)
+    assert(trainRDD.filter(r => r._2 == 1.0).count() == 1)
 
-    assert(sequences.count == train.length)
+    val reference = Sequence(sc.parallelize(Seq(fragment)), sc)
+    val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(trainRDD.map(_._1))
+
+    assert(sequences.count == trainRDD.count)
 
   }
 
   sparkTest("should extract kmers using reference and regions") {
-    val reference = Sequence(sc.parallelize(Seq(fragment)), sc)
-    val sequences: RDD[(ReferenceRegion, String, Seq[Int])] = reference.extractSequences(train)
-    val kmers: RDD[MultiLabeledPoint] = Sequence.extractKmers(sequences, 8)
+    val trainRDD = Endive.loadTsv(sc, labelPath)
 
-    assert(sequences.count == train.length)
+    val reference = Sequence(sc.parallelize(Seq(fragment)), sc)
+    val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(trainRDD.map(_._1))
+    val kmers = Sequence.extractKmers(sequences, 8)
+
+    val kmerCounts = Sequence.generateAllKmers(8).length
+
+    assert(kmers.first.size == kmerCounts)
 
   }
 

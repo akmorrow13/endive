@@ -29,24 +29,18 @@ import scala.reflect.ClassTag
 class Sequence(reference: ReferenceFile, @transient sc: SparkContext) {
 
 
-
   /**
    * Extracts sequence from a referenceRegion
    * @param points
    */
-  def extractSequences(points: Seq[(ReferenceRegion, Seq[Int])]): RDD[(ReferenceRegion, String, Seq[Int])] = {
+  def extractSequences(points: RDD[ReferenceRegion]): RDD[(ReferenceRegion, String)] = {
     // used to get middle of pek sized at the sequence size
     val referenceFileB = sc.broadcast(reference)
-    println("extracting sequences")
-    val parsedSequences: Seq[(ReferenceRegion, String, Seq[Int])] =
-      points.map(r => {
-        (r._1, referenceFileB.value.extract(r._1).toUpperCase(), r._2)
+    points.map(r => {
+      (r, referenceFileB.value.extract(r).toUpperCase())
     })
-    sc.parallelize(parsedSequences)
   }
 }
-
-case class MultiLabeledPoint(label: Seq[Int], features: Vector)
 
 object Sequence {
 
@@ -65,7 +59,7 @@ object Sequence {
     new Sequence(ReferenceContigMap(reference), sc)
   }
 
-  def extractKmers(rdd: RDD[(ReferenceRegion, String, Seq[Int])], kmerLength: Int): RDD[MultiLabeledPoint] = {
+  def extractKmers(rdd: RDD[(ReferenceRegion, String)], kmerLength: Int): RDD[Vector] = {
     // extract sequences
     val sequences = rdd.map(_._2)
 
@@ -76,13 +70,8 @@ object Sequence {
     val results: RDD[Seq[String]] = featurizer(sequences).map(s => s.map(r => r.seq.reduce((x,y) => (x + y))))
 
     // count all kmers
-    val vectors: RDD[Vector] = countKmers(results, kmerLength)
+    countKmers(results, kmerLength)
 
-    // map labels and vectors
-    val labeled: RDD[MultiLabeledPoint] = rdd.map(_._3).zip(vectors).map(r => MultiLabeledPoint(r._1, r._2))
-
-    // return multilabeled rdd
-    labeled
   }
 
   def countKmers(rdd: RDD[Seq[String]], kmerLength: Int): RDD[Vector] = {

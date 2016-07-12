@@ -15,22 +15,19 @@
  */
 package net.akmorrow13.endive
 
-import net.akmorrow13.endive.processing.{MultiLabeledPoint, Sequence}
+import net.akmorrow13.endive.processing.Sequence
+import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
+import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
-import org.apache.spark.SparkContext
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.formats.avro._
-import org.bdgenomics.utils.cli._
-import org.kohsuke.args4j.{Argument, Option => Args4jOption}
-import pipelines.Logging
-
-import org.apache.log4j.Level
-import org.apache.log4j.Logger
-import org.yaml.snakeyaml.constructor.Constructor
+import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.constructor.Constructor
+import pipelines.Logging
 
 class EndiveArgs extends Args4jBase {
   @Argument(required = true, metaVar = "TRAIN FILE", usage = "Training file formatted as tsv", index = 0)
@@ -78,29 +75,41 @@ object Endive extends Serializable with Logging {
 
   def run(sc: SparkContext, conf: EndiveConf) {
 
-    val labelsPath = conf.labels
 
     // create new sequence with reference path
     val referencePath = conf.reference
     val reference = Sequence(referencePath, sc)
 
-    val train: Seq[(ReferenceRegion, Seq[Int])]  =
-      Seq((ReferenceRegion("chr10", 600, 800), Seq(0,0,0)),
-          (ReferenceRegion("chr10", 650, 850), Seq(0,0,0)),
-          (ReferenceRegion("chr10", 700, 900), Seq(0,0,0)),
-          (ReferenceRegion("chr10", 700, 900), Seq(0,0,0)),
-          (ReferenceRegion("chr10", 750, 950), Seq(0,0,0)),
-          (ReferenceRegion("chr10", 850, 1000), Seq(0,0,0)),
-          (ReferenceRegion("chr10", 1000, 1200), Seq(0,0,0)))
+    // load chip seq labels from 1 file
+    val labelsPath = conf.labels
+    val train: RDD[(ReferenceRegion, Double)] = loadTsv(sc, labelsPath)
 
     // extract sequences from reference over training regions
-    val sequences: RDD[(ReferenceRegion, String, Seq[Int])] = reference.extractSequences(train)
+    val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(train.map(_._1))
 
     // extract kmer counts from sequences
-    val kmers: RDD[MultiLabeledPoint] = Sequence.extractKmers(sequences, conf.kmerLength)
-
+    val kmers: RDD[LabeledPoint] = Sequence.extractKmers(sequences, conf.kmerLength).zip(train.map(_._2))
+                                                .map(r => LabeledPoint(r._2, r._1))
   }
 
+
+  def loadTsv(sc: SparkContext, filePath: String): RDD[(ReferenceRegion, Double)] = {
+    val rdd = sc.textFile(filePath).filter(!_.contains("start"))
+    rdd.map(line=> {
+      val parts = line.split("\t")
+      val label = extractLabel(parts(3))
+      (ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong), label)
+    })
+  }
+
+  def extractLabel(s: String): Double = {
+    s match {
+      case "A" => -1.0 // ambiguous
+      case "U" => 0.0  // unbound
+      case "B" => 1.0  // bound
+      case _ => throw new IllegalArgumentException(s"Illegal label ${s}")
+    }
+  }
 
   /**
    * Loads bed file over optional region

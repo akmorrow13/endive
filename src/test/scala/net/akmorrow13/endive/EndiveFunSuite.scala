@@ -23,4 +23,7 @@ trait EndiveFunSuite extends SparkFunSuite {
     ("spark.kryo.registrator", "net.akmorrow13.endive.EndiveKryoRegistrator"),
     ("spark.kryoserializer.buffer.mb", "4"),
     ("spark.kryo.referenceTracking", "true"))
+
+  // fetches resources
+  def resourcePath(path: String) = ClassLoader.getSystemClassLoader.getResource(path).getFile
 }
