@@ -59,48 +59,6 @@ object Sequence {
     new Sequence(ReferenceContigMap(reference), sc)
   }
 
-  def extractKmers(rdd: RDD[(ReferenceRegion, String)], kmerLength: Int): RDD[Vector] = {
-    // extract sequences
-    val sequences = rdd.map(_._2)
-
-    // featurize sequences to 8mers
-    val featurizer = Tokenizer("") andThen NGramsFeaturizer[String](Seq(kmerLength))
-
-    // extract all 8mers in each training point
-    val results: RDD[Seq[String]] = featurizer(sequences).map(s => s.map(r => r.seq.reduce((x,y) => (x + y))))
-
-    // count all kmers
-    countKmers(results, kmerLength)
-
-  }
-
-  def countKmers(rdd: RDD[Seq[String]], kmerLength: Int): RDD[Vector] = {
-    val kmers = generateAllKmers(kmerLength) // gets all possible kmers of this length
-    val kmerCount = kmers.length
-
-    val vectors: RDD[Vector] = rdd.map(s => {
-                      val sparse: Seq[(Int, Double)] = s.groupBy(identity) // group by kmer
-                                                .map(r => (r._1, r._2.length))  // count kmer occurances
-                                                .map(r => (kmers.indexOf(r._1), r._2.toDouble)) // map to position in list of all kmers
-                                                .toSeq
-                     Vectors.sparse(kmers.length, sparse)
-                  })
-
-    vectors
-
-  }
-
-  def generateAllKmers(k: Int): Array[String] = {
-    generateKmer("", k - 1)
-  }
-
-  def generateKmer(s: String, pos: Int): Array[String] = {
-    val bases = Array('A','T','G','C')
-    if (pos < 0) {
-        return Array(s)
-    }
-    bases.flatMap(b => generateKmer(s + b, pos - 1))
-  }
 }
 
 case class SequenceSet[S: ClassTag, T: ClassTag](features: RDD[S], labels: RDD[T])

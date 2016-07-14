@@ -1,11 +1,12 @@
-package net.akmorrow13.endive.processing
+package net.akmorrow13.endive.features
 
 import net.akmorrow13.endive.{Endive, EndiveFunSuite}
+import net.akmorrow13.endive.processing.Sequence
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.formats.avro.{Contig, NucleotideContigFragment}
 
-class SequenceSuite extends EndiveFunSuite {
+class KmerSuite extends EndiveFunSuite {
 
   val bases = 4
   val chr = "chr10"
@@ -22,17 +23,31 @@ class SequenceSuite extends EndiveFunSuite {
     .setFragmentEndPosition(10000L)
     .build()
 
-  sparkTest("should extract reference sequences using reference and regions") {
+  test("gets all kmers of length 2") {
+    val kmers = Kmer.generateAllKmers(2)
+
+    assert(kmers.length == Math.pow(bases, 2))
+    assert(kmers.length == kmers.distinct.length)
+  }
+
+  test("gets all kmers of length 3") {
+    val kmers = Kmer.generateAllKmers(3)
+
+    assert(kmers.length == Math.pow(bases, 3))
+    assert(kmers.length == kmers.distinct.length)
+  }
+
+  sparkTest("should extract kmers using reference and regions") {
     val trainRDD = Endive.loadTsv(sc, labelPath)
-    // assert tsv loader only loads unbould labels
-    assert(trainRDD.count == 29)
-    assert(trainRDD.filter(r => r._2 == -1.0).count() == 1)
-    assert(trainRDD.filter(r => r._2 == 1.0).count() == 1)
 
     val reference = Sequence(sc.parallelize(Seq(fragment)), sc)
     val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(trainRDD.map(_._1))
+    val kmers = Kmer.extractKmers(sequences, 8)
 
-    assert(sequences.count == trainRDD.count)
+    val kmerCounts = Kmer.generateAllKmers(8).length
+
+    assert(kmers.first.size == kmerCounts)
 
   }
+
 }

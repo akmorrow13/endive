@@ -28,6 +28,7 @@ import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.Constructor
 import pipelines.Logging
+import net.akmorrow13.endive.features.Kmer
 
 object Endive extends Serializable with Logging {
   val commandName = "endive"
@@ -75,7 +76,7 @@ object Endive extends Serializable with Logging {
     val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(train.map(_._1))
 
     // extract kmer counts from sequences
-    val kmers: RDD[LabeledPoint] = Sequence.extractKmers(sequences, conf.kmerLength).zip(train.map(_._2))
+    val kmers: RDD[LabeledPoint] = Kmer.extractKmers(sequences, conf.kmerLength).zip(train.map(_._2))
                                                 .map(r => LabeledPoint(r._2, r._1))
   }
 
