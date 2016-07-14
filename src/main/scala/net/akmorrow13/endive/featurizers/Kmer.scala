@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.akmorrow13.endive.features
+package net.akmorrow13.endive.featurizers
 
 import nodes.nlp.{NGramsFeaturizer, Tokenizer}
 import org.apache.spark.SparkContext

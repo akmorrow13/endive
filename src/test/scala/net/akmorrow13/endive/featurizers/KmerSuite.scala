@@ -1,4 +1,4 @@
-package net.akmorrow13.endive.features
+package net.akmorrow13.endive.featurizers
 
 import net.akmorrow13.endive.{Endive, EndiveFunSuite}
 import net.akmorrow13.endive.processing.Sequence

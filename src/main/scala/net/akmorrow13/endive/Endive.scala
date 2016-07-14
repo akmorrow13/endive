@@ -28,7 +28,7 @@ import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.Constructor
 import pipelines.Logging
-import net.akmorrow13.endive.features.Kmer
+import net.akmorrow13.endive.featurizers.Kmer
 
 object Endive extends Serializable with Logging {
   val commandName = "endive"
@@ -83,7 +83,7 @@ object Endive extends Serializable with Logging {
 
   def loadTsv(sc: SparkContext, filePath: String): RDD[(ReferenceRegion, Double)] = {
     val rdd = sc.textFile(filePath).filter(!_.contains("start"))
-    rdd.map(line=> {
+    rdd.map( line => {
       val parts = line.split("\t")
       val label = extractLabel(parts(3))
       (ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong), label)
