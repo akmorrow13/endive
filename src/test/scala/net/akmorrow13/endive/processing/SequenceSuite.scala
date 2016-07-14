@@ -1,6 +1,6 @@
 package net.akmorrow13.endive.processing
 
-import net.akmorrow13.endive.{Endive, EndiveFunSuite}
+import net.akmorrow13.endive.EndiveFunSuite
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.formats.avro.{Contig, NucleotideContigFragment}
@@ -23,7 +23,7 @@ class SequenceSuite extends EndiveFunSuite {
     .build()
 
   sparkTest("should extract reference sequences using reference and regions") {
-    val trainRDD = Endive.loadTsv(sc, labelPath)
+    val trainRDD = Preprocess.loadTsv(sc, labelPath)
     // assert tsv loader only loads unbould labels
     assert(trainRDD.count == 29)
     assert(trainRDD.filter(r => r._2 == -1.0).count() == 1)

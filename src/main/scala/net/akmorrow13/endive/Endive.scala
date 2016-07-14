@@ -15,7 +15,8 @@
  */
 package net.akmorrow13.endive
 
-import net.akmorrow13.endive.processing.Sequence
+import net.akmorrow13.endive.featurizers.Kmer
+import net.akmorrow13.endive.processing.{Preprocess, Sequence}
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -28,7 +29,6 @@ import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.Constructor
 import pipelines.Logging
-import net.akmorrow13.endive.featurizers.Kmer
 
 object Endive extends Serializable with Logging {
   val commandName = "endive"
@@ -70,7 +70,7 @@ object Endive extends Serializable with Logging {
 
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
-    val train: RDD[(ReferenceRegion, Double)] = loadTsv(sc, labelsPath)
+    val train: RDD[(ReferenceRegion, Double)] = Preprocess.loadLabels(sc, labelsPath)
 
     // extract sequences from reference over training regions
     val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(train.map(_._1))
@@ -80,24 +80,6 @@ object Endive extends Serializable with Logging {
                                                 .map(r => LabeledPoint(r._2, r._1))
   }
 
-
-  def loadTsv(sc: SparkContext, filePath: String): RDD[(ReferenceRegion, Double)] = {
-    val rdd = sc.textFile(filePath).filter(!_.contains("start"))
-    rdd.map( line => {
-      val parts = line.split("\t")
-      val label = extractLabel(parts(3))
-      (ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong), label)
-    })
-  }
-
-  def extractLabel(s: String): Double = {
-    s match {
-      case "A" => -1.0 // ambiguous
-      case "U" => 0.0  // unbound
-      case "B" => 1.0  // bound
-      case _ => throw new IllegalArgumentException(s"Illegal label ${s}")
-    }
-  }
 
   /**
    * Loads bed file over optional region
