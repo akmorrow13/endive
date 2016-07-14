@@ -50,4 +50,22 @@ class KmerSuite extends EndiveFunSuite {
 
   }
 
+  sparkTest("should extract kmers with differnece of 1") {
+    var str1 = "AAAAAAAAATAAAAAA"
+    var tuple = (ReferenceRegion("chr1", 0L,100L), str1)
+    val differences = 1
+    val kmers = Kmer.generateAllKmers(8)
+    var rdd = Kmer.extractKmers(sc.parallelize(Seq(tuple)), 8, differences)
+    var first = rdd.first.toArray.zip(kmers).filter(_._1 > 0.0)
+    assert(first.apply(0)._1 == 9.0) //"AAAAAAAA" should occur 9 times with 1 difference
+
+    str1 = "AAAAAAAAATTAAAAA"
+    tuple = (ReferenceRegion("chr1", 0L,100L), str1)
+    rdd = Kmer.extractKmers(sc.parallelize(Seq(tuple)), 8, differences)
+    first = rdd.first.toArray.zip(kmers).filter(_._1 > 0.0)
+    assert(first.apply(0)._1 == 3.0) //"AAAAAAAA" should occur 3 times with 1 difference
+
+  }
+
+
 }

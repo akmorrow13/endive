@@ -16,16 +16,12 @@
 package net.akmorrow13.endive.featurizers
 
 import nodes.nlp.{NGramsFeaturizer, Tokenizer}
-import org.apache.spark.SparkContext
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
-import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile}
-import org.bdgenomics.formats.avro.NucleotideContigFragment
 
 object Kmer {
-  def extractKmers(rdd: RDD[(ReferenceRegion, String)], kmerLength: Int): RDD[Vector] = {
+  def extractKmers(rdd: RDD[(ReferenceRegion, String)], kmerLength: Int, differences: Int = 0): RDD[Vector] = {
     // extract sequences
     val sequences = rdd.map(_._2)
 
@@ -36,7 +32,7 @@ object Kmer {
     val results: RDD[Seq[String]] = featurizer(sequences).map(s => s.map(r => r.seq.reduce((x,y) => (x + y))))
 
     // count all kmers
-    countKmers(results, kmerLength)
+    countKmers(results, kmerLength, differences)
 
   }
 
@@ -49,6 +45,24 @@ object Kmer {
                                                 .map(r => (r._1, r._2.length))  // count kmer occurances
                                                 .map(r => (kmers.indexOf(r._1), r._2.toDouble)) // map to position in list of all kmers
                                                 .toSeq
+      Vectors.sparse(kmers.length, sparse)
+    })
+
+    vectors
+
+  }
+
+  def countKmers(rdd: RDD[Seq[String]], kmerLength: Int, differences: Int = 1): RDD[Vector] = {
+    if (differences == 0)
+      return countKmers(rdd, kmerLength) // this implementation is more efficient
+    val kmers = generateAllKmers(kmerLength) // gets all possible kmers of this length
+    val kmerCount = kmers.length
+
+    val vectors: RDD[Vector] = rdd.map(s => {
+      val sparse: Seq[(Int, Double)] = kmers.zipWithIndex.map(k => {
+        (k._2, s.filter(r => r.diff(k._1).length <= differences).size.toDouble)
+      }).filter(_._2 > 0.0)
+
       Vectors.sparse(kmers.length, sparse)
     })
 
