@@ -13,9 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.akmorrow13.endive
+package net.akmorrow13.endive.pipelines
 
 import net.akmorrow13.endive.processing.Sequence
+import net.akmorrow13.endive.EndiveConf
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -28,15 +29,16 @@ import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.Constructor
 
-/* NOTE: This class is just to test if data loading works
- * it has no actual functionality
- */
+object StrawmanPipeline extends Serializable  {
 
-object Endive extends Serializable  {
-  val commandName = "endive"
-  val commandDescription = "computational methods for sequences and epigenomic datasets"
   /**
-   * The actual driver receives its configuration parameters from spark-submit usually.
+   * A very basic pipeline that *doesn't* featurize the data
+   * simple regresses the raw sequence with the labels for the sequence
+   *
+   * HUGE CAVEATS
+   * Trains a separate model for each TF type
+   * Ignores cell type information
+   *
    * @param args
    */
   def main(args: Array[String]) = {
@@ -77,17 +79,15 @@ object Endive extends Serializable  {
     // extract sequences from reference over training regions
     val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(train.map(_._1))
 
-    // extract kmer counts from sequences
-    val kmers: RDD[LabeledPoint] = Sequence.extractKmers(sequences, conf.kmerLength).zip(train.map(_._2))
-                                                .map(r => LabeledPoint(r._2, r._1))
-  }
 
+  }
 
   def loadTsv(sc: SparkContext, filePath: String): RDD[(ReferenceRegion, Double)] = {
     val rdd = sc.textFile(filePath).filter(!_.contains("start"))
     rdd.map(line=> {
       val parts = line.split("\t")
-      val label = extractLabel(parts(3))
+      /* TODO: ignoring cell types for now */
+      val label = parts.slice(3,parts.size).map(extractLabel(_)).reduceLeft(_ max _)
       (ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong), label)
     })
   }
@@ -100,20 +100,4 @@ object Endive extends Serializable  {
       case _ => throw new IllegalArgumentException(s"Illegal label ${s}")
     }
   }
-
-  /**
-   * Loads bed file over optional region
-   * @param sc SparkContext
-   * @param featurePath Feature path to load
-   * @param region Optional region to load features from
-   * @return RDD of Features
-   */
-  def loadFeatures(sc: SparkContext, featurePath: String, region: Option[ReferenceRegion] = None): RDD[Feature] = {
-    val predicate =  Some((BinaryColumn("contig.contigName") === region.get.referenceName))
-
-      if (featurePath.endsWith(".adam")) sc.loadParquetFeatures(featurePath, predicate)
-    else if (featurePath.toLowerCase.endsWith("bed")) sc.loadFeatures(featurePath)
-    else throw new Exception("File type not supported")
-  }
 }
-
