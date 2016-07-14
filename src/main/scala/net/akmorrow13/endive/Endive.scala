@@ -27,6 +27,7 @@ import org.bdgenomics.formats.avro._
 import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.Constructor
+import net.akmorrow13.endive.featurizers.Kmer
 
 /* NOTE: This class is just to test if data loading works
  * it has no actual functionality
@@ -78,14 +79,14 @@ object Endive extends Serializable  {
     val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(train.map(_._1))
 
     // extract kmer counts from sequences
-    val kmers: RDD[LabeledPoint] = Sequence.extractKmers(sequences, conf.kmerLength).zip(train.map(_._2))
+    val kmers: RDD[LabeledPoint] = Kmer.extractKmers(sequences, conf.kmerLength).zip(train.map(_._2))
                                                 .map(r => LabeledPoint(r._2, r._1))
   }
 
 
   def loadTsv(sc: SparkContext, filePath: String): RDD[(ReferenceRegion, Double)] = {
     val rdd = sc.textFile(filePath).filter(!_.contains("start"))
-    rdd.map(line=> {
+    rdd.map( line => {
       val parts = line.split("\t")
       val label = extractLabel(parts(3))
       (ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong), label)
