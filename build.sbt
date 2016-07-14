@@ -14,8 +14,6 @@ parallelExecution in Test := false
 
 fork := true
 
-javacOptions ++= Seq("-source", "1.7", "-target", "1.7")
-
 {
   val sparkVersion = "1.6.1"
   val excludeHadoop = ExclusionRule(organization = "org.apache.hadoop")
