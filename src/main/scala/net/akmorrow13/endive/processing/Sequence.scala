@@ -15,14 +15,15 @@
  */
 package net.akmorrow13.endive.processing
 
-import nodes.nlp.{NGramsFeaturizer, Tokenizer}
+import java.io.File
+
 import org.apache.spark.SparkContext
-import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile}
+import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
 import org.bdgenomics.formats.avro.NucleotideContigFragment
+import org.bdgenomics.utils.io.LocalFileByteAccess
 
 import scala.reflect.ClassTag
 
@@ -49,8 +50,9 @@ object Sequence {
     val reference: ReferenceFile =
       if (referencePath.endsWith(".fa") || referencePath.endsWith(".fasta"))
         sc.loadReferenceFile(referencePath, 10000)
-      else
-        throw new IllegalArgumentException("Unsupported reference file format")
+      else if (referencePath.endsWith(".2bit"))
+        new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+      else throw new IllegalArgumentException("Unsupported reference file format")
     new Sequence(reference, sc)
   }
 
