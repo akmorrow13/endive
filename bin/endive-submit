@@ -1,4 +1,4 @@
-
+#!/bin/bash
 # usage: endive-submit [<spark-args> --] <endive-args>
 
 set -e

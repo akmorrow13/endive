@@ -37,7 +37,7 @@ spark-submit \
   --master yarn\
   --class $CLASS \
   --num-executors  12 \
-  --executor-cores 24 \
+  --executor-cores 48 \
   --driver-class-path $JARFILE:$ASSEMBLYJAR:$HOME/hadoop/conf \
   --driver-library-path /opt/amp/gcc/lib64:/opt/amp/openblas/lib:$FWDIR/lib \
   --conf spark.executor.extraLibraryPath=/opt/amp/openblas/lib:$FWDIR/lib \
@@ -56,6 +56,7 @@ spark-submit \
   --conf spark.network.timeout=600 \
   --conf spark.executorEnv.OMP_NUM_THREADS=1 \
   --conf spark.storage.memoryFraction=0.6 \
+  --conf spark.network.timeout=300s \
   --driver-memory 60g \
   --executor-memory 100g \
   --jars $ASSEMBLYJAR \

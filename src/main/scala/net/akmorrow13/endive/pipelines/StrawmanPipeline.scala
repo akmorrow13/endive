@@ -53,12 +53,6 @@ object StrawmanPipeline extends Serializable  {
       val appConfig = yaml.load(configtext).asInstanceOf[EndiveConf]
       EndiveConf.validate(appConfig)
       val conf = new SparkConf().setAppName("ENDIVE")
-      Logger.getLogger("org").setLevel(Level.WARN)
-      Logger.getLogger("akka").setLevel(Level.WARN)
-      // NOTE: ONLY APPLICABLE IF YOU CAN DONE COPY-DIR
-      conf.remove("spark.jars")
-      conf.setIfMissing("spark.master", "local[16]")
-      conf.set("spark.driver.maxResultSize", "0")
       val sc = new SparkContext(conf)
       run(sc, appConfig)
       sc.stop()
@@ -68,6 +62,7 @@ object StrawmanPipeline extends Serializable  {
   def run(sc: SparkContext, conf: EndiveConf) {
 
 
+    println("STARTING STRAWMAN PIPELINE")
     // create new sequence with reference path
     val referencePath = conf.reference
     val reference = Sequence(referencePath, sc)
@@ -79,7 +74,7 @@ object StrawmanPipeline extends Serializable  {
     // extract sequences from reference over training regions
     val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(train.map(_._1))
 
-
+    println("NUM SEQUENCES " + sequences.count())
   }
 
   def loadTsv(sc: SparkContext, filePath: String): RDD[(ReferenceRegion, Double)] = {

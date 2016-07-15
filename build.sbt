@@ -9,14 +9,12 @@ version := "0.1"
 
 scalaVersion := "2.10.4"
 
-javacOptions ++= Seq("-source", "1.7", "-target", "1.7")
-
 parallelExecution in Test := false
 
 fork := true
 
 {
-  val defaultSparkVersion = "1.5.2"
+  val defaultSparkVersion = "1.5.0-cdh5.5.1"
   val sparkVersion = scala.util.Properties.envOrElse("SPARK_VERSION", defaultSparkVersion)
   val defaultHadoopVersion = "2.6.0-cdh5.5.1"
   val hadoopVersion =
@@ -43,6 +41,7 @@ fork := true
   "com.github.scopt" %% "scopt" % "3.3.0",
   "org.apache.parquet" % "parquet-avro" % "1.8.1",
   "org.bdgenomics.utils" %% "utils-misc" % "0.2.7" % "test" classifier "tests",
+  "org.bdgenomics.utils" %% "utils-misc" % "0.2.7",
   "org.bdgenomics.utils" %% "utils-cli" % "0.2.7",
   "org.bdgenomics.utils" %% "utils-metrics" % "0.2.7" ,
   "org.bdgenomics.adam" %% "adam-core" % "0.19.1-SNAPSHOT",
@@ -79,6 +78,22 @@ resolvers ++= Seq(
 }
 
 resolvers += Resolver.sonatypeRepo("public")
+
+mergeStrategy in assembly <<= (mergeStrategy in assembly) { (old) =>
+  {
+    case PathList("javax", "servlet", xs @ _*)               => MergeStrategy.first
+    case PathList(ps @ _*) if ps.last endsWith ".html"       => MergeStrategy.first
+    case "application.conf"                                  => MergeStrategy.concat
+    case "reference.conf"                                    => MergeStrategy.concat
+    case "log4j.properties"                                  => MergeStrategy.first
+    case m if m.toLowerCase.endsWith("manifest.mf")          => MergeStrategy.discard
+    case m if m.toLowerCase.matches("meta-inf.*\\.sf$")      => MergeStrategy.discard
+    case m if m.toLowerCase.startsWith("meta-inf/services/") => MergeStrategy.filterDistinctLines
+      // This line required for SCIFIO stuff to work correctly, due to some dependency injection stuff
+    case "META-INF/json/org.scijava.plugin.Plugin" => MergeStrategy.concat
+    case _ => MergeStrategy.first
+  }
+}
 
 assemblyOption in assembly := (assemblyOption in assembly).value.copy(includeScala = false, includeDependency = false)
 
