@@ -63,11 +63,9 @@ object Endive extends Serializable with Logging {
 
   def run(sc: SparkContext, conf: EndiveConf) {
 
-
     // create new sequence with reference path
     val referencePath = conf.reference
     val reference = Sequence(referencePath, sc)
-
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
     val train: RDD[(ReferenceRegion, Double)] = Preprocess.loadLabels(sc, labelsPath)

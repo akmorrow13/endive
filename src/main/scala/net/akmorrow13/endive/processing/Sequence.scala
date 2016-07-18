@@ -15,7 +15,7 @@
  */
 package net.akmorrow13.endive.processing
 
-import java.io.File
+import java.io.{File, FileInputStream}
 
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
@@ -53,8 +53,19 @@ object Sequence {
       else if (referencePath.endsWith(".2bit"))
         if (sc.isLocal)
           new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-        else
-          new TwoBitFile(new ByteArrayByteAccess(new File(referencePath)))
+        else {
+          val file = new File(referencePath)
+          var stream: FileInputStream = null
+          val bytes: Array[Byte] = Array.fill[Byte](file.length().toInt)(0)
+          try {
+            stream = new FileInputStream(file)
+            stream.read(bytes)
+            stream.close()
+          } catch {
+            case e: Exception => println(e.fillInStackTrace())
+          }
+          new TwoBitFile(new ByteArrayByteAccess(bytes))
+        }
       else throw new IllegalArgumentException("Unsupported reference file format")
     new Sequence(reference, sc)
   }
