@@ -23,7 +23,7 @@ import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
 import org.bdgenomics.formats.avro.NucleotideContigFragment
-import org.bdgenomics.utils.io.LocalFileByteAccess
+import org.bdgenomics.utils.io.{ByteArrayByteAccess, LocalFileByteAccess}
 
 import scala.reflect.ClassTag
 
@@ -51,7 +51,10 @@ object Sequence {
       if (referencePath.endsWith(".fa") || referencePath.endsWith(".fasta"))
         sc.loadReferenceFile(referencePath, 10000)
       else if (referencePath.endsWith(".2bit"))
-        new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+        if (sc.isLocal)
+          new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+        else
+          new TwoBitFile(new ByteArrayByteAccess(new File(referencePath)))
       else throw new IllegalArgumentException("Unsupported reference file format")
     new Sequence(reference, sc)
   }
