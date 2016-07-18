@@ -1,7 +1,7 @@
 package net.akmorrow13.endive.featurizers
 
-import net.akmorrow13.endive.{Endive, EndiveFunSuite}
-import net.akmorrow13.endive.processing.Sequence
+import net.akmorrow13.endive.EndiveFunSuite
+import net.akmorrow13.endive.processing.{Preprocess, Sequence}
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.formats.avro.{Contig, NucleotideContigFragment}
@@ -38,7 +38,7 @@ class KmerSuite extends EndiveFunSuite {
   }
 
   sparkTest("should extract kmers using reference and regions") {
-    val trainRDD = Endive.loadTsv(sc, labelPath)
+    val trainRDD = Preprocess.loadLabels(sc, labelPath)
 
     val reference = Sequence(sc.parallelize(Seq(fragment)), sc)
     val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(trainRDD.map(_._1))
@@ -49,5 +49,23 @@ class KmerSuite extends EndiveFunSuite {
     assert(kmers.first.size == kmerCounts)
 
   }
+
+  sparkTest("should extract kmers with differnece of 1") {
+    var str1 = "AAAAAAAAATAAAAAA"
+    var tuple = (ReferenceRegion("chr1", 0L,100L), str1)
+    val differences = 1
+    val kmers = Kmer.generateAllKmers(8)
+    var rdd = Kmer.extractKmers(sc.parallelize(Seq(tuple)), 8, differences)
+    var first = rdd.first.toArray.zip(kmers).filter(_._1 > 0.0)
+    assert(first.apply(0)._1 == 9.0) //"AAAAAAAA" should occur 9 times with 1 difference
+
+    str1 = "AAAAAAAAATTAAAAA"
+    tuple = (ReferenceRegion("chr1", 0L,100L), str1)
+    rdd = Kmer.extractKmers(sc.parallelize(Seq(tuple)), 8, differences)
+    first = rdd.first.toArray.zip(kmers).filter(_._1 > 0.0)
+    assert(first.apply(0)._1 == 3.0) //"AAAAAAAA" should occur 3 times with 1 difference
+
+  }
+
 
 }
