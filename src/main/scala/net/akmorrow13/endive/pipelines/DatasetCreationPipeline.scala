@@ -95,11 +95,12 @@ object DatasetCreationPipeline extends Serializable  {
     regionsAndLabels.mapPartitions { part =>
         val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
         part.map { r =>
+          val chrosomeName = r._1.referenceName
           val startIdx = r._1.start
           val endIdx = r._1.end
           val sequence = reference.extract(r._1)
           val label = r._2
-          val win = Window(startIdx, endIdx, sequence)
+          val win = Window(chrosomeName, startIdx, endIdx, sequence)
           LabeledWindow(win, label)
         }
       }
