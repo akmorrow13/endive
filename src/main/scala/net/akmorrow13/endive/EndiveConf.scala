@@ -2,9 +2,15 @@ package net.akmorrow13.endive
 import scala.reflect.{BeanProperty, ClassTag}
 
 class EndiveConf extends Serializable {
-  /* These are required */
+  @BeanProperty var createWindows: Boolean = false
+  /* These are required if createWindows is False */
+  @BeanProperty var windowLoc: String = null
+
+
+  /* These are required if createWindows is True */
   @BeanProperty var labels: String = null
   @BeanProperty var reference: String = null
+
 
   /* Not implemented data sources*/
 

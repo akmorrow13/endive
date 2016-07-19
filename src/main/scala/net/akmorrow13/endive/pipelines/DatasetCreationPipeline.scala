@@ -15,8 +15,10 @@
  */
 package net.akmorrow13.endive.pipelines
 
-import net.akmorrow13.endive.processing.Sequence
+import java.io.File
 import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.processing.Sequence
+import net.akmorrow13.endive.utils._
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -24,20 +26,21 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
 import org.bdgenomics.formats.avro._
+import org.bdgenomics.formats.avro.NucleotideContigFragment
+import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.kohsuke.args4j.{Option => Args4jOption}
-import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.Constructor
+import org.yaml.snakeyaml.Yaml
 
-object StrawmanPipeline extends Serializable  {
+
+object DatasetCreationPipeline extends Serializable  {
 
   /**
-   * A very basic pipeline that *doesn't* featurize the data
-   * simple regresses the raw sequence with the labels for the sequence
+   * A very basic dataset creation pipeline that *doesn't* featurize the data
+   * but creates a csv of (Window, Label)
    *
-   * HUGE CAVEATS
-   * Trains a separate model for each TF type
-   * Ignores cell type information
    *
    * @param args
    */
@@ -61,7 +64,45 @@ object StrawmanPipeline extends Serializable  {
 
   def run(sc: SparkContext, conf: EndiveConf) {
 
-    println("STARTING STRAWMAN PIPELINE")
+    println("STARTING DATA SET CREATION PIPELINE")
+    // create new sequence with reference path
+    val referencePath = conf.reference
+
+    // load chip seq labels from 1 file
+    val labelsPath = conf.labels
+    val train: RDD[(ReferenceRegion, Int)] = loadTsv(sc, labelsPath).cache()
+
+    println("First reading labels")
+    train.count()
+
+    // extract sequences from reference over training regions
+    val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
+
+    println("Now matching labels with reference genome")
+    sequences.count()
+
+    println("Now saving to disk")
+    sequences.map(_.toString).saveAsTextFile(conf.windowLoc)
+  }
+
+
+  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(ReferenceRegion, Int)]): RDD[LabeledWindow]  = {
+    /* TODO: This is a kludge that relies that the master + slaves share NFS
+     * but the correct thing to do is to use scp/nfs to distribute the sequence data
+     * across the cluster
+     */
+
+    regionsAndLabels.mapPartitions { part =>
+        val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+        part.map { r =>
+          val startIdx = r._1.start
+          val endIdx = r._1.end
+          val sequence = reference.extract(r._1)
+          val label = r._2
+          val win = Window(startIdx, endIdx, sequence)
+          LabeledWindow(win, label)
+        }
+      }
   }
 
   def loadTsv(sc: SparkContext, filePath: String): RDD[(ReferenceRegion, Int)] = {
