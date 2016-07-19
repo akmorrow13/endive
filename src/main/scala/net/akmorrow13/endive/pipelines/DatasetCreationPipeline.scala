@@ -33,6 +33,7 @@ import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
+import net.akmorrow13.endive.processing._
 
 
 object DatasetCreationPipeline extends Serializable  {
@@ -70,7 +71,7 @@ object DatasetCreationPipeline extends Serializable  {
 
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
-    val train: RDD[(ReferenceRegion, Int)] = loadTsv(sc, labelsPath).cache()
+    val train: RDD[(ReferenceRegion, Double)] = Preprocess.loadLabels(sc, labelsPath).cache()
 
     println("First reading labels")
     train.count()
@@ -86,7 +87,7 @@ object DatasetCreationPipeline extends Serializable  {
   }
 
 
-  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(ReferenceRegion, Int)]): RDD[LabeledWindow]  = {
+  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(ReferenceRegion, Double)]): RDD[LabeledWindow]  = {
     /* TODO: This is a kludge that relies that the master + slaves share NFS
      * but the correct thing to do is to use scp/nfs to distribute the sequence data
      * across the cluster
@@ -106,22 +107,4 @@ object DatasetCreationPipeline extends Serializable  {
       }
   }
 
-  def loadTsv(sc: SparkContext, filePath: String): RDD[(ReferenceRegion, Int)] = {
-    val rdd = sc.textFile(filePath).filter(!_.contains("start"))
-    rdd.map(line=> {
-      val parts = line.split("\t")
-      /* TODO: ignoring cell types for now */
-      val label = parts.slice(3,parts.size).map(extractLabel(_)).reduceLeft(_ max _)
-      (ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong), label)
-    })
-  }
-
-  def extractLabel(s: String): Int= {
-    s match {
-      case "A" => -1 // ambiguous
-      case "U" => 0  // unbound
-      case "B" => 1  // bound
-      case _ => throw new IllegalArgumentException(s"Illegal label ${s}")
-    }
-  }
 }

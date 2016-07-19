@@ -20,8 +20,16 @@ import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 
 object Preprocess {
+
+  /**
+   * Loads tsv file
+   * @param sc SparkContext
+   * @param filePath tsv filepath to load
+   * @param headerTag tags in first row, if any, that should be excluded from load
+   * @return RDD of rows from tsv file
+   */
   def loadTsv(sc: SparkContext, filePath: String, headerTag: String): RDD[Array[String]] = {
-    val rdd = sc.textFile(filePath).filter(r => !r.contains(headerTag))//!r.contains("start") && !r.contains("gene_id") )
+    val rdd = sc.textFile(filePath).filter(r => !r.contains(headerTag))
     rdd.map( line => {
       line.split("\t")
     })
