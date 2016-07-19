@@ -13,7 +13,7 @@ case class Window(startIdx: Long,
 
 
 
-case class LabeledWindow(win: Window, label: Long) {
+case class LabeledWindow(win: Window, label: Double) {
 
   override
   def toString:String = {
