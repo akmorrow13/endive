@@ -19,7 +19,6 @@ class WindowLoaderSuite extends EndiveFunSuite {
     val window: Window = Window(tf, cellType,region,sequence, List(peak1))
     val labeledWindow = LabeledWindow(window, 0)
     val strWin = labeledWindow.toString
-    println(strWin)
     val labeledWindow2: LabeledWindow = LabeledWindowLoader.stringToLabeledWindow(strWin)
     assert(labeledWindow2 == labeledWindow)
   }

@@ -8,8 +8,8 @@ import net.akmorrow13.endive.utils.{LabeledWindow, Window}
 import scala.collection.mutable.ListBuffer
 
 
-class DNase(windowSize: Int,
-                      stride: Int,
+class DNase(@transient windowSize: Int,
+                      @transient stride: Int,
                       dnase: RDD[(String, PeakRecord)]) {
 
   /**
@@ -19,12 +19,13 @@ class DNase(windowSize: Int,
    */
    def joinWithSequences(in: RDD[LabeledWindow]): RDD[LabeledWindow] = {
       // map dnase to window sizes that match the input window sizes
+    val str = this.stride
       val windowedDnase: RDD[((ReferenceRegion, String), List[PeakRecord])] = dnase.flatMap(d => {
         val start = d._2.region.start
         val end = d._2.region.end
         val name = d._2.region.referenceName
-        val newStart = start / stride * stride
-        val newEnd = end / stride *stride + stride
+        val newStart = start / str * str
+        val newEnd = end / str *str + str
         val newRegion = ReferenceRegion(name, newStart, newEnd)
         unmergeRegions(newRegion).map(r => ((r,d._1), d._2))
       }).groupBy(_._1).mapValues(r => r.seq.map(_._2).toList)

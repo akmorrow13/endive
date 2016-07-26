@@ -15,11 +15,16 @@
  */
 package net.akmorrow13.endive.processing
 
-import java.io.File
+import java.io.{InputStreamReader, BufferedReader, File}
 
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
+import org.apache.hadoop.fs._
+import org.apache.hadoop.conf._
+import org.apache.hadoop.io._
+import org.apache.hadoop.mapred._
+import org.apache.hadoop.util._
 
 object Preprocess {
 
@@ -64,14 +69,27 @@ object Preprocess {
   def loadLabelFolder(sc: SparkContext, folder: String): RDD[(String, String, ReferenceRegion, Int)] = {
     var data: RDD[(String, String, ReferenceRegion, Int)] = sc.emptyRDD[(String, String, ReferenceRegion, Int)]
     val d = new File(folder)
-    if (d.exists && d.isDirectory) {
-      val files = d.listFiles.filter(_.isFile).toList
-      files.map(f => {
-        data = data.union(loadLabels(sc, f.getPath))
-      })
+    if (sc.isLocal) {
+      if (d.exists && d.isDirectory) {
+        val files = d.listFiles.filter(_.isFile).toList
+        files.map(f => {
+          data = data.union(loadLabels(sc, f.getPath))
+        })
+      } else {
+        throw new Exception(s"${folder} is not a valid directory for peaks")
+      }
     } else {
-      throw new Exception(s"${folder} is not a valid directory for peaks")
+    try{
+      val fs: FileSystem = FileSystem.get(new Configuration())
+      val status = fs.listStatus(new Path(folder))
+      for (i <- status) {
+        val file: String = i.getPath.getName
+        data = data.union(loadLabels(sc, file))
+      }
+    } catch {
+      case e: Exception => println(s"Directory ${folder} could not be loaded")
     }
+  }
     data
   }
 
@@ -139,16 +157,29 @@ object Preprocess {
   }
 
   def loadPeakFolder(sc: SparkContext, folder: String): RDD[(String, PeakRecord)] = {
+
     var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]
-    val d = new File(folder)
-    if (d.exists && d.isDirectory) {
-      val files = d.listFiles.filter(_.isFile).toList
-      println(files)
-      files.map(f => {
-        data = data.union(loadPeaks(sc, f.getPath))
-      })
+    if (sc.isLocal) {
+      val d = new File(folder)
+      if (d.exists && d.isDirectory) {
+        val files = d.listFiles.filter(_.isFile).toList
+        files.map(f => {
+          data = data.union(loadPeaks(sc, f.getPath))
+        })
+      } else {
+        throw new Exception(s"${folder} is not a valid directory for peaks")
+      }
     } else {
-      throw new Exception(s"${folder} is not a valid directory for peaks")
+      try{
+        val fs: FileSystem = FileSystem.get(new Configuration())
+        val status = fs.listStatus(new Path(folder))
+        for (i <- status) {
+        val file: String = i.getPath.getName
+        data = data.union(loadPeaks(sc, file))
+      }
+      } catch {
+        case e: Exception => println(s"Directory ${folder} could not be loaded")
+      }
     }
     data
   }
