@@ -6,7 +6,7 @@ object LabeledWindowLoader {
 
   def stringToLabeledWindow(str: String): LabeledWindow = {
     val dataArray = str.split(",")
-    LabeledWindow(Window(dataArray(0),dataArray(1).toInt,dataArray(2).toInt, dataArray(3)),dataArray(5).toInt)
+    LabeledWindow(Window(dataArray(0),dataArray(1).trim.toInt,dataArray(2).trim.toInt, dataArray(3)),dataArray(4).trim.toDouble)
   }
 
   def apply(path: String, sc: SparkContext): RDD[LabeledWindow] = {

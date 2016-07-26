@@ -15,8 +15,17 @@
  */
 package net.akmorrow13.endive.pipelines
 
-import net.akmorrow13.endive.processing.Sequence
+import breeze.linalg._
 import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.processing.Sequence
+import net.akmorrow13.endive.utils._
+import nodes.learning._
+import nodes.nlp._
+import nodes.stats.TermFrequency
+import nodes.util.CommonSparseFeatures
+import nodes.util.{Identity, Cacher, ClassLabelIndicatorsFromIntLabels, TopKClassifier, MaxClassifier, VectorCombiner}
+import utils.{Image, MatrixUtils, Stats, ImageMetadata, LabeledImage, RowMajorArrayVectorizedImage, ChannelMajorArrayVectorizedImage}
+
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -26,10 +35,11 @@ import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.formats.avro._
 import org.kohsuke.args4j.{Option => Args4jOption}
-import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.Constructor
+import org.yaml.snakeyaml.Yaml
+import pipelines.Logging
 
-object StrawmanPipeline extends Serializable  {
+object StrawmanPipeline extends Serializable with Logging {
 
   /**
    * A very basic pipeline that *doesn't* featurize the data
@@ -53,15 +63,67 @@ object StrawmanPipeline extends Serializable  {
       val appConfig = yaml.load(configtext).asInstanceOf[EndiveConf]
       EndiveConf.validate(appConfig)
       val conf = new SparkConf().setAppName("ENDIVE")
+      Logger.getLogger("org").setLevel(Level.WARN)
+      Logger.getLogger("akka").setLevel(Level.WARN)
       val sc = new SparkContext(conf)
       run(sc, appConfig)
       sc.stop()
     }
   }
 
-  def run(sc: SparkContext, conf: EndiveConf) {
+  def denseFeaturize(in: String): DenseVector[Double] = {
+    /* Identity featurizer */
 
+   val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
+    val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
+
+    val intString:Seq[Int] = in.map(BASEPAIRMAP(_))
+    val seqString = intString.map { bp =>
+      if (bp == -1) {
+        DenseVector.zeros[Double](4)
+      } else {
+        sequenceVectorizer(bp)
+      }
+    }
+    DenseVector.vertcat(seqString:_*)
+  }
+
+
+
+
+  def run(sc: SparkContext, conf: EndiveConf) {
     println("STARTING STRAWMAN PIPELINE")
+    val allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.windowLoc, sc).filter(_.label >= 0)
+    allData.count()
+
+    println("Grouping Data for cross validation")
+    val groupedData = allData.groupBy(lw => lw.win.chrosomeName).cache()
+    groupedData.count()
+
+    val foldsData = groupedData.map(x => (x._1.hashCode() % conf.folds, x._2))
+    // featurize sequences to 8mers
+    val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
+
+    for (i <- (0 until conf.folds)) {
+      val train = foldsData.filter(x => x._1 != i).flatMap(x => x._2).cache()
+      val test = foldsData.filter(x => x._1 == i).flatMap(x => x._2).cache()
+      println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
+
+      val allTrainingData = train map { window =>
+        val x:DenseVector[Double] = denseFeaturize(window.win.sequence)
+        val y:DenseVector[Double] = labelVectorizer(window.label.toInt)
+        val xtx = x * x.t
+        val xty = x * y.t
+        (x, y, xtx, xty)
+        }
+
+        val XTXStart = System.nanoTime
+        val XTX = allTrainingData.map(_._3)
+        val XTXloc = XTX.treeReduce({ (a:DenseMatrix[Double],b:DenseMatrix[Double]) =>
+          a += b
+        })
+        println(s"XTX Computation took ${timeElapsed(XTXStart)}")
+    }
   }
 
   def loadTsv(sc: SparkContext, filePath: String): RDD[(ReferenceRegion, Int)] = {
@@ -72,7 +134,10 @@ object StrawmanPipeline extends Serializable  {
       val label = parts.slice(3,parts.size).map(extractLabel(_)).reduceLeft(_ max _)
       (ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong), label)
     })
+
   }
+
+  def timeElapsed(ns: Long) : Double = (System.nanoTime - ns).toDouble / 1e9
 
   def extractLabel(s: String): Int= {
     s match {

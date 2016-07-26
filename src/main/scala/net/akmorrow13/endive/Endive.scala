@@ -83,19 +83,5 @@ object Endive extends Serializable  {
   }
 
 
-  /**
-   * Loads bed file over optional region
-   * @param sc SparkContext
-   * @param featurePath Feature path to load
-   * @param region Optional region to load features from
-   * @return RDD of Features
-   */
-  def loadFeatures(sc: SparkContext, featurePath: String, region: Option[ReferenceRegion] = None): RDD[Feature] = {
-    val predicate =  Some((BinaryColumn("contig.contigName") === region.get.referenceName))
-
-      if (featurePath.endsWith(".adam")) sc.loadParquetFeatures(featurePath, predicate)
-    else if (featurePath.toLowerCase.endsWith("bed")) sc.loadFeatures(featurePath)
-    else throw new Exception("File type not supported")
-  }
 }
 

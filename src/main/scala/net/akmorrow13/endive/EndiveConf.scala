@@ -5,6 +5,7 @@ class EndiveConf extends Serializable {
   @BeanProperty var createWindows: Boolean = false
   /* These are required if createWindows is False */
   @BeanProperty var windowLoc: String = null
+  @BeanProperty var folds: Int = 2
 
 
   /* These are required if createWindows is True */

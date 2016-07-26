@@ -13,6 +13,5 @@ class SamplingSuite extends EndiveFunSuite {
     val positives = sampledRDD.filter(_._2 == 1.0)
     val negatives = sampledRDD.filter(_._2 == 0.0)
     assert(negatives.count < positives.count * 20) // number of alloted sliding windows
-
   }
 }
