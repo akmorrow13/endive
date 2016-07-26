@@ -17,6 +17,14 @@ class DataSet(rdd: RDD[LabeledWindow], seed: Int = 100) {
   val cellTypes = List("A549","GM12878", "H1-hESC", "HCT116", "HeLa-S3", "HepG2", "IMR90", "K562",
     "MCF-7", "PC-3", "Panc1", "SK-N-SH", "induced_pluripotent_stem_cell", "liver")
 
+  val tfs = List("ARID3A",
+    "CEBPB", "EGR1", "HNF4A", "REST", "TCF12",
+    "EP300", "JUND",	"RFX5",	"TCF7L2",
+    "CREB1",	"FOXA1",	"MAFK",	"SPI1",	"TEAD4",
+    "ATF2",	"CTCF",	"FOXA2",	"MAX",		"SRF",		"YY1",
+    "ATF3",	"E2F1",	"GABPA",	"MYC",		"STAT3",	"ZNF143",
+    "ATF7",	"E2F6",	"GATA3",	"NANOG",	"TAF1")
+
   val chrs = List("chr10",
     "chr11",
     "chr12",
