@@ -15,26 +15,45 @@
  */
 package net.akmorrow13.endive.processing
 
+import java.io.File
+
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 
 class RNAseq(geneReference: String, @transient sc: SparkContext) {
 
-  val genes = Preprocess.loadTranscripts(sc, geneReference)
+  val genes: RDD[Transcript] = Preprocess.loadTranscripts(sc, geneReference)
 
-  /**
-   * Extracts sequence from a referenceRegion
-   * @param rna RDD of records parsed from RNAseq tsv file
-   */
-  def extractGeneLocations(rna: RDD[RNARecord]): RDD[(ReferenceRegion, RNARecord)] = {
+  def loadRNA(sc: SparkContext, filePath: String): RDD[(String, RNARecord)] = {
+    val cellType = filePath.split("/").last.split('.')(1)
     val genesB = sc.broadcast(genes.collect.toList)
-    rna.flatMap(r => {
-      val g = genesB.value.filter(p => p.geneId == r.geneId).head
-      g.transcripts.zip(g.regions)
-        .filter(t => r.transcriptId.split(",").contains(t._1))
-        .map(t => (t._2, RNARecord(r.geneId, t._1, r.length, r.effective_length, r.expected_count, r.TPM, r.FPKM)))
+
+    val data = Preprocess.loadTsv(sc, filePath, "gene_id")
+    val records = data.flatMap(parts => {
+      // parse text file
+      val (geneId, transcriptIds, length, effective_length, expected_count, tpm,	fpkm)
+        = (parts(0), parts(1).split(","), parts(2).toDouble, parts(3).toDouble, parts(4).toDouble, parts(5).toDouble, parts(6).toDouble)
+
+      val filteredTranscripts: List[Transcript] = genesB.value.filter(p => transcriptIds.contains(p.transcriptId)) // filter out relevent transcripts
+
+      filteredTranscripts.map(t => (RNARecord(t.region, geneId, t.transcriptId, length, effective_length, expected_count, tpm, fpkm)))
     })
+    records.map(r => (cellType, r))
+  }
+
+  def loadRNAFolder(sc: SparkContext, folder: String): RDD[(String, RNARecord)] = {
+    var data: RDD[(String, RNARecord)] = sc.emptyRDD[(String, RNARecord)]
+    val d = new File(folder)
+    if (d.exists && d.isDirectory) {
+      val files = d.listFiles.filter(_.isFile).toList
+      files.map(f => {
+        data = data.union(loadRNA(sc, f.getPath))
+      })
+    } else {
+      throw new Exception(s"${folder} is not a valid directory for peaks")
+    }
+    data
   }
 }
 

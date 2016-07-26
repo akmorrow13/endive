@@ -19,7 +19,7 @@ import java.io.{File, FileInputStream}
 
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
 import org.bdgenomics.formats.avro.NucleotideContigFragment
@@ -35,10 +35,10 @@ class Sequence(reference: ReferenceFile, @transient sc: SparkContext) {
    * @param points
    */
   def extractSequences(points: RDD[ReferenceRegion]): RDD[(ReferenceRegion, String)] = {
-    // used to get middle of pek sized at the sequence size
-    val referenceFileB = sc.broadcast(reference)
+    // used to get middle of peak sized at the sequence size
+    val broadcast2Bit = points.context.broadcast(reference)
     points.map(r => {
-      (r, referenceFileB.value.extract(r).toUpperCase())
+      (r, broadcast2Bit.value.extract(r).toUpperCase())
     })
   }
 }
@@ -51,9 +51,10 @@ object Sequence {
       if (referencePath.endsWith(".fa") || referencePath.endsWith(".fasta"))
         sc.loadReferenceFile(referencePath, 10000)
       else if (referencePath.endsWith(".2bit"))
-        if (sc.isLocal)
-          new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-        else {
+        if (sc.isLocal) {
+          val ref = new File(referencePath)
+          new TwoBitFile(new LocalFileByteAccess(ref))
+        } else {
           val file = new File(referencePath)
           var stream: FileInputStream = null
           val bytes: Array[Byte] = Array.fill[Byte](file.length().toInt)(0)
@@ -74,7 +75,6 @@ object Sequence {
   def apply(reference: RDD[NucleotideContigFragment], sc: SparkContext): Sequence = {
     new Sequence(ReferenceContigMap(reference), sc)
   }
-
 }
 
 case class SequenceSet[S: ClassTag, T: ClassTag](features: RDD[S], labels: RDD[T])

@@ -9,7 +9,8 @@ class RNAseqSuite extends EndiveFunSuite {
   var genePath = resourcePath("geneAnnotations_head50.gtf")
 
   sparkTest("should extract RNA from tsv file") {
-    val trainRDD = Preprocess.loadRNA(sc, rnaPath)
+    val rnaseq =  new RNAseq(genePath, sc)
+    val trainRDD = rnaseq.loadRNA(sc, rnaPath)
     assert(trainRDD.count == 6)
   }
 
@@ -18,10 +19,4 @@ class RNAseqSuite extends EndiveFunSuite {
     assert(genes.count == 27)
   }
 
-  sparkTest("should extract regions from an RNA seq and gene annotations file") {
-    val trainRDD = Preprocess.loadRNA(sc, rnaPath)
-    val RNAseq = new RNAseq(genePath, sc)
-    val result = RNAseq.extractGeneLocations(trainRDD)
-    assert(result.count == 16)
-  }
 }

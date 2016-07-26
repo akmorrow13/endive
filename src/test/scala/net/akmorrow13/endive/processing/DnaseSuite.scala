@@ -1,0 +1,28 @@
+package net.akmorrow13.endive.processing
+
+import net.akmorrow13.endive.EndiveFunSuite
+import net.akmorrow13.endive.pipelines.DatasetCreationPipeline
+import net.akmorrow13.endive.utils.{Window, LabeledWindow}
+import org.apache.spark.rdd.RDD
+import org.bdgenomics.adam.models.ReferenceRegion
+
+class DNaseSuite extends EndiveFunSuite {
+
+  // training data of region and labels
+  var peakPath = resourcePath("DNASE.A549.conservative.head30.narrowPeak")
+  var labelPath = resourcePath("ARID3A.train.labels.head30.tsv")
+  var windowSize = 200
+  val stride = 50
+
+  sparkTest("should merge dnase and labels") {
+    val dnaseRDD = Preprocess.loadPeaks(sc, peakPath)
+    val labels: RDD[(String, String, ReferenceRegion, Double)] = Preprocess.loadLabelFolder(sc, labelPath)
+    // extract sequences from reference over training regions
+    val sequences: RDD[Window] =
+      labels.map(r => Window(r._1, r._2, r._3, "ATGCG" * 40, List()))
+    val dnase = new DNase(windowSize, stride, dnaseRDD)
+    val merged = dnase.joinWithSequences(sequences)
+    println(merged)
+
+  }
+}

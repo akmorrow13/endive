@@ -72,16 +72,10 @@ object Endive extends Serializable  {
     val reference = Sequence(referencePath, sc)
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
-    val train: RDD[(ReferenceRegion, Double)] = Preprocess.loadLabels(sc, labelsPath)
+    val train: RDD[(String, String, ReferenceRegion, Double)] = Preprocess.loadLabels(sc, labelsPath)
 
     // extract sequences from reference over training regions
-    val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(train.map(_._1))
-
-    // extract kmer counts from sequences
-    val kmers: RDD[LabeledPoint] = Kmer.extractKmers(sequences, conf.kmerLength).zip(train.map(_._2))
-                                                .map(r => LabeledPoint(r._2, r._1))
-  }
-
+    val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(train.map(_._3))
 
 }
 

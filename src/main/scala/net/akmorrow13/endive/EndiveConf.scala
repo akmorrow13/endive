@@ -4,8 +4,17 @@ import scala.reflect.{BeanProperty, ClassTag}
 class EndiveConf extends Serializable {
   @BeanProperty var createWindows: Boolean = false
   /* These are required if createWindows is False */
+
   @BeanProperty var windowLoc: String = null
   @BeanProperty var folds: Int = 2
+  @BeanProperty var sequenceLoc: String = null
+  @BeanProperty var rnaseqLoc: String = null
+  @BeanProperty var dnaseLoc: String = null
+  @BeanProperty var featureLoc: String = null
+
+  /* output files */
+  @BeanProperty var aggregatedSequenceLoc: String = null
+
 
 
   /* These are required if createWindows is True */
@@ -16,11 +25,13 @@ class EndiveConf extends Serializable {
   /* Not implemented data sources*/
 
   @BeanProperty var dnase: String = null
-  @BeanProperty var rnase: String = null
+  @BeanProperty var rnaseq: String = null
   @BeanProperty var chipPeaks: String = null
 
-  /* Featurization parameters */
+  /* gene reference required for rnaseq location extraction */
+  @BeanProperty var genes: String = null
 
+  /* Featurization parameters */
   @BeanProperty var kmerLength: Int = 8
   @BeanProperty var sequenceLength: Int = 100
 }

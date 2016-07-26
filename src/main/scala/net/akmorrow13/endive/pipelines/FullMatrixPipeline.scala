@@ -17,7 +17,7 @@ package net.akmorrow13.endive.pipelines
 
 import java.io.File
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.processing.Sequence
+import net.akmorrow13.endive.featurizers.Kmer
 import net.akmorrow13.endive.utils._
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
@@ -25,10 +25,7 @@ import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
-import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
-import org.bdgenomics.formats.avro._
-import org.bdgenomics.formats.avro.NucleotideContigFragment
 import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.constructor.Constructor
@@ -36,7 +33,7 @@ import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
 
 
-object DatasetCreationPipeline extends Serializable  {
+object FullMatrixPipeline extends Serializable  {
 
   /**
    * A very basic dataset creation pipeline that *doesn't* featurize the data
@@ -66,44 +63,57 @@ object DatasetCreationPipeline extends Serializable  {
   def run(sc: SparkContext, conf: EndiveConf) {
 
     println("STARTING DATA SET CREATION PIPELINE")
+    val stride = 50
+    val windowSize = 200 // defined by competition
     // create new sequence with reference path
     val referencePath = conf.reference
-
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
-    val train: RDD[(String, String, ReferenceRegion, Double)] = Preprocess.loadLabels(sc, labelsPath).cache()
+    val geneReference = conf.genes
 
-    println("First reading labels")
-    train.count()
+    // RDD of (tf name, celltype, region, score)
+    val labels: RDD[(String, String, ReferenceRegion, Double)] = Preprocess.loadLabelFolder(sc, labelsPath)
 
     // extract sequences from reference over training regions
-    val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
+    val sequences: RDD[LabeledWindow] =
+          DatasetCreationPipeline.extractSequencesAndLabels(referencePath, labels)
 
-    println("Now matching labels with reference genome")
-    sequences.count()
+    // Load DNase data of (cell type, peak record)
+    val dnaseRDD: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, conf.dnase)
+
+
+    val dnase = new DNase(windowSize, stride, dnaseRDD)
+
+    val dnaseMapped = dnase.joinWithSequences(sequences)
+    dnaseMapped.map(_.toString).saveAsTextFile(conf.featureLoc)
+
+    // Load RNA seq data of (cell type, rna transcript)
+//    val rnaLoader = new RNAseq(geneReference, sc)
+//    val rnaseq: RDD[(String, RNARecord)] = rnaLoader.loadRNAFolder(sc, conf.rnaseq)
+//
+//    println("RNA seq")
+//    print(rnaseq.count)
+
+
+    println("DNase")
+//    println(dnase.count)
+
+//    println("saving rnaseq")
+//    rnaseq.map(_.toString).saveAsTextFile(conf.rnaseqLoc)
+
+    println("saving dnase")
+//    dnase.map(_.toString).saveAsTextFile(conf.dnaseLoc)
+
+
+
+    // combine all data sources together
+
+
+//    println("Now matching labels with reference genome")
+//    sequences.count()
 
 //    println("Now saving to disk")
 //    sequences.map(_.toString).saveAsTextFile(conf.windowLoc)
-  }
-
-
-  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(String, String, ReferenceRegion, Double)]): RDD[LabeledWindow]  = {
-    /* TODO: This is a kludge that relies that the master + slaves share NFS
-     * but the correct thing to do is to use scp/nfs to distribute the sequence data
-     * across the cluster
-     */
-
-    regionsAndLabels.mapPartitions { part =>
-        val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-        part.map { r =>
-          val startIdx = r._3.start
-          val endIdx = r._3.end
-          val sequence = reference.extract(r._3)
-          val label = r._4
-          val win = Window(r._1, r._2, r._3, sequence, List())
-          LabeledWindow(win, label)
-        }
-      }
   }
 
 }

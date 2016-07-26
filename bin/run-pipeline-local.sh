@@ -17,7 +17,7 @@ if [ -z "$1" ]; then
 fi
 
 if [ -z "$OMP_NUM_THREADS" ]; then
-    export OMP_NUM_THREADS=1 added as we were nondeterministically running into an openblas race condition 
+    export OMP_NUM_THREADS=1 added as we were nondeterministically running into an openblas race condition
 fi
 
 
@@ -37,7 +37,7 @@ if [ -z "$SPARK_SUBMIT" ]; then
 fi
 echo "Using SPARK_SUBMIT=$SPARK_SUBMIT"
 
-echo "RUNNING ON THE CLUSTER" 
+echo "RUNNING ON THE CLUSTER"
 # TODO: Figure out a way to pass in either a conf file / flags to spark-submit
 KEYSTONE_MEM=${KEYSTONE_MEM:-1g}
 KEYSTONE_MEM=120g
@@ -45,10 +45,7 @@ export KEYSTONE_MEM
 
 # Set some commonly used config flags on the cluster
 "$SPARK_SUBMIT" \
-  --master yarn\
   --class $CLASS \
-  --num-executors  12 \
-  --executor-cores 24 \
   --driver-class-path $JARFILE:$ASSEMBLYJAR:$HOME/hadoop/conf \
   --driver-library-path /opt/amp/gcc/lib64:/opt/amp/openblas/lib:$FWDIR/lib \
   --conf spark.executor.extraLibraryPath=/opt/amp/openblas/lib:$FWDIR/lib \

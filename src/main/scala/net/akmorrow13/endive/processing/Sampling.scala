@@ -15,28 +15,23 @@
  */
 package net.akmorrow13.endive.processing
 
-import nodes.nlp.{NGramsFeaturizer, Tokenizer}
+import net.akmorrow13.endive.utils.LabeledWindow
 import org.apache.spark.SparkContext
-import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
-import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile}
-import org.bdgenomics.formats.avro.NucleotideContigFragment
 
-import scala.reflect.ClassTag
 
 object Sampling {
-  def selectNegativeSamples(sc: SparkContext, rdd: RDD[(ReferenceRegion, Double)], distance: Long = 700L): RDD[(ReferenceRegion, Double)] = {
+  def selectNegativeSamples(sc: SparkContext, rdd: RDD[LabeledWindow], distance: Long = 700L): RDD[LabeledWindow] = {
     val minimum = 200L
-    val positives = rdd.filter(r => r._2 == 1.0)
-    val negatives = rdd.filter(r => r._2 == 0.0)
+    val positives = rdd.filter(r => r.label == 1.0)
+    val negatives = rdd.filter(r => r.label == 0.0)
     val positivesB = sc.broadcast(positives.collect)
 
     // favor negative samples closer to positive samples
     val filteredNegs = negatives.filter(n => {
       val neighbors = positivesB.value.filter(r => {
-        val dist =  n._1.distance(r._1)
+        val dist =  n.win.region.distance(r.win.region)
         dist.isDefined && dist.get < distance && dist.get > minimum
       })
       !neighbors.isEmpty
