@@ -20,7 +20,7 @@ import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
-import net.akmorrow13.endive.processing._
+import net.akmorrow13.endive.processing.Dataset
 
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS}
@@ -80,7 +80,7 @@ object BaseModel extends Serializable  {
     val heldoutCellType = "HeLa-S3"
 
     // RDD of (tf name, celltype, region, score)
-    val labels: RDD[(String, String, ReferenceRegion, Double)] = Preprocess.loadLabelFolder(sc, labelsPath)
+    val labels: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
 
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] =
@@ -97,47 +97,48 @@ object BaseModel extends Serializable  {
     dnaseMapped.map(_.toString).saveAsTextFile(conf.aggregatedSequenceLoc)
 
     // partition into train and test sets
-    val dataset = new DataSet(dnaseMapped)
+    val dataset = new Dataset(dnaseMapped)
     val train = dataset.train
     val test = dataset.test
 
 
     // filter out positives: areas with no dnase are automatic negatives
-    val features: RDD[LabeledPoint] = featurize(train)
+    val features: RDD[LabeledPoint] = featurize(sc, train, conf.deepbindPath)
+    println(features.first)
 
     //  score using a linear classifier with a log loss function
-    val model = new LogisticRegressionWithLBFGS()
-      .setNumClasses(2)
-      .run(features)
-
+//    val model = new LogisticRegressionWithLBFGS()
+//      .setNumClasses(2)
+//      .run(features)
+//
 
     /*********************************
       * Testing on held out chromosome
     ***********************************/
-    val heldOutChr = dataset.heldoutChr
-    val chrTest = featurize(test.filter(r => r.win.region.referenceName == heldoutChr))
-
-    var predictionAndLabels = chrTest.map { case LabeledPoint(label, features) =>
-      val prediction = model.predict(features)
-      (prediction, label)
-    }
-
-    println("held out chr accuracy")
-    Metrics.computeAccuracy(predictionAndLabels)
-
-
-    /*********************************
-      * Testing on held out cell type
-      * ***********************************/
-    val heldOutCellType = dataset.heldoutCellType
-    val cellTypeTest = featurize(test.filter(r => r.win.region.referenceName == heldOutCellType))
-
-    predictionAndLabels = cellTypeTest.map { case LabeledPoint(label, features) =>
-      val prediction = model.predict(features)
-      (prediction, label)
-    }
-    println("held out cell type accuracy")
-    Metrics.computeAccuracy(predictionAndLabels)
+//    val heldOutChr = dataset.heldoutChr
+//    val chrTest = featurize(test.filter(r => r.win.region.referenceName == heldoutChr))
+//
+//    var predictionAndLabels = chrTest.map { case LabeledPoint(label, features) =>
+//      val prediction = model.predict(features)
+//      (prediction, label)
+//    }
+//
+//    println("held out chr accuracy")
+//    Metrics.computeAccuracy(predictionAndLabels)
+//
+//
+//    /*********************************
+//      * Testing on held out cell type
+//      * ***********************************/
+//    val heldOutCellType = dataset.heldoutCellType
+//    val cellTypeTest = featurize(test.filter(r => r.win.region.referenceName == heldOutCellType))
+//
+//    predictionAndLabels = cellTypeTest.map { case LabeledPoint(label, features) =>
+//      val prediction = model.predict(features)
+//      (prediction, label)
+//    }
+//    println("held out cell type accuracy")
+//    Metrics.computeAccuracy(predictionAndLabels)
 
   }
 
@@ -149,26 +150,20 @@ object BaseModel extends Serializable  {
           - Max, 0.99%, 0.95%, 0.75%, 0.50%, mean
           - max DNASE fold change across each bin
     *************************************/
-  def featurize(rdd: RDD[LabeledWindow]): RDD[LabeledPoint] = {
-    rdd.map(r => {
-      if (r.win.dnase.length > 0) {
-        // known motif score
-        val motifScore = Motif.scoreSequence(r.win.tf, r.win.sequence, "any")
-        // max DNASE fold change across each bin
-        val maxScore = r.win.dnase.map(_.peak).max
-        val minScore = r.win.dnase.map(_.peak).min
-        val fold = (maxScore - minScore) / minScore
-        // TODO: Max, 0.99%, 0.95%, 0.75%, 0.50%, mean
-        new LabeledPoint(r.label, Vectors.dense(motifScore, fold))
-      } else {
-        // no dnase overlap. force to negative example
-        new LabeledPoint(0.0, Vectors.dense(0.0,0.0))
-      }
-    })
+  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], deepbindPath: String): RDD[LabeledPoint] = {
+    val motif = new Motif(sc, deepbindPath)
+    val filteredPositives = rdd.filter(_.win.dnase.length > 0)
+    val motifScores: RDD[(Map[String, Double], LabeledWindow)] =
+      motif.scoreSequences(Dataset.tfs, filteredPositives.map(_.win.sequence)).zip(filteredPositives)
 
-
+    motifScores
+        .map(r => {
+          // known motif score
+          // max DNASE fold change across each bin
+          val maxScore = r._2.win.dnase.map(_.peak).max
+          val minScore = r._2.win.dnase.map(_.peak).min
+          val fold = (maxScore - minScore) / minScore
+          new LabeledPoint(r._2.label, Vectors.dense(r._1(r._2.win.tf), fold))
+        })
   }
-
-
-
 }

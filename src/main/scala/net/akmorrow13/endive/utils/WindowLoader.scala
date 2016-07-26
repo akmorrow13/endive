@@ -8,13 +8,14 @@ import org.bdgenomics.adam.models.ReferenceRegion
 object LabeledWindowLoader {
 
   def stringToLabeledWindow(str: String): LabeledWindow = {
-    val dataArray = str.split(",")
-    val tf = dataArray(0)
-    val cellType = dataArray(1)
-    val region = ReferenceRegion(dataArray(2), dataArray(3).toLong,dataArray(4).toLong)
-    val dnase: List[PeakRecord] = dataArray(6).split(";").map(r => PeakRecord.fromString(r)).toList
-    LabeledWindow(Window(tf, cellType, region, dataArray(5), dnase),dataArray(7).toInt)
-  }
+    val d = str.split(";")
+    val dataArray = d(0).split(",")
+    val dnase: List[PeakRecord] = d.drop(1).map(r => PeakRecord.fromString(r)).toList
+    val tf = dataArray(1)
+    val cellType = dataArray(2)
+    val region = ReferenceRegion(dataArray(3), dataArray(4).toLong,dataArray(5).toLong)
+    LabeledWindow(Window(tf, cellType, region, dataArray(6), dnase),dataArray(0).toInt)
+}
 
   def apply(path: String, sc: SparkContext): RDD[LabeledWindow] = {
     val dataTxtRDD:RDD[String] = sc.textFile(path)

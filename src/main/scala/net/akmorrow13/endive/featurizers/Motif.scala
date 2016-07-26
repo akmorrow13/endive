@@ -5,25 +5,26 @@ import java.io.File
 import net.akmorrow13.endive.processing.Preprocess
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
+import scala.sys.process._
 
-object Motif {
+class Motif(@transient sc: SparkContext, deepbindPath: String) {
 
-  def scoreSequence(tf: String, sequence: String, database: String): Double = {
-    // TODO
-   0.0
+  def scoreSequences(tfs: List[String], sequences: RDD[String]): RDD[Map[String, Double]] = {
+    val dbScores: RDD[Map[String, Double]] = getDeepBindScores(sequences, tfs)
+
+    // TODO: should average over all scoring metrics
+    dbScores
   }
 
 
-  def getDeepBindScores(sc: SparkContext,
-                        pathToDeepBind: String,
-                        sequences: RDD[String],
+  def getDeepBindScores(sequences: RDD[String],
                         tfs: List[String]): RDD[Map[String, Double]] = {
 
-    val idLocation = pathToDeepBind + "/testdb.ids"
-    val seqLocation = pathToDeepBind + "/testsequences.seq"
-    val scoreLocation = pathToDeepBind + "/testscores.seq"
+    val idLocation = deepbindPath + "/testdb.ids"
+    val seqLocation = deepbindPath + "/testsequences.seq"
+    val scoreLocation = deepbindPath + "/testscores.seq"
 
-    val dbPath = pathToDeepBind + "/db/db.tsv"
+    val dbPath = deepbindPath + "/db/db.tsv"
     val db = Preprocess.loadTsv(sc, dbPath, "ID")
     // filter db by tfs
     val filteredDb: RDD[Array[String]] = db.filter(r => tfs.contains(r(1)))
@@ -41,11 +42,8 @@ object Motif {
 
     // run deepbind
 
-    val cmd: Array[String] = Array(s"./${pathToDeepBind}/deepbind",
-                                   s"${idLocation}", s"< ${seqLocation}",
-                                   s"> ${scoreLocation}")
-    val p: Process = Runtime.getRuntime().exec(cmd)
-    p.waitFor()
+    val cmd: String = Seq("./${deepbindPath}/deepbind ", idLocation, " < ", seqLocation, " > ", scoreLocation).!!
+    println(cmd)
 
     // return deepbind scores
     val labels: Array[String] = filteredDb.map(r => r(1)).collect

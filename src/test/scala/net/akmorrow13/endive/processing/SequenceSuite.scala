@@ -30,7 +30,7 @@ class SequenceSuite extends EndiveFunSuite {
     assert(trainRDD.filter(r => r._2 == 1.0).count() == 1)
 
     val reference = Sequence(sc.parallelize(Seq(fragment)), sc)
-    val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(trainRDD.map(_._1))
+    val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(trainRDD.map(_._3))
 
     assert(sequences.count == trainRDD.count)
 

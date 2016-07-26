@@ -97,7 +97,7 @@ object StrawmanPipeline extends Serializable with Logging {
     allData.count()
 
     println("Grouping Data for cross validation")
-    val groupedData = allData.groupBy(lw => lw.win.chrosomeName).cache()
+    val groupedData = allData.groupBy(lw => lw.win.region.referenceName).cache()
     groupedData.count()
 
     val foldsData = groupedData.map(x => (x._1.hashCode() % conf.folds, x._2))

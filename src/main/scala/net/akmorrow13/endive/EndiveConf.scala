@@ -15,6 +15,8 @@ class EndiveConf extends Serializable {
   /* output files */
   @BeanProperty var aggregatedSequenceLoc: String = null
 
+  /* location of sequence motif data */
+  @BeanProperty var deepbindPath: String = null
 
 
   /* These are required if createWindows is True */

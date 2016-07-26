@@ -45,7 +45,7 @@ object Preprocess {
    * @param filePath tsv file of chipseq labels
    * @return parsed files of (tf, cell type, region, score)
    */
-  def loadLabels(sc: SparkContext, filePath: String): RDD[(String, String, ReferenceRegion, Double)] = {
+  def loadLabels(sc: SparkContext, filePath: String): RDD[(String, String, ReferenceRegion, Int)] = {
     assert(filePath.endsWith("tsv") || filePath.endsWith("tsv.gz"))
     val headerTag = "start"
     // parse header for cell types
@@ -61,8 +61,8 @@ object Preprocess {
     })
   }
 
-  def loadLabelFolder(sc: SparkContext, folder: String): RDD[(String, String, ReferenceRegion, Double)] = {
-    var data: RDD[(String, String, ReferenceRegion, Double)] = sc.emptyRDD[(String, String, ReferenceRegion, Double)]
+  def loadLabelFolder(sc: SparkContext, folder: String): RDD[(String, String, ReferenceRegion, Int)] = {
+    var data: RDD[(String, String, ReferenceRegion, Int)] = sc.emptyRDD[(String, String, ReferenceRegion, Int)]
     val d = new File(folder)
     if (d.exists && d.isDirectory) {
       val files = d.listFiles.filter(_.isFile).toList
@@ -153,11 +153,11 @@ object Preprocess {
     data
   }
 
-    def extractLabel(s: String): Double = {
+    def extractLabel(s: String): Int = {
     s match {
-      case "A" => -1.0 // ambiguous
-      case "U" => 0.0  // unbound
-      case "B" => 1.0  // bound
+      case "A" => -1 // ambiguous
+      case "U" => 0  // unbound
+      case "B" => 1  // bound
       case _ => throw new IllegalArgumentException(s"Illegal label ${s}")
     }
   }
@@ -187,7 +187,7 @@ strand - +/- to denote strand or orientation (whenever applicable). Use '.' if n
  */
 case class PeakRecord(region: ReferenceRegion, score: Int, signalValue: Double, pValue: Double, qValue: Double, peak: Double) {
   override
-  def toString:String = {
+  def toString: String = {
     s"${region.referenceName},${region.start},${region.end},${score},${signalValue},${pValue},${qValue},${peak}"
   }
 }

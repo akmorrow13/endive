@@ -72,7 +72,7 @@ object FullMatrixPipeline extends Serializable  {
     val geneReference = conf.genes
 
     // RDD of (tf name, celltype, region, score)
-    val labels: RDD[(String, String, ReferenceRegion, Double)] = Preprocess.loadLabelFolder(sc, labelsPath)
+    val labels: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
 
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] =

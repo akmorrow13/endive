@@ -5,14 +5,18 @@ import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.SequenceDictionary
 
 
-class DataSet(rdd: RDD[LabeledWindow], seed: Int = 100) {
+class Dataset(rdd: RDD[LabeledWindow], seed: Int = 100) {
 
   val r = new scala.util.Random(seed)
-  val heldoutChr = chrs(r.nextInt(chrs.length))
-  val heldoutCellType = cellTypes(r.nextInt(cellTypes.length))
+  val heldoutChr = Dataset.chrs(r.nextInt(Dataset.chrs.length))
+  val heldoutCellType = Dataset.cellTypes(r.nextInt(Dataset.cellTypes.length))
 
   val train = rdd.filter(r => r.win.region.referenceName != heldoutChr && r.win.cellType != heldoutCellType)
   val test = rdd.filter(r => r.win.region.referenceName == heldoutChr || r.win.cellType == heldoutCellType)
+
+}
+
+object Dataset {
 
   val cellTypes = List("A549","GM12878", "H1-hESC", "HCT116", "HeLa-S3", "HepG2", "IMR90", "K562",
     "MCF-7", "PC-3", "Panc1", "SK-N-SH", "induced_pluripotent_stem_cell", "liver")

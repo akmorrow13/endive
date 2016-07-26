@@ -13,14 +13,13 @@ case class Window(tf: String,
   override
   def toString:String = {
     val stringifiedDnase = dnase.map(_.toString).mkString(";")
-    s"${tf},${cellType},${region.referenceName},${region.start},${region.end},${sequence},${stringifiedDnase}"
+    s"${tf},${cellType},${region.referenceName},${region.start},${region.end},${sequence};${stringifiedDnase}"
   }
 }
 
-case class LabeledWindow(win: Window, label: Double) {
-
+case class LabeledWindow(win: Window, label: Int) {
   override
   def toString:String = {
-    s"${win.toString}, ${label}"
+    s"${label},${win.toString}"
   }
 }

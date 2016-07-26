@@ -16,10 +16,10 @@ class DNaseSuite extends EndiveFunSuite {
 
   sparkTest("should merge dnase and labels") {
     val dnaseRDD = Preprocess.loadPeaks(sc, peakPath)
-    val labels: RDD[(String, String, ReferenceRegion, Double)] = Preprocess.loadLabelFolder(sc, labelPath)
+    val labels: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelPath)
     // extract sequences from reference over training regions
-    val sequences: RDD[Window] =
-      labels.map(r => Window(r._1, r._2, r._3, "ATGCG" * 40, List()))
+    val sequences: RDD[LabeledWindow] =
+      labels.map(r => LabeledWindow(Window(r._1, r._2, r._3, "ATGCG" * 40, List()), r._4))
     val dnase = new DNase(windowSize, stride, dnaseRDD)
     val merged = dnase.joinWithSequences(sequences)
     println(merged)

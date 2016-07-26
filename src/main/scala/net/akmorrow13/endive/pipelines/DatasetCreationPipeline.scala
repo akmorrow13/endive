@@ -71,7 +71,7 @@ object DatasetCreationPipeline extends Serializable  {
 
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
-    val train: RDD[(String, String, ReferenceRegion, Double)] = Preprocess.loadLabels(sc, labelsPath).cache()
+    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelsPath).cache()
 
     println("First reading labels")
     train.count()
@@ -87,7 +87,7 @@ object DatasetCreationPipeline extends Serializable  {
   }
 
 
-  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(String, String, ReferenceRegion, Double)]): RDD[LabeledWindow]  = {
+  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(String, String, ReferenceRegion, Int)]): RDD[LabeledWindow]  = {
     /* TODO: This is a kludge that relies that the master + slaves share NFS
      * but the correct thing to do is to use scp/nfs to distribute the sequence data
      * across the cluster
