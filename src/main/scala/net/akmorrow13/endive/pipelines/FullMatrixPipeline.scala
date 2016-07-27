@@ -71,37 +71,36 @@ object FullMatrixPipeline extends Serializable  {
     val labelsPath = conf.labels
     val geneReference = conf.genes
 
-    // RDD of (tf name, celltype, region, score)
-    val labels: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
-
-    // extract sequences from reference over training regions
-    val sequences: RDD[LabeledWindow] =
-          DatasetCreationPipeline.extractSequencesAndLabels(referencePath, labels)
-
-    // Load DNase data of (cell type, peak record)
-    val dnaseRDD: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, conf.dnase)
-
-
-    val dnase = new DNase(windowSize, stride, dnaseRDD)
-
-    val dnaseMapped = dnase.joinWithSequences(sequences)
-    dnaseMapped.map(_.toString).saveAsTextFile(conf.featureLoc)
+//    // RDD of (tf name, celltype, region, score)
+//    val labels: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
+//
+//    // extract sequences from reference over training regions
+//    val sequences: RDD[LabeledWindow] =
+//          DatasetCreationPipeline.extractSequencesAndLabels(referencePath, labels)
+//
+//    // Load DNase data of (cell type, peak record)
+//    val dnaseRDD: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, conf.dnase)
+//
+//
+//    val dnase = new DNase(windowSize, stride, dnaseRDD)
+//
+//    val dnaseMapped = dnase.joinWithSequences(sequences)
+//    dnaseMapped.map(_.toString).saveAsTextFile(conf.featureLoc)
 
     // Load RNA seq data of (cell type, rna transcript)
-//    val rnaLoader = new RNAseq(geneReference, sc)
-//    val rnaseq: RDD[(String, RNARecord)] = rnaLoader.loadRNAFolder(sc, conf.rnaseq)
-//
-//    println("RNA seq")
-//    print(rnaseq.count)
+    val rnaLoader = new RNAseq(geneReference, sc)
+    val rnaseq: RDD[(String, RNARecord)] = rnaLoader.loadRNAFolder(sc, conf.rnaseq)
+    val formattedRNA = rnaseq.map(r => (r._1, r._2.toString))
+    println("saving rna data")
+    formattedRNA.saveAsObjectFile(conf.rnaseqOutput)
 
-
-    println("DNase")
+//    println("DNase")
 //    println(dnase.count)
 
 //    println("saving rnaseq")
 //    rnaseq.map(_.toString).saveAsTextFile(conf.rnaseqLoc)
 
-    println("saving dnase")
+//    println("saving dnase")
 //    dnase.map(_.toString).saveAsTextFile(conf.dnaseLoc)
 
 

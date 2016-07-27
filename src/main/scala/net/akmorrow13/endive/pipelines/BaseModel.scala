@@ -75,10 +75,6 @@ object BaseModel extends Serializable  {
     val labelsPath = conf.labels
     val dnasePath = conf.dnase
 
-    // held out chr and cell type for testing
-    val heldoutChr = "chr1"
-    val heldoutCellType = "HeLa-S3"
-
     // RDD of (tf name, celltype, region, score)
     val labels: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
 
@@ -94,7 +90,7 @@ object BaseModel extends Serializable  {
     val dnaseMapped: RDD[LabeledWindow] = dnase.joinWithSequences(sequences)
 
     // save data
-    dnaseMapped.map(_.toString).saveAsTextFile(conf.aggregatedSequenceLoc)
+    dnaseMapped.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput)
 
     // partition into train and test sets
     val dataset = new Dataset(dnaseMapped)
@@ -107,38 +103,38 @@ object BaseModel extends Serializable  {
     println(features.first)
 
     //  score using a linear classifier with a log loss function
-//    val model = new LogisticRegressionWithLBFGS()
-//      .setNumClasses(2)
-//      .run(features)
-//
+    val model = new LogisticRegressionWithLBFGS()
+      .setNumClasses(2)
+      .run(features)
+
 
     /*********************************
       * Testing on held out chromosome
     ***********************************/
-//    val heldOutChr = dataset.heldoutChr
-//    val chrTest = featurize(test.filter(r => r.win.region.referenceName == heldoutChr))
-//
-//    var predictionAndLabels = chrTest.map { case LabeledPoint(label, features) =>
-//      val prediction = model.predict(features)
-//      (prediction, label)
-//    }
-//
-//    println("held out chr accuracy")
-//    Metrics.computeAccuracy(predictionAndLabels)
-//
-//
-//    /*********************************
-//      * Testing on held out cell type
-//      * ***********************************/
-//    val heldOutCellType = dataset.heldoutCellType
-//    val cellTypeTest = featurize(test.filter(r => r.win.region.referenceName == heldOutCellType))
-//
-//    predictionAndLabels = cellTypeTest.map { case LabeledPoint(label, features) =>
-//      val prediction = model.predict(features)
-//      (prediction, label)
-//    }
-//    println("held out cell type accuracy")
-//    Metrics.computeAccuracy(predictionAndLabels)
+    val heldoutChr = dataset.heldoutChr
+    val chrTest = featurize(sc, test.filter(r => r.win.region.referenceName == heldoutChr), conf.deepbindPath)
+
+    var predictionAndLabels = chrTest.map { case LabeledPoint(label, features) =>
+      val prediction = model.predict(features)
+      (prediction, label)
+    }
+
+    println("held out chr accuracy")
+    Metrics.computeAccuracy(predictionAndLabels)
+
+
+    /*********************************
+      * Testing on held out cell type
+      * ***********************************/
+    val heldOutCellType = dataset.heldoutCellType
+    val cellTypeTest = featurize(sc, test.filter(r => r.win.region.referenceName == heldOutCellType), conf.deepbindPath)
+
+    predictionAndLabels = cellTypeTest.map { case LabeledPoint(label, features) =>
+      val prediction = model.predict(features)
+      (prediction, label)
+    }
+    println("held out cell type accuracy")
+    Metrics.computeAccuracy(predictionAndLabels)
 
   }
 

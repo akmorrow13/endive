@@ -207,7 +207,11 @@ object Preprocess {
  * @param TPM: transcripts per million
  * @param FPKM: fragments per kilobase of exon per million reads mapped
  */
-case class RNARecord(region: ReferenceRegion, geneId: String, transcriptId: String, length: Double, effective_length: Double,	expected_count: Double,	TPM: Double,	FPKM: Double)
+case class RNARecord(region: ReferenceRegion, geneId: String, transcriptId: String, length: Double, effective_length: Double,	expected_count: Double,	TPM: Double,	FPKM: Double) {
+  override def toString: String = {
+    s"${region.referenceName},${region.start},${region.end},${geneId};${transcriptId},${length},${effective_length},${expected_count},${TPM},${FPKM}"
+  }
+}
 
 /**
  *
