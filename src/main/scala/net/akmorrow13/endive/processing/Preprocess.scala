@@ -58,6 +58,8 @@ object Preprocess {
     val file = filePath.split("/").last
     // parse file name for tf
     val tf = file.split('.')(0)
+    println(s"loading  labels for cell type ${cellTypes} from file ${file}")
+
     val rdd = loadTsv(sc, filePath, headerTag)
     rdd.flatMap(parts => {
       cellTypes.zipWithIndex.map( cellType => {
@@ -174,7 +176,7 @@ object Preprocess {
         val fs: FileSystem = FileSystem.get(new Configuration())
         val status = fs.listStatus(new Path(folder))
         for (i <- status) {
-        val file: String = i.getPath.getName
+        val file: String = i.getPath.toString
         data = data.union(loadPeaks(sc, file))
       }
       } catch {

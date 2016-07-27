@@ -26,8 +26,8 @@ class SequenceSuite extends EndiveFunSuite {
     val trainRDD = Preprocess.loadLabels(sc, labelPath)
     // assert tsv loader only loads unbould labels
     assert(trainRDD.count == 29)
-    assert(trainRDD.filter(r => r._2 == -1.0).count() == 1)
-    assert(trainRDD.filter(r => r._2 == 1.0).count() == 1)
+    assert(trainRDD.filter(r => r._4 == -1).count() == 1)
+    assert(trainRDD.filter(r => r._4 == 1).count() == 1)
 
     val reference = Sequence(sc.parallelize(Seq(fragment)), sc)
     val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(trainRDD.map(_._3))

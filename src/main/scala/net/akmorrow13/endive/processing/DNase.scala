@@ -10,7 +10,7 @@ import scala.collection.mutable.ListBuffer
 
 class DNase(@transient windowSize: Int,
                       @transient stride: Int,
-                      dnase: RDD[(String, PeakRecord)]) {
+                      dnase: RDD[(String, PeakRecord)]) extends Serializable {
 
   /**
    * merges sequences with overlapping dnase regions
@@ -19,16 +19,15 @@ class DNase(@transient windowSize: Int,
    */
    def joinWithSequences(in: RDD[LabeledWindow]): RDD[LabeledWindow] = {
       // map dnase to window sizes that match the input window sizes
+
     val str = this.stride
-      val windowedDnase: RDD[((ReferenceRegion, String), List[PeakRecord])] = dnase.flatMap(d => {
-        val start = d._2.region.start
-        val end = d._2.region.end
-        val name = d._2.region.referenceName
-        val newStart = start / str * str
-        val newEnd = end / str *str + str
-        val newRegion = ReferenceRegion(name, newStart, newEnd)
-        unmergeRegions(newRegion).map(r => ((r,d._1), d._2))
-      }).groupBy(_._1).mapValues(r => r.seq.map(_._2).toList)
+    val win = this.windowSize
+    val windowedDnase: RDD[((ReferenceRegion, String), List[PeakRecord])]  = dnase.flatMap(d => {
+      val newStart = d._2.region.start / str * str
+      val newEnd =  d._2.region.end / str * str + str
+      val region = ReferenceRegion(d._2.region.referenceName, newStart, newEnd)
+      unmergeRegions(region, win, str).map(r => ((r,d._1), d._2))
+    }).groupBy(_._1).mapValues(r => r.seq.map(_._2).toList)
 
       val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.region, r.win.cellType))
         .leftOuterJoin(windowedDnase)
@@ -43,18 +42,8 @@ class DNase(@transient windowSize: Int,
    * @param region Region to divide
    * @return list of divided smaller region
    */
-  def unmergeRegions(region: ReferenceRegion): List[ReferenceRegion] = {
-    var regions: ListBuffer[ReferenceRegion] = new ListBuffer[ReferenceRegion]()
-    var start = region.start
-    var end = start + windowSize
-
-    while (start < region.end + windowSize ) {
-      val r = new ReferenceRegion(region.referenceName, start, end)
-      regions += r
-      start += stride
-      end += stride
-    }
-
-    regions.toList
+  def unmergeRegions(region: ReferenceRegion, win: Int, str: Int): List[ReferenceRegion] = {
+    val startValues: List[Long] = List.range(region.start, region.end + win, str)
+    startValues.map(st => ReferenceRegion(region.referenceName, st, st + win ))
   }
 }
