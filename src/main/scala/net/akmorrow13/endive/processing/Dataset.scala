@@ -18,6 +18,10 @@ class Dataset(rdd: RDD[LabeledWindow], seed: Int = 100) {
 
 object Dataset {
 
+  // held out values for final round
+  val heldOutChrs = List("chr1", "chr8", "chr21")
+  val heldOutTypes = List("PC-3", "liver", "induced_pluripotent_stem_cell")
+
   val cellTypes = List("A549","GM12878", "H1-hESC", "HCT116", "HeLa-S3", "HepG2", "IMR90", "K562",
     "MCF-7", "PC-3", "Panc1", "SK-N-SH", "induced_pluripotent_stem_cell", "liver")
 

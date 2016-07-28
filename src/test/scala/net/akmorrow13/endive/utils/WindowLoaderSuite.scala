@@ -16,7 +16,7 @@ class WindowLoaderSuite extends EndiveFunSuite {
     val sequence = "ATTTTGGGGGAAAAA"
     val peak1 = PeakRecord(region, 0, 0, 0, 0, 0)
 
-    val window: Window = Window(tf, cellType,region,sequence, List(peak1))
+    val window: Window = Window(tf, cellType,region,sequence, List(peak1), List())
     val labeledWindow = LabeledWindow(window, 0)
     val strWin = labeledWindow.toString
     val labeledWindow2: LabeledWindow = LabeledWindowLoader.stringToLabeledWindow(strWin)

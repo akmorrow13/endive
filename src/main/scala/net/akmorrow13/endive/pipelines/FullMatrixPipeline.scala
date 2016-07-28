@@ -19,6 +19,8 @@ import java.io.File
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.Kmer
 import net.akmorrow13.endive.utils._
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -67,9 +69,29 @@ object FullMatrixPipeline extends Serializable  {
     val windowSize = 200 // defined by competition
     // create new sequence with reference path
     val referencePath = conf.reference
-    // load chip seq labels from 1 file
+    // load chip seq labels from 1 fileRNA
     val labelsPath = conf.labels
     val geneReference = conf.genes
+
+  //    // RDD of (tf name, celltype, region, score)
+//    val labels: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
+
+    val d = new File(labelsPath)
+    println(sc.isLocal)
+    if (sc.isLocal) {
+      if (d.exists && d.isDirectory) {
+        val files = d.listFiles.filter(_.isFile).toList
+        println("files ", files)
+        files.map(f => {
+          val cellTypes = sc.textFile(f.toString).filter(r => r.contains("start")).first().split("\t").drop(3)
+          val tf = f.toString.split("/").last.split('.')(0)
+          println(tf, cellTypes.mkString(","))
+        })
+      } else {
+        throw new Exception(s"is not a valid directory for peaks")
+      }
+    }
+
 
 //    // RDD of (tf name, celltype, region, score)
 //    val labels: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
@@ -88,11 +110,14 @@ object FullMatrixPipeline extends Serializable  {
 //    dnaseMapped.map(_.toString).saveAsTextFile(conf.featureLoc)
 
     // Load RNA seq data of (cell type, rna transcript)
-    val rnaLoader = new RNAseq(geneReference, sc)
-    val rnaseq: RDD[(String, RNARecord)] = rnaLoader.loadRNAFolder(sc, conf.rnaseq)
-    val formattedRNA = rnaseq.map(r => (r._1, r._2.toString))
-    println("saving rna data")
-    formattedRNA.saveAsObjectFile(conf.rnaseqOutput)
+//    val rnaLoader = new RNAseq(geneReference, sc)
+//    val path = "/Users/akmorrow/ADAM/endive/src/test/resources/gene_expression.A549.biorep1_head10.tsv"
+//    val rnaseq: RDD[(String, RNARecord)] = rnaLoader.loadRNA(sc, path)
+//    val formattedRNA = rnaseq.map(r => (r._1 + "," + r._2.toString))
+//    println(formattedRNA.first)
+//
+//    println("saving rna data")
+//    formattedRNA.saveAsTextFile(conf.rnaseqOutput)
 
 //    println("DNase")
 //    println(dnase.count)

@@ -12,7 +12,7 @@ class SamplingSuite extends EndiveFunSuite {
   sparkTest("should subsample negative points close to positive points") {
     val trainRDD: RDD[LabeledWindow] = Preprocess.loadLabels(sc, labelPath)
                                 .map(r => {
-                                  val win = Window(r._1, r._2, r._3, "AAAAA", List())
+                                  val win = Window(r._1, r._2, r._3, "AAAAA", List(), List())
                                   LabeledWindow(win, r._4)
                                 })
     val sampledRDD = Sampling.selectNegativeSamples(sc, trainRDD, 700L)

@@ -213,6 +213,15 @@ case class RNARecord(region: ReferenceRegion, geneId: String, transcriptId: Stri
   }
 }
 
+object RNARecord {
+  def fromString(str: String): RNARecord = {
+    val parts = str.split(",")
+    val region = ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong)
+    RNARecord(region, parts(3), parts(4), parts(5).toDouble, parts(6).toDouble, parts(7).toDouble, parts(8).toDouble, parts(9).toDouble)
+
+  }
+}
+
 /**
  *
  * @param score Indicates how dark the peak will be displayed in the browser (0-1000). If all scores were '0' when the data were submitted to the DCC, the DCC assigned scores 1-1000 based on signal value. Ideally the average signalValue per base spread is between 100-1000.

@@ -86,55 +86,63 @@ object BaseModel extends Serializable  {
     val dnaseRDD: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, conf.dnase)
 
     // merge dnase with sequences
-    val dnase = new DNase(windowSize, stride, dnaseRDD)
-    val dnaseMapped: RDD[LabeledWindow] = dnase.joinWithSequences(sequences)
+//    val dnase = new DNase(windowSize, stride, dnaseRDD)
+//    val dnaseMapped: RDD[LabeledWindow] = dnase.joinWithSequences(sequences)
+//
+//    // save data
+//    dnaseMapped.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput)
+//
+//    // partition into train and test sets
+//    val dataset = new Dataset(dnaseMapped)
+//    val train = dataset.train
+//    val test = dataset.test
+//
+//
+//    // filter out positives: areas with no dnase are automatic negatives
+//    val features: RDD[LabeledPoint] = featurize(sc, train, conf.deepbindPath)
+//    println(features.first)
+//
+//    //  score using a linear classifier with a log loss function
+//    val model = new LogisticRegressionWithLBFGS()
+//      .setNumClasses(2)
+//      .run(features)
+//
+//    val trainingPrediction = features.map { case LabeledPoint(label, features) =>
+//            val prediction = model.predict(features)
+//            (prediction, label)
+//      }
+//
+//      println("training accuracy")
+//      Metrics.computeAccuracy(trainingPrediction)
+//
 
-    // save data
-    dnaseMapped.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput)
-
-    // partition into train and test sets
-    val dataset = new Dataset(dnaseMapped)
-    val train = dataset.train
-    val test = dataset.test
-
-
-    // filter out positives: areas with no dnase are automatic negatives
-    val features: RDD[LabeledPoint] = featurize(sc, train, conf.deepbindPath)
-    println(features.first)
-
-    //  score using a linear classifier with a log loss function
-    val model = new LogisticRegressionWithLBFGS()
-      .setNumClasses(2)
-      .run(features)
-
-
-    /*********************************
-      * Testing on held out chromosome
-    ***********************************/
-    val heldoutChr = dataset.heldoutChr
-    val chrTest = featurize(sc, test.filter(r => r.win.region.referenceName == heldoutChr), conf.deepbindPath)
-
-    var predictionAndLabels = chrTest.map { case LabeledPoint(label, features) =>
-      val prediction = model.predict(features)
-      (prediction, label)
-    }
-
-    println("held out chr accuracy")
-    Metrics.computeAccuracy(predictionAndLabels)
-
-
-    /*********************************
-      * Testing on held out cell type
-      * ***********************************/
-    val heldOutCellType = dataset.heldoutCellType
-    val cellTypeTest = featurize(sc, test.filter(r => r.win.region.referenceName == heldOutCellType), conf.deepbindPath)
-
-    predictionAndLabels = cellTypeTest.map { case LabeledPoint(label, features) =>
-      val prediction = model.predict(features)
-      (prediction, label)
-    }
-    println("held out cell type accuracy")
-    Metrics.computeAccuracy(predictionAndLabels)
+    //    /*********************************
+//      * Testing on held out chromosome
+//    ***********************************/
+//    val heldoutChr = dataset.heldoutChr
+//    val chrTest = featurize(sc, test.filter(r => r.win.region.referenceName == heldoutChr), conf.deepbindPath)
+//
+//    var predictionAndLabels = chrTest.map { case LabeledPoint(label, features) =>
+//      val prediction = model.predict(features)
+//      (prediction, label)
+//    }
+//
+//    println("held out chr accuracy")
+//    Metrics.computeAccuracy(predictionAndLabels)
+//
+//
+//    /*********************************
+//      * Testing on held out cell type
+//      * ***********************************/
+//    val heldOutCellType = dataset.heldoutCellType
+//    val cellTypeTest = featurize(sc, test.filter(r => r.win.region.referenceName == heldOutCellType), conf.deepbindPath)
+//
+//    predictionAndLabels = cellTypeTest.map { case LabeledPoint(label, features) =>
+//      val prediction = model.predict(features)
+//      (prediction, label)
+//    }
+//    println("held out cell type accuracy")
+//    Metrics.computeAccuracy(predictionAndLabels)
 
   }
 
