@@ -87,17 +87,11 @@ object DatasetCreationPipeline extends Serializable  {
     if (rnaseqPath == null)
       throw new Exception("rnaseqPath not defined")
 
-    // get sd from reference
-    val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-    val sd: SequenceDictionary = new SequenceDictionary(reference.seqRecords.toVector.map(r => SequenceRecord(r._1, r._2.dnaSize)))
-    println("LOADED SEQUENCEDICTIONARY FROM REFERENCE FILE")
-
     // challenge parameters
     val windowSize = 200
     val stride = 50
 
-    // load chip seq labels from 1 file
-    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelsPath)
+    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
         .cache()
 
     println("First reading labels")
@@ -115,6 +109,8 @@ object DatasetCreationPipeline extends Serializable  {
     val rnaseq: RDD[(String, RNARecord)] = rnaLoader.loadRNAFolder(sc, rnaseqPath)
       .cache()
 
+    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+
     val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, rnaseq, sd)
 
     val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithSequences(sequences)
@@ -125,6 +121,11 @@ object DatasetCreationPipeline extends Serializable  {
     println("Now matching labels with reference genome")
     sequences.count()
 
+  }
+
+  def getSequenceDictionary(referencePath: String): SequenceDictionary = {
+    val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+    new SequenceDictionary(reference.seqRecords.toVector.map(r => SequenceRecord(r._1, r._2.dnaSize)))
   }
 
 

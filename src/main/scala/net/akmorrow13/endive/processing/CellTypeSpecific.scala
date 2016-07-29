@@ -34,7 +34,7 @@ class CellTypeSpecific(@transient windowSize: Int,
 
     // TODO: this does not calculate held out chrs
       val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.region, r.win.cellType))
-      .partitionBy(LabeledReferenceRegionPartitioner(sd))
+        .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
         .leftOuterJoin(cellData)
         .map(r => {
           val (dnase, rnaseq) =
@@ -60,15 +60,14 @@ object CellTypeSpecific {
    * @return
    */
   def joinDataSets[T: ClassTag, S: ClassTag](rdd1: RDD[(ReferenceRegion, String, T)],
-                                             rdd2: RDD[(ReferenceRegion, String, S)],
-                                             sd: SequenceDictionary): RDD[((ReferenceRegion, String), (Option[List[T]], Option[List[S]]))] = {
+                                             rdd2: RDD[(ReferenceRegion, String, S)]
+                                              , sd: SequenceDictionary): RDD[((ReferenceRegion, String), (Option[List[T]], Option[List[S]]))] = {
     val windowed1 = window[T](rdd1, sd)
     val windowed2 = window[S](rdd2, sd)
     windowed1.fullOuterJoin(windowed2)
   }
 
-  def window[T: ClassTag](rdd: RDD[(ReferenceRegion, String, T)],
-                          sd: SequenceDictionary): RDD[((ReferenceRegion, String), List[T])] = {
+  def window[T: ClassTag](rdd: RDD[(ReferenceRegion, String, T)], sd: SequenceDictionary): RDD[((ReferenceRegion, String), List[T])] = {
     val stride = 50
     val windowSize = 200
     val windowed: RDD[((ReferenceRegion, String), List[T])]  = rdd.flatMap(d => {
@@ -78,7 +77,7 @@ object CellTypeSpecific {
       unmergeRegions(region, windowSize, stride).map(r => ((r, d._2), d._3))
     }).groupBy(_._1).mapValues(r => r.seq.map(_._2).toList)
 
-    windowed.partitionBy(LabeledReferenceRegionPartitioner(sd))
+    windowed.partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
   }
 
   /**

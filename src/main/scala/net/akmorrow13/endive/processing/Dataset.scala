@@ -4,18 +4,6 @@ import net.akmorrow13.endive.utils.LabeledWindow
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.SequenceDictionary
 
-
-class Dataset(rdd: RDD[LabeledWindow], seed: Int = 100) {
-
-  val r = new scala.util.Random(seed)
-  val heldoutChr = Dataset.chrs(r.nextInt(Dataset.chrs.length))
-  val heldoutCellType = Dataset.cellTypes(r.nextInt(Dataset.cellTypes.length))
-
-  val train = rdd.filter(r => r.win.region.referenceName != heldoutChr && r.win.cellType != heldoutCellType)
-  val test = rdd.filter(r => r.win.region.referenceName == heldoutChr || r.win.cellType == heldoutCellType)
-
-}
-
 object Dataset {
 
   // held out values for final round

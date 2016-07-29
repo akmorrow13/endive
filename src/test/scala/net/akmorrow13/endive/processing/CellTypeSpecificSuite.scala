@@ -27,25 +27,7 @@ class CellTypeSpecificSuite extends EndiveFunSuite {
     val sequences: RDD[LabeledWindow] =
       labels.map(r => LabeledWindow(Window(r._1, r._2, r._3, "ATGCG" * 40, List(), List()), r._4))
 
-    val sd = new SequenceDictionary(Vector(SequenceRecord("chr1", 2000L),
-      SequenceRecord("chr2", 67402609),
-      SequenceRecord("chr3", 245882740),
-      SequenceRecord("chr5", 272192031),
-      SequenceRecord("chr6", 42938256),
-      SequenceRecord("chr7", 234050773),
-      SequenceRecord("chr8", 76457025),
-      SequenceRecord("chr9", 95666353),
-      SequenceRecord("chr10", 2008762L),
-      SequenceRecord("chr11", 86482433),
-      SequenceRecord("chr12", 63265759),
-      SequenceRecord("chr15", 75596394),
-      SequenceRecord("chr17", 8060545),
-      SequenceRecord("chr18", 66457025),
-      SequenceRecord("chr19", 33962480),
-      SequenceRecord("chr20", 62725155)))
-
-
-    val cellTypeInfo = new CellTypeSpecific(windowSize,stride,dnaseRDD, rnaseqRDD, sd)
+    val cellTypeInfo = new CellTypeSpecific(windowSize,stride,dnaseRDD, rnaseqRDD)
     val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithSequences(sequences)
     assert(fullMatrix.count == 29)
   }
