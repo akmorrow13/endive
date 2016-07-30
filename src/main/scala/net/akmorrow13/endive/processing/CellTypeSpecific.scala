@@ -14,12 +14,34 @@ class CellTypeSpecific(@transient windowSize: Int,
                       rnaseq: RDD[(String, RNARecord)],
                       sd: SequenceDictionary) extends Serializable {
 
+  def joinWithDNase(in: RDD[LabeledWindow]): RDD[LabeledWindow] = {
+    val mappedDnase = CellTypeSpecific.window(dnase.map(r => (r._2.region, r._1, r._2)), sd)
+
+    val str = this.stride
+    val win = this.windowSize
+
+    // TODO: this does not calculate held out chrs
+    val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.region, r.win.cellType))
+      .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+      .leftOuterJoin(mappedDnase)
+      .map(r => {
+        val dnase = r._2._2.getOrElse(List())
+        LabeledWindow(Window(r._2._1.win.tf, r._2._1.win.cellType,
+          r._2._1.win.region, r._2._1.win.sequence,dnase, List()), r._2._1.label)
+      })
+    x
+  }
+
   /**
    * merges sequences with overlapping dnase regions
    * @param in Window of sequences specified by cell type and transcription factor
    * @return new window with dnase regions
    */
    def joinWithSequences(in: RDD[LabeledWindow]): RDD[LabeledWindow] = {
+    // if no rnaseq just join with dnase
+    if (rnaseq.isEmpty)
+      return joinWithDNase(in)
+
     // map dnase and rnaseq to window sizes that match the input window sizes
     val mappedDnase = dnase.map(r => (r._2.region, r._1, r._2))
     val mappedRnaseq = rnaseq.map(r => (r._2.region, r._1, r._2))

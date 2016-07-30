@@ -13,7 +13,6 @@ case class LabeledReferenceRegionPartitioner(sd: SequenceDictionary, cellTypes: 
   private val reference: Vector[(String, String)] = for (x <- sd.records.map(_.name); y <- cellTypes) yield (x,y)
 
   override def numPartitions: Int = reference.length
-  println("partition count", numPartitions)
 
   private def partitionFromName(referenceName: String, cellType: String): Int = {
     // which reference is this in?

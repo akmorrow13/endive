@@ -76,7 +76,7 @@ object DatasetCreationPipeline extends Serializable  {
       throw new Exception("gene path not defined")
     val aggregatedSequenceOutput = conf.aggregatedSequenceOutput
     if (aggregatedSequenceOutput == null)
-      throw new Exception("output not defined")
+      throw new Exception("aggregatedSequenceOutput not defined")
     val labelsPath = conf.labels
     if (labelsPath == null)
       throw new Exception("chipseq labels not defined")
@@ -104,16 +104,16 @@ object DatasetCreationPipeline extends Serializable  {
     val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, dnasePath)
       .cache()
 
-    // load rnase data
-    val rnaLoader = new RNAseq(genes, sc)
-    val rnaseq: RDD[(String, RNARecord)] = rnaLoader.loadRNAFolder(sc, rnaseqPath)
-      .cache()
+//    // load rnase data
+//    val rnaLoader = new RNAseq(genes, sc)
+//    val rnaseq: RDD[(String, RNARecord)] = rnaLoader.loadRNAFolder(sc, rnaseqPath)
+//      .cache()
 
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-    val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, rnaseq, sd)
+    val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
 
-    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithSequences(sequences)
+    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
 
     // save data
     fullMatrix.map(_.toString).saveAsTextFile(aggregatedSequenceOutput)
