@@ -74,8 +74,8 @@ object Preprocess {
     if (sc.isLocal) {
       if (d.exists && d.isDirectory) {
         val files = d.listFiles.filter(_.isFile).toList
-        files.map(f => {
-          data = data.union(loadLabels(sc, f.getPath))
+        files.map(f => {	
+	      data = data.union(loadLabels(sc, f.getPath))
         })
       } else {
         throw new Exception(s"${folder} is not a valid directory for peaks")
@@ -85,7 +85,7 @@ object Preprocess {
       val fs: FileSystem = FileSystem.get(new Configuration())
       val status = fs.listStatus(new Path(folder))
       for (i <- status) {
-        val file: String = i.getPath.getName
+        val file: String = i.getPath.toString
         data = data.union(loadLabels(sc, file))
       }
     } catch {

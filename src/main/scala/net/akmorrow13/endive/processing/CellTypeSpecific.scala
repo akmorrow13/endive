@@ -16,7 +16,7 @@ class CellTypeSpecific(@transient windowSize: Int,
 
   def joinWithDNase(in: RDD[LabeledWindow]): RDD[LabeledWindow] = {
     val mappedDnase = CellTypeSpecific.window(dnase.map(r => (r._2.region, r._1, r._2)), sd)
-
+    println("windowed dnase", mappedDnase.count)
     val str = this.stride
     val win = this.windowSize
 
@@ -29,6 +29,7 @@ class CellTypeSpecific(@transient windowSize: Int,
         LabeledWindow(Window(r._2._1.win.getTf, r._2._1.win.getCellType,
           r._2._1.win.getRegion, r._2._1.win.getSequence, dnase = Some(dnase)), r._2._1.label)
       })
+     println("finished join in joinWithDnase", x.count)
     x
   }
 

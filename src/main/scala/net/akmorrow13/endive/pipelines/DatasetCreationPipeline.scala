@@ -99,11 +99,11 @@ object DatasetCreationPipeline extends Serializable  {
 
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
-
+    
     // Load DNase data of (cell type, peak record)
     val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, dnasePath)
       .cache()
-
+    println("loaded dnase", dnase.count)
 //    // load rnase data
 //    val rnaLoader = new RNAseq(genes, sc)
 //    val rnaseq: RDD[(String, RNARecord)] = rnaLoader.loadRNAFolder(sc, rnaseqPath)
@@ -113,8 +113,10 @@ object DatasetCreationPipeline extends Serializable  {
 
     val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
 
-    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
+    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences).cache()
+    println(s"size of full matrix: ${fullMatrix.count}")
 
+    println("saving full matrix")
     // save data
     fullMatrix.map(_.toString).saveAsTextFile(aggregatedSequenceOutput)
 

@@ -9,11 +9,9 @@ object Dataset {
   // held out values for final round
   val heldOutChrs = List("chr1", "chr8", "chr21")
   val heldOutTypes = List("PC-3", "liver", "induced_pluripotent_stem_cell")
-
   val cellTypes = List("A549","GM12878", "H1-hESC", "HCT116", "HeLaS3", "HepG2", "IMR90", "K562",
     "MCF7", "PC3",
     "Panc1", "SKNSH", "inducedpluripotentstemcell", "liver")
-
   val tfs = List("ARID3A",
     "CEBPB", "EGR1", "HNF4A", "REST", "TCF12",
     "EP300", "JUND",	"RFX5",	"TCF7L2",
