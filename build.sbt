@@ -28,6 +28,7 @@ fork := true
   val exclude5= ExclusionRule(organization = "org.codehaus.jackson")
   val exclude6= ExclusionRule(organization = "org.sonatype.sisu.inject")
   libraryDependencies ++= Seq(
+  "javax.servlet" % "javax.servlet-api" % "3.0.1",
   "edu.arizona.sista" % "processors" % "3.0" exclude("ch.qos.logback", "logback-classic"),
   "edu.arizona.sista" % "processors" % "3.0" classifier "models",
   "org.slf4j" % "slf4j-api" % "1.7.2",

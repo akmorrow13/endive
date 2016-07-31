@@ -24,8 +24,9 @@ import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.models.{SequenceDictionary, SequenceRecord, ReferenceRegion}
 import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.rdd.GenomicPositionPartitioner
 import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
 import org.bdgenomics.formats.avro._
 import org.bdgenomics.formats.avro.NucleotideContigFragment
@@ -68,10 +69,30 @@ object DatasetCreationPipeline extends Serializable  {
     println("STARTING DATA SET CREATION PIPELINE")
     // create new sequence with reference path
     val referencePath = conf.reference
-
-    // load chip seq labels from 1 file
+    if (referencePath == null)
+      throw new Exception("referencepath not defined")
+    val genes = conf.genes
+    if (genes == null)
+      throw new Exception("gene path not defined")
+    val aggregatedSequenceOutput = conf.aggregatedSequenceOutput
+    if (aggregatedSequenceOutput == null)
+      throw new Exception("aggregatedSequenceOutput not defined")
     val labelsPath = conf.labels
-    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelsPath).cache()
+    if (labelsPath == null)
+      throw new Exception("chipseq labels not defined")
+    val dnasePath = conf.dnase
+    if (dnasePath == null)
+      throw new Exception("dnasePath not defined")
+    val rnaseqPath = conf.rnaseq
+    if (rnaseqPath == null)
+      throw new Exception("rnaseqPath not defined")
+
+    // challenge parameters
+    val windowSize = 200
+    val stride = 50
+
+    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
+        .cache()
 
     println("First reading labels")
     train.count()
@@ -79,11 +100,32 @@ object DatasetCreationPipeline extends Serializable  {
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
 
+    // Load DNase data of (cell type, peak record)
+    val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, dnasePath)
+      .cache()
+
+//    // load rnase data
+//    val rnaLoader = new RNAseq(genes, sc)
+//    val rnaseq: RDD[(String, RNARecord)] = rnaLoader.loadRNAFolder(sc, rnaseqPath)
+//      .cache()
+
+    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+
+    val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
+
+    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
+
+    // save data
+    fullMatrix.map(_.toString).saveAsTextFile(aggregatedSequenceOutput)
+
     println("Now matching labels with reference genome")
     sequences.count()
 
-//    println("Now saving to disk")
-//    sequences.map(_.toString).saveAsTextFile(conf.windowLoc)
+  }
+
+  def getSequenceDictionary(referencePath: String): SequenceDictionary = {
+    val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+    new SequenceDictionary(reference.seqRecords.toVector.map(r => SequenceRecord(r._1, r._2.dnaSize)))
   }
 
 
@@ -100,7 +142,7 @@ object DatasetCreationPipeline extends Serializable  {
           val endIdx = r._3.end
           val sequence = reference.extract(r._3)
           val label = r._4
-          val win = Window(r._1, r._2, r._3, sequence, List())
+          val win = Window(r._1, r._2, r._3, sequence, List(), List())
           LabeledWindow(win, label)
         }
       }

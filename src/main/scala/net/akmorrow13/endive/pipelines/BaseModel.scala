@@ -21,6 +21,7 @@ import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
 import net.akmorrow13.endive.processing.Dataset
+import nodes.util.ClassLabelIndicatorsFromIntLabels
 
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS}
@@ -28,7 +29,9 @@ import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary, ReferenceRegion}
+import org.bdgenomics.adam.util.TwoBitFile
+import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
@@ -65,19 +68,20 @@ object BaseModel extends Serializable  {
 
     println("STARTING DATA SET CREATION PIPELINE")
 
+
     // challenge parameters
     val windowSize = 200
     val stride = 50
 
+    if (conf.featurizedOutput == null)
+      throw new Exception("output for featured data not defined")
+
+    val genes = conf.genes
     // create new sequence with reference path
     val referencePath = conf.reference
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
     val dnasePath = conf.dnase
-
-    // held out chr and cell type for testing
-    val heldoutChr = "chr1"
-    val heldoutCellType = "HeLa-S3"
 
     // RDD of (tf name, celltype, region, score)
     val labels: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
@@ -87,36 +91,56 @@ object BaseModel extends Serializable  {
       DatasetCreationPipeline.extractSequencesAndLabels(referencePath, labels)
 
     // Load DNase data of (cell type, peak record)
-    val dnaseRDD: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, conf.dnase)
+    val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, dnasePath)
+      .cache()
 
-    // merge dnase with sequences
-    val dnase = new DNase(windowSize, stride, dnaseRDD)
-    val dnaseMapped: RDD[LabeledWindow] = dnase.joinWithSequences(sequences)
+    // load rnase data
+    val rnaseq: RDD[(String, RNARecord)] = sc.emptyRDD[(String, RNARecord)]
 
-    // save data
-    dnaseMapped.map(_.toString).saveAsTextFile(conf.aggregatedSequenceLoc)
+    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-    // partition into train and test sets
-    val dataset = new Dataset(dnaseMapped)
-    val train = dataset.train
-    val test = dataset.test
+    val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, rnaseq, sd)
 
+
+    // deepbind does not have creb1 scores so we will hold out for now
+    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithSequences(sequences)
+      .filter(r => r.win.tf != "CREB1")
+
+    println("Grouping Data to train and test")
+    val groupedData = fullMatrix.groupBy(lw => lw.win.region.referenceName).cache()
+    groupedData.count()
+
+    val foldsData = groupedData.map(x => (x._1.hashCode() % 2, x._2))
+    // featurize sequences to 8mers
+    val train = foldsData.filter(x => x._1 != 0).flatMap(x => x._2).cache()
+    val test = foldsData.filter(x => x._1 == 0).flatMap(x => x._2).cache()
 
     // filter out positives: areas with no dnase are automatic negatives
-    val features: RDD[LabeledPoint] = featurize(sc, train, conf.deepbindPath)
+    val features: RDD[LabeledPoint] = featurize(sc, fullMatrix, conf.deepbindPath).cache()
+
+    // save features
+    features.map(_.toString()).saveAsTextFile(conf.featurizedOutput)
     println(features.first)
 
     //  score using a linear classifier with a log loss function
-//    val model = new LogisticRegressionWithLBFGS()
-//      .setNumClasses(2)
-//      .run(features)
+    val model = new LogisticRegressionWithLBFGS()
+      .setNumClasses(2)
+      .run(features)
+
+    val trainingPrediction = features.map { case LabeledPoint(label, features) =>
+            val prediction = model.predict(features)
+            (prediction, label)
+      }
+
+      println("training accuracy")
+      Metrics.computeAccuracy(trainingPrediction)
 //
 
-    /*********************************
-      * Testing on held out chromosome
-    ***********************************/
-//    val heldOutChr = dataset.heldoutChr
-//    val chrTest = featurize(test.filter(r => r.win.region.referenceName == heldoutChr))
+    //    /*********************************
+//      * Testing on held out chromosome
+//    ***********************************/
+//    val heldoutChr = dataset.heldoutChr
+//    val chrTest = featurize(sc, test.filter(r => r.win.region.referenceName == heldoutChr), conf.deepbindPath)
 //
 //    var predictionAndLabels = chrTest.map { case LabeledPoint(label, features) =>
 //      val prediction = model.predict(features)
@@ -131,7 +155,7 @@ object BaseModel extends Serializable  {
 //      * Testing on held out cell type
 //      * ***********************************/
 //    val heldOutCellType = dataset.heldoutCellType
-//    val cellTypeTest = featurize(test.filter(r => r.win.region.referenceName == heldOutCellType))
+//    val cellTypeTest = featurize(sc, test.filter(r => r.win.region.referenceName == heldOutCellType), conf.deepbindPath)
 //
 //    predictionAndLabels = cellTypeTest.map { case LabeledPoint(label, features) =>
 //      val prediction = model.predict(features)

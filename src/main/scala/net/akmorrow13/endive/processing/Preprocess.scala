@@ -15,11 +15,16 @@
  */
 package net.akmorrow13.endive.processing
 
-import java.io.File
+import java.io.{InputStreamReader, BufferedReader, File}
 
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
+import org.apache.hadoop.fs._
+import org.apache.hadoop.conf._
+import org.apache.hadoop.io._
+import org.apache.hadoop.mapred._
+import org.apache.hadoop.util._
 
 object Preprocess {
 
@@ -53,6 +58,8 @@ object Preprocess {
     val file = filePath.split("/").last
     // parse file name for tf
     val tf = file.split('.')(0)
+    println(s"loading  labels for cell type ${cellTypes} from file ${file}")
+
     val rdd = loadTsv(sc, filePath, headerTag)
     rdd.flatMap(parts => {
       cellTypes.zipWithIndex.map( cellType => {
@@ -64,14 +71,27 @@ object Preprocess {
   def loadLabelFolder(sc: SparkContext, folder: String): RDD[(String, String, ReferenceRegion, Int)] = {
     var data: RDD[(String, String, ReferenceRegion, Int)] = sc.emptyRDD[(String, String, ReferenceRegion, Int)]
     val d = new File(folder)
-    if (d.exists && d.isDirectory) {
-      val files = d.listFiles.filter(_.isFile).toList
-      files.map(f => {
-        data = data.union(loadLabels(sc, f.getPath))
-      })
+    if (sc.isLocal) {
+      if (d.exists && d.isDirectory) {
+        val files = d.listFiles.filter(_.isFile).toList
+        files.map(f => {
+          data = data.union(loadLabels(sc, f.getPath))
+        })
+      } else {
+        throw new Exception(s"${folder} is not a valid directory for peaks")
+      }
     } else {
-      throw new Exception(s"${folder} is not a valid directory for peaks")
+    try{
+      val fs: FileSystem = FileSystem.get(new Configuration())
+      val status = fs.listStatus(new Path(folder))
+      for (i <- status) {
+        val file: String = i.getPath.getName
+        data = data.union(loadLabels(sc, file))
+      }
+    } catch {
+      case e: Exception => println(s"Directory ${folder} could not be loaded")
     }
+  }
     data
   }
 
@@ -139,16 +159,29 @@ object Preprocess {
   }
 
   def loadPeakFolder(sc: SparkContext, folder: String): RDD[(String, PeakRecord)] = {
+
     var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]
-    val d = new File(folder)
-    if (d.exists && d.isDirectory) {
-      val files = d.listFiles.filter(_.isFile).toList
-      println(files)
-      files.map(f => {
-        data = data.union(loadPeaks(sc, f.getPath))
-      })
+    if (sc.isLocal) {
+      val d = new File(folder)
+      if (d.exists && d.isDirectory) {
+        val files = d.listFiles.filter(_.isFile).toList
+        files.map(f => {
+          data = data.union(loadPeaks(sc, f.getPath))
+        })
+      } else {
+        throw new Exception(s"${folder} is not a valid directory for peaks")
+      }
     } else {
-      throw new Exception(s"${folder} is not a valid directory for peaks")
+      try{
+        val fs: FileSystem = FileSystem.get(new Configuration())
+        val status = fs.listStatus(new Path(folder))
+        for (i <- status) {
+        val file: String = i.getPath.toString
+        data = data.union(loadPeaks(sc, file))
+      }
+      } catch {
+        case e: Exception => println(s"Directory ${folder} could not be loaded")
+      }
     }
     data
   }
@@ -174,7 +207,20 @@ object Preprocess {
  * @param TPM: transcripts per million
  * @param FPKM: fragments per kilobase of exon per million reads mapped
  */
-case class RNARecord(region: ReferenceRegion, geneId: String, transcriptId: String, length: Double, effective_length: Double,	expected_count: Double,	TPM: Double,	FPKM: Double)
+case class RNARecord(region: ReferenceRegion, geneId: String, transcriptId: String, length: Double, effective_length: Double,	expected_count: Double,	TPM: Double,	FPKM: Double) {
+  override def toString: String = {
+    s"${region.referenceName},${region.start},${region.end},${geneId};${transcriptId},${length},${effective_length},${expected_count},${TPM},${FPKM}"
+  }
+}
+
+object RNARecord {
+  def fromString(str: String): RNARecord = {
+    val parts = str.split(",")
+    val region = ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong)
+    RNARecord(region, parts(3), parts(4), parts(5).toDouble, parts(6).toDouble, parts(7).toDouble, parts(8).toDouble, parts(9).toDouble)
+
+  }
+}
 
 /**
  *

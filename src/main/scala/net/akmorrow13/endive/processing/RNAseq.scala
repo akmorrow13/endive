@@ -17,6 +17,8 @@ package net.akmorrow13.endive.processing
 
 import java.io.File
 
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
@@ -44,14 +46,27 @@ class RNAseq(geneReference: String, @transient sc: SparkContext) {
 
   def loadRNAFolder(sc: SparkContext, folder: String): RDD[(String, RNARecord)] = {
     var data: RDD[(String, RNARecord)] = sc.emptyRDD[(String, RNARecord)]
-    val d = new File(folder)
-    if (d.exists && d.isDirectory) {
-      val files = d.listFiles.filter(_.isFile).toList
-      files.map(f => {
-        data = data.union(loadRNA(sc, f.getPath))
-      })
+    if (sc.isLocal) {
+      val d = new File(folder)
+      if (d.exists && d.isDirectory) {
+        val files = d.listFiles.filter(_.isFile).toList
+        files.map(f => {
+          data = data.union(loadRNA(sc, f.getPath))
+        })
+      } else {
+        throw new Exception(s"${folder} is not a valid directory for peaks")
+      }
     } else {
-      throw new Exception(s"${folder} is not a valid directory for peaks")
+      try{
+        val fs: FileSystem = FileSystem.get(new Configuration())
+        val status = fs.listStatus(new Path(folder))
+        for (i <- status) {
+          val file: String = i.getPath.getName
+          data = data.union(loadRNA(sc, file))
+        }
+      } catch {
+        case e: Exception => println(s"Directory ${folder} could not be loaded")
+      }
     }
     data
   }

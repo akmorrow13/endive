@@ -13,7 +13,10 @@ class EndiveConf extends Serializable {
   @BeanProperty var featureLoc: String = null
 
   /* output files */
-  @BeanProperty var aggregatedSequenceLoc: String = null
+  @BeanProperty var aggregatedSequenceOutput: String = null
+  @BeanProperty var rnaseqOutput: String = null
+  @BeanProperty var featurizedOutput: String = null
+
 
   /* location of sequence motif data */
   @BeanProperty var deepbindPath: String = null
