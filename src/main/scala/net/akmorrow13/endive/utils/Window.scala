@@ -13,8 +13,11 @@ object Window {
              sequence: String,
              dnase: Option[List[PeakRecord]] = None,
              rnaseq: Option[List[RNARecord]] = None): Window = {
-    val filteredCellType: String = cellType.filterNot("-_".toSet)
-    new Window(tf, filteredCellType, region, sequence, dnase.getOrElse(List()), rnaseq.getOrElse(List()))
+    new Window(tf, filterCellTypeName(cellType), region, sequence, dnase.getOrElse(List()), rnaseq.getOrElse(List()))
+  }
+
+  def filterCellTypeName(cellType: String): String = {
+    cellType.filterNot("-_".toSet)
   }
 }
 
