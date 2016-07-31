@@ -10,8 +10,9 @@ object Dataset {
   val heldOutChrs = List("chr1", "chr8", "chr21")
   val heldOutTypes = List("PC-3", "liver", "induced_pluripotent_stem_cell")
 
-  val cellTypes = List("A549","GM12878", "H1-hESC", "HCT116", "HeLa-S3", "HepG2", "IMR90", "K562",
-    "MCF-7", "PC-3", "Panc1", "SK-N-SH", "induced_pluripotent_stem_cell", "liver")
+  val cellTypes = List("A549","GM12878", "H1-hESC", "HCT116", "HeLaS3", "HepG2", "IMR90", "K562",
+    "MCF7", "PC3",
+    "Panc1", "SKNSH", "inducedpluripotentstemcell", "liver")
 
   val tfs = List("ARID3A",
     "CEBPB", "EGR1", "HNF4A", "REST", "TCF12",
@@ -20,7 +21,6 @@ object Dataset {
     "ATF2",	"CTCF",	"FOXA2",	"MAX",		"SRF",		"YY1",
     "ATF3",	"E2F1",	"GABPA",	"MYC",		"STAT3",	"ZNF143",
     "ATF7",	"E2F6",	"GATA3",	"NANOG",	"TAF1")
-
   val chrs = List("chr10",
     "chr11",
     "chr12",

@@ -21,13 +21,13 @@ class CellTypeSpecific(@transient windowSize: Int,
     val win = this.windowSize
 
     // TODO: this does not calculate held out chrs
-    val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.region, r.win.cellType))
+    val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.getRegion, r.win.getCellType))
       .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
       .leftOuterJoin(mappedDnase)
       .map(r => {
         val dnase = r._2._2.getOrElse(List())
-        LabeledWindow(Window(r._2._1.win.tf, r._2._1.win.cellType,
-          r._2._1.win.region, r._2._1.win.sequence,dnase, List()), r._2._1.label)
+        LabeledWindow(Window(r._2._1.win.getTf, r._2._1.win.getCellType,
+          r._2._1.win.getRegion, r._2._1.win.getSequence, dnase = Some(dnase)), r._2._1.label)
       })
     x
   }
@@ -55,7 +55,7 @@ class CellTypeSpecific(@transient windowSize: Int,
 
 
     // TODO: this does not calculate held out chrs
-      val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.region, r.win.cellType))
+      val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.getRegion, r.win.getCellType))
         .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
         .leftOuterJoin(cellData)
         .map(r => {
@@ -63,8 +63,8 @@ class CellTypeSpecific(@transient windowSize: Int,
             if (r._2._2.isDefined) {
               (r._2._2.get._1.getOrElse(List()),  r._2._2.get._2.getOrElse(List()))
             } else (List(), List())
-          LabeledWindow(Window(r._2._1.win.tf, r._2._1.win.cellType,
-            r._2._1.win.region, r._2._1.win.sequence,dnase, rnaseq), r._2._1.label)
+          LabeledWindow(Window(r._2._1.win.getTf, r._2._1.win.getCellType,
+            r._2._1.win.getRegion, r._2._1.win.getSequence,dnase = Some(dnase),rnaseq = Some(rnaseq)), r._2._1.label)
         })
       x
     }

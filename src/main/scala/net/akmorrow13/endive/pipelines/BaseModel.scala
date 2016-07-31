@@ -104,10 +104,10 @@ object BaseModel extends Serializable  {
 
     // deepbind does not have creb1 scores so we will hold out for now
     val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithSequences(sequences)
-      .filter(r => r.win.tf != "CREB1")
+      .filter(r => r.win.getTf != "CREB1")
 
     println("Grouping Data to train and test")
-    val groupedData = fullMatrix.groupBy(lw => lw.win.region.referenceName).cache()
+    val groupedData = fullMatrix.groupBy(lw => lw.win.getRegion.referenceName).cache()
     groupedData.count()
 
     val foldsData = groupedData.map(x => (x._1.hashCode() % 2, x._2))
@@ -176,18 +176,18 @@ object BaseModel extends Serializable  {
     *************************************/
   def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], deepbindPath: String): RDD[LabeledPoint] = {
     val motif = new Motif(sc, deepbindPath)
-    val filteredPositives = rdd.filter(_.win.dnase.length > 0)
+    val filteredPositives = rdd.filter(_.win.getDnase.length > 0)
     val motifScores: RDD[(Map[String, Double], LabeledWindow)] =
-      motif.scoreSequences(Dataset.tfs, filteredPositives.map(_.win.sequence)).zip(filteredPositives)
+      motif.scoreSequences(Dataset.tfs, filteredPositives.map(_.win.getSequence)).zip(filteredPositives)
 
     motifScores
         .map(r => {
           // known motif score
           // max DNASE fold change across each bin
-          val maxScore = r._2.win.dnase.map(_.peak).max
-          val minScore = r._2.win.dnase.map(_.peak).min
+          val maxScore = r._2.win.getDnase.map(_.peak).max
+          val minScore = r._2.win.getDnase.map(_.peak).min
           val fold = (maxScore - minScore) / minScore
-          new LabeledPoint(r._2.label, Vectors.dense(r._1(r._2.win.tf), fold))
+          new LabeledPoint(r._2.label, Vectors.dense(r._1(r._2.win.getTf), fold))
         })
   }
 }

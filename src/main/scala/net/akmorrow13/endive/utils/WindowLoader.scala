@@ -15,7 +15,7 @@ object LabeledWindowLoader {
     val tf = dataArray(1)
     val cellType = dataArray(2)
     val region = ReferenceRegion(dataArray(3), dataArray(4).toLong,dataArray(5).toLong)
-    LabeledWindow(Window(tf, cellType, region, dataArray(6), dnase, rnaseq),dataArray(0).toInt)
+    LabeledWindow(Window(tf, cellType, region, dataArray(6), dnase = Some(dnase), rnaseq = Some(rnaseq)),dataArray(0).toInt)
 }
 
   def apply(path: String, sc: SparkContext): RDD[LabeledWindow] = {

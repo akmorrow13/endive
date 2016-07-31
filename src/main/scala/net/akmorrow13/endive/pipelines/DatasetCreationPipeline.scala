@@ -142,7 +142,7 @@ object DatasetCreationPipeline extends Serializable  {
           val endIdx = r._3.end
           val sequence = reference.extract(r._3)
           val label = r._4
-          val win = Window(r._1, r._2, r._3, sequence, List(), List())
+          val win: Window = Window(r._1, r._2, r._3, sequence)
           LabeledWindow(win, label)
         }
       }
