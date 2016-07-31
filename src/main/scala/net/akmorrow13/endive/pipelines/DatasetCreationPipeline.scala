@@ -102,6 +102,7 @@ object DatasetCreationPipeline extends Serializable  {
 
     // Load DNase data of (cell type, peak record)
     val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, dnasePath)
+          .map(r => (Window.filterCellTypeName(r._1), r._2))
       .cache()
 
 //    // load rnase data
