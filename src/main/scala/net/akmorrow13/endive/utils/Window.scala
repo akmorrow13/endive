@@ -41,7 +41,7 @@ case class Window(tf: String,
                   region: ReferenceRegion,
                   sequence: String,
                   dnase: List[PeakRecord],
-                  rnaseq: List[RNARecord]) {
+                  rnaseq: List[RNARecord]) extends Serializable {
 
   def getRegion: ReferenceRegion = region
   def getTf: String = tf

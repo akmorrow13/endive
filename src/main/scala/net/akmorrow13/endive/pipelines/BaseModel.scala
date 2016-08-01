@@ -94,29 +94,59 @@ object BaseModel extends Serializable  {
     val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, dnasePath)
       .cache()
 
-    // load rnase data
-    val rnaseq: RDD[(String, RNARecord)] = sc.emptyRDD[(String, RNARecord)]
-
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-    val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, rnaseq, sd)
+    val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
 
 
     // deepbind does not have creb1 scores so we will hold out for now
-    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithSequences(sequences)
+    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
       .filter(r => r.win.getTf != "CREB1")
 
-    println("Grouping Data to train and test")
-    val groupedData = fullMatrix.groupBy(lw => lw.win.getRegion.referenceName).cache()
-    groupedData.count()
-
-    val foldsData = groupedData.map(x => (x._1.hashCode() % 2, x._2))
-    // featurize sequences to 8mers
-    val train = foldsData.filter(x => x._1 != 0).flatMap(x => x._2).cache()
-    val test = foldsData.filter(x => x._1 == 0).flatMap(x => x._2).cache()
-
     // filter out positives: areas with no dnase are automatic negatives
-    val features: RDD[LabeledPoint] = featurize(sc, fullMatrix, conf.deepbindPath).cache()
+    val features: RDD[LabeledPoint] = featurize(sc, fullMatrix, conf.deepbindPath)
+
+//    println("Grouping Data to train and test")
+//    val groupedData = fullMatrix.groupBy(lw => lw.win.getRegion.referenceName).cache()
+  //  groupedData.count()
+
+    val foldsData = groupedData.map(x => (x._1.hashCode() % conf.folds, x._2))
+
+    val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
+
+    for (i <- (0 until conf.folds)) {
+      var train = foldsData.filter(x => x._1 != i).flatMap(x => x._2).cache()
+      train.count()
+      val test = foldsData.filter(x => x._1 == i).flatMap(x => x._2).cache()
+
+      println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
+
+      val XTrain = train.map(x => denseFeaturize(x.win.getSequence)).setName("XTrain").cache()
+      val XTest = test.map(x => denseFeaturize(x.win.getSequence)).cache()
+      val yTrain = train.map(_.label).setName("yTrain").cache()
+      val yTest = test.map(_.label).cache()
+
+      println("Training model")
+      val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 1).fit(XTrain, yTrain)
+
+      val yPredTrain = predictor(XTrain)
+      val evalTrain = BinaryClassifierEvaluator(yTrain.map(_ > 0), yPredTrain.map(_ > 0))
+      println("Train Results: \n " +  evalTrain.summary())
+
+      val yPredTest = predictor(XTest)
+      val evalTest = BinaryClassifierEvaluator(yTest.map(_ > 0), yPredTest.map(_ > 0))
+      println("Test Results: \n " +  evalTest.summary())
+
+    }
+
+
+
+
+
+
+
+
+
 
     // save features
     features.map(_.toString()).saveAsTextFile(conf.featurizedOutput)
