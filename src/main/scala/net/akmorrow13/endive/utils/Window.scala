@@ -28,10 +28,10 @@ object Window {
   val OUTERDELIM = "\\|\\|"
 
   /* Delimiter inside Sequence and label*/
-  val SEQDELIM = ","
+  val CHIPSEQDELIM = ","
 
   /* Delimiter to split RNASE AND DNASE windows */
-  val DNARNADELIM= ";"
+  val EPIDELIM= ";"
 
 }
 
