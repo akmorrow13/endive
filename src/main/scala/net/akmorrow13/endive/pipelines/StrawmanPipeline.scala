@@ -1,5 +1,5 @@
 /**
- * Copyright 2015 Frank Austin Nothaft
+ * Copyright 2015 Vaishaal Shankar
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,8 @@ import nodes.util.CommonSparseFeatures
 import nodes.util.{Identity, Cacher, ClassLabelIndicatorsFromIntLabels, TopKClassifier, MaxClassifier, VectorCombiner}
 import utils.{Image, MatrixUtils, Stats, ImageMetadata, LabeledImage, RowMajorArrayVectorizedImage, ChannelMajorArrayVectorizedImage}
 
+import evaluation.BinaryClassifierEvaluator
+import net.akmorrow13.endive.processing.Sampling
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -67,7 +69,6 @@ object StrawmanPipeline extends Serializable with Logging {
       Logger.getLogger("akka").setLevel(Level.WARN)
       val sc = new SparkContext(conf)
       run(sc, appConfig)
-      sc.stop()
     }
   }
 
@@ -92,37 +93,41 @@ object StrawmanPipeline extends Serializable with Logging {
 
 
   def run(sc: SparkContext, conf: EndiveConf) {
-    println("STARTING STRAWMAN PIPELINE")
-    val allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.windowLoc, sc).filter(_.label >= 0)
-    allData.count()
+    val dataTxtRDD:RDD[String] = sc.textFile(conf.windowLoc, minPartitions=600)
 
+    val allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.windowLoc, sc).cache()
+    allData.count()
     println("Grouping Data for cross validation")
     val groupedData = allData.groupBy(lw => lw.win.getRegion.referenceName).cache()
     groupedData.count()
 
     val foldsData = groupedData.map(x => (x._1.hashCode() % conf.folds, x._2))
-    // featurize sequences to 8mers
+
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
 
     for (i <- (0 until conf.folds)) {
-      val train = foldsData.filter(x => x._1 != i).flatMap(x => x._2).cache()
+      var train = foldsData.filter(x => x._1 != i).flatMap(x => x._2).cache()
+      train.count()
       val test = foldsData.filter(x => x._1 == i).flatMap(x => x._2).cache()
+
       println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
 
-      val allTrainingData = train map { window =>
-        val x:DenseVector[Double] = denseFeaturize(window.win.getSequence)
-        val y:DenseVector[Double] = labelVectorizer(window.label.toInt)
-        val xtx = x * x.t
-        val xty = x * y.t
-        (x, y, xtx, xty)
-        }
+      val XTrain = train.map(x => denseFeaturize(x.win.getSequence)).setName("XTrain").cache()
+      val XTest = test.map(x => denseFeaturize(x.win.getSequence)).cache()
+      val yTrain = train.map(_.label).setName("yTrain").cache()
+      val yTest = test.map(_.label).cache()
 
-        val XTXStart = System.nanoTime
-        val XTX = allTrainingData.map(_._3)
-        val XTXloc = XTX.treeReduce({ (a:DenseMatrix[Double],b:DenseMatrix[Double]) =>
-          a += b
-        })
-        println(s"XTX Computation took ${timeElapsed(XTXStart)}")
+      println("Training model")
+      val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 1).fit(XTrain, yTrain)
+
+      val yPredTrain = predictor(XTrain)
+      val evalTrain = BinaryClassifierEvaluator(yTrain.map(_ > 0), yPredTrain.map(_ > 0))
+      println("Train Results: \n " +  evalTrain.summary())
+
+      val yPredTest = predictor(XTest)
+      val evalTest = BinaryClassifierEvaluator(yTest.map(_ > 0), yPredTest.map(_ > 0))
+      println("Test Results: \n " +  evalTest.summary())
+
     }
   }
 
