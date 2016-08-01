@@ -93,7 +93,6 @@ object BaseModel extends Serializable  {
 
     val sd = new SequenceDictionary(records)
 
-
     val cellTypes: Array[String] = fullMatrix.map(x => (x.win.cellType)).countByValue().keys.toArray
     val folds = cellTypes.size
 
@@ -155,7 +154,6 @@ object BaseModel extends Serializable  {
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest))
       println("Test Results: \n ")
       Metrics.printMetrics(evalTest)
-
     }
   }
 
