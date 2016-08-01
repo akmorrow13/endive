@@ -56,7 +56,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
       val yaml = new Yaml(new Constructor(classOf[EndiveConf]))
       val appConfig = yaml.load(configtext).asInstanceOf[EndiveConf]
       EndiveConf.validate(appConfig)
-      val conf = new SparkConf().setAppName("ENDIVE:SingleTVDatasetCreationPipeline")
+      val conf = new SparkConf().setAppName("ENDIVE:SingleTFDatasetCreationPipeline")
       val sc = new SparkContext(conf)
       run(sc, appConfig)
       sc.stop()
