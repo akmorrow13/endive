@@ -36,7 +36,7 @@ import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
 
 
-object SingleTVDatasetCreationPipeline extends Serializable  {
+object SingleTFDatasetCreationPipeline extends Serializable  {
 
   /**
    * A very basic dataset creation pipeline that *doesn't* featurize the data
