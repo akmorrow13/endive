@@ -12,8 +12,14 @@ shift
 FWDIR="$(cd `dirname $0`/..; pwd)"
 
 if [ -z "$1" ]; then
-  echo "Usage: run-main.sh <class> [<args>]" >&2
+  echo "Usage: run-pipeline-yarn.sh <class> <jar> [<args>]" >&2
   exit 1
+fi
+
+if [[ "$RUN_LOCAL" ]]; then
+    echo "RUN_LOCAL is set, running pipeline locally"
+	$FWDIR/bin/run-main.sh $CLASS "$@"
+	exit 0
 fi
 
 if [ -z "$OMP_NUM_THREADS" ]; then
@@ -69,7 +75,7 @@ export KEYSTONE_MEM
   --conf spark.storage.memoryFraction=0.6 \
   --conf spark.network.timeout=300s \
   --driver-memory 60g \
-  --executor-memory 100g \
+  --executor-memory 90g \
   --jars $ASSEMBLYJAR \
   $JARFILE \
   "$@"
