@@ -32,6 +32,7 @@ import net.akmorrow13.endive.processing.Sampling
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
@@ -41,6 +42,7 @@ import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
+import scala.util.Random
 
 object StrawmanPipeline extends Serializable with Logging {
 
@@ -103,11 +105,11 @@ object StrawmanPipeline extends Serializable with Logging {
     allData.count()
 
     val foldsData = allData.map(x => (x.win.getRegion.referenceName.hashCode() % conf.folds, x))
-
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
 
     for (i <- (0 until conf.folds)) {
-      var train = foldsData.filter(x => x._1 != i).map(x => x._2).cache()
+      val r = new java.util.Random()
+      var train = foldsData.filter(x => x._1 != i).filter(x => x._2.label == 1 || (x._2.label == 0 && r.nextFloat < 0.001)).map(x => x._2).cache()
       train.count()
       val test = foldsData.filter(x => x._1 == i).map(x => x._2).cache()
 
@@ -122,14 +124,29 @@ object StrawmanPipeline extends Serializable with Logging {
       val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 1).fit(XTrain, yTrain)
 
       val yPredTrain = predictor(XTrain)
-      val evalTrain = BinaryClassifierEvaluator(yTrain.map(_ > 0), yPredTrain.map(_ > 0))
-      println("Train Results: \n " +  evalTrain.summary())
+      val evalTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
+      println("Train Results: \n ")
+      printMetrics(evalTrain)
+
 
       val yPredTest = predictor(XTest)
-      val evalTest = BinaryClassifierEvaluator(yTest.map(_ > 0), yPredTest.map(_ > 0))
-      println("Test Results: \n " +  evalTest.summary())
-
+      val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
+      println("Test Results: \n ")
+      printMetrics(evalTest)
     }
+  }
+
+  def printMetrics(metrics: BinaryClassificationMetrics) {
+    // AUPRC
+    val auPRC = metrics.areaUnderPR
+    println("Area under precision-recall curve = " + auPRC)
+
+    // ROC Curve
+    val roc = metrics.roc
+
+    // AUROC
+    val auROC = metrics.areaUnderROC
+    println("Area under ROC = " + auROC)
   }
 
   def loadTsv(sc: SparkContext, filePath: String): RDD[(ReferenceRegion, Int)] = {
