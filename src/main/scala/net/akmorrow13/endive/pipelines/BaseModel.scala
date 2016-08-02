@@ -94,7 +94,6 @@ object BaseModel extends Serializable  {
 
     // Load DNase data of (cell type, peak record)
     val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, dnasePath)
-      .cache()
 
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
@@ -107,16 +106,25 @@ object BaseModel extends Serializable  {
 
     val foldsData: RDD[(BaseFeature, Int)] = featurize(sc, fullMatrix, conf.deepbindPath)
           .map(r => (r, r.labeledWindow.win.getRegion.referenceName.hashCode % conf.folds))
+          .setName("foldsData")
+          .cache()
 
-    foldsData.saveAsTextFile(conf.featurizedOutput)
+    // save featurized data
+    foldsData.map(r => r._1.toString()).saveAsTextFile(conf.featurizedOutput)
+
+
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
 
     for (i <- (0 until conf.folds)) {
       println("calcuated for fold ", i)
       
-      var train = foldsData.filter(x => x._2 != i).map(x => x._1).cache()
+      val train = foldsData.filter(x => x._2 != i).map(x => x._1)
+        .setName("trainData")
+        .cache()
       train.count()
-      val test = foldsData.filter(x => x._2 == i).map(x => x._1).cache()
+      val test = foldsData.filter(x => x._2 == i).map(x => x._1)
+        .setName("testData")
+        .cache()
 
       println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
 
@@ -193,4 +201,9 @@ object BaseModel extends Serializable  {
   }
 }
 
-case class BaseFeature(labeledWindow: LabeledWindow, features: DenseVector[Double])
+case class BaseFeature(labeledWindow: LabeledWindow, features: DenseVector[Double]) {
+
+  override def toString: String = {
+    labeledWindow.toString + "!" + features.toString
+  }
+}

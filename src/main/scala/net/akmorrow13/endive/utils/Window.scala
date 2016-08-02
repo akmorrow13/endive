@@ -52,9 +52,10 @@ case class Window(tf: String,
 
   override
   def toString:String = {
-    val stringifiedDnase = dnase.map(_.toString).mkString(Window.DNARNADELIM)
-    val stringifiedRNAseq = rnaseq.map(_.toString).mkString(Window.DNARNADELIM)
+    val stringifiedDnase = dnase.map(_.toString).mkString(Window.EPIDELIM)
+    val stringifiedRNAseq = rnaseq.map(_.toString).mkString(Window.EPIDELIM)
     s"${tf},${cellType},${region.referenceName},${region.start},${region.end},${sequence}${Window.OUTERDELIM}${stringifiedDnase}${Window.OUTERDELIM}${stringifiedRNAseq}"
+
   }
 }
 

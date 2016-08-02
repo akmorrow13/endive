@@ -12,6 +12,7 @@ object LabeledWindowLoader {
   def stringToLabeledWindow(str: String): LabeledWindow = {
     val d = str.split(Window.OUTERDELIM)
     val dataArray = d(0).split(Window.CHIPSEQDELIM)
+
     if (d.size > 1) {
       System.err.println("str IS " + str)
       System.err.println("d(0) " + d(0))
@@ -19,6 +20,7 @@ object LabeledWindowLoader {
     }
     val dnase: Option[List[PeakRecord]] = d.lift(1).map(_.split(Window.EPIDELIM).map(r => PeakRecord.fromString(r)).toList)
     val rnaseq: Option[List[RNARecord]] = d.lift(2).map(_.split(Window.EPIDELIM).map(r => RNARecord.fromString(r)).toList)
+
     val tf = dataArray(1)
     val cellType = dataArray(2)
     val region = ReferenceRegion(dataArray(3), dataArray(4).toLong,dataArray(5).toLong)
