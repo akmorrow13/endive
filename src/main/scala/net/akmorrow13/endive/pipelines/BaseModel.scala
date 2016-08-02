@@ -16,11 +16,14 @@
 package net.akmorrow13.endive.pipelines
 
 import java.io.File
+import breeze.linalg.DenseVector
+import evaluation.BinaryClassifierEvaluator
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
 import net.akmorrow13.endive.processing.Dataset
+import nodes.learning.LogisticRegressionEstimator
 import nodes.util.ClassLabelIndicatorsFromIntLabels
 
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
@@ -58,6 +61,7 @@ object BaseModel extends Serializable  {
       val appConfig = yaml.load(configtext).asInstanceOf[EndiveConf]
       EndiveConf.validate(appConfig)
       val conf = new SparkConf().setAppName("ENDIVE")
+      conf.setIfMissing("spark.master" ,  "local[4]" )
       val sc = new SparkContext(conf)
       run(sc, appConfig)
       sc.stop()
@@ -65,9 +69,7 @@ object BaseModel extends Serializable  {
   }
 
   def run(sc: SparkContext, conf: EndiveConf) {
-
-    println("STARTING DATA SET CREATION PIPELINE")
-
+    println("STARTING BASEMODEL PIPELINE")
 
     // challenge parameters
     val windowSize = 200
@@ -103,28 +105,24 @@ object BaseModel extends Serializable  {
     val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
       .filter(r => r.win.getTf != "CREB1")
 
-    // filter out positives: areas with no dnase are automatic negatives
-    val features: RDD[LabeledPoint] = featurize(sc, fullMatrix, conf.deepbindPath)
+    val foldsData: RDD[((Int, DenseVector[Double]), Int)] = featurize(sc, fullMatrix, conf.deepbindPath, conf.folds)
 
-//    println("Grouping Data to train and test")
-//    val groupedData = fullMatrix.groupBy(lw => lw.win.getRegion.referenceName).cache()
-  //  groupedData.count()
-
-    val foldsData = groupedData.map(x => (x._1.hashCode() % conf.folds, x._2))
-
+    foldsData.saveAsTextFile(conf.featurizedOutput)
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
 
     for (i <- (0 until conf.folds)) {
-      var train = foldsData.filter(x => x._1 != i).flatMap(x => x._2).cache()
+      var train = foldsData.filter(x => x._2 != i).map(x => x._1).cache()
       train.count()
-      val test = foldsData.filter(x => x._1 == i).flatMap(x => x._2).cache()
+      val test = foldsData.filter(x => x._2 == i).map(x => x._1).cache()
 
       println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
 
-      val XTrain = train.map(x => denseFeaturize(x.win.getSequence)).setName("XTrain").cache()
-      val XTest = test.map(x => denseFeaturize(x.win.getSequence)).cache()
-      val yTrain = train.map(_.label).setName("yTrain").cache()
-      val yTest = test.map(_.label).cache()
+      val XTrain = train.map(_._2)
+        .setName("XTrain").cache()
+      val XTest = test.map(_._2)
+      val yTrain = train.map(_._1)
+        .setName("yTrain").cache()
+      val yTest = test.map(_._1).cache()
 
       println("Training model")
       val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 1).fit(XTrain, yTrain)
@@ -138,62 +136,6 @@ object BaseModel extends Serializable  {
       println("Test Results: \n " +  evalTest.summary())
 
     }
-
-
-
-
-
-
-
-
-
-
-    // save features
-    features.map(_.toString()).saveAsTextFile(conf.featurizedOutput)
-    println(features.first)
-
-    //  score using a linear classifier with a log loss function
-    val model = new LogisticRegressionWithLBFGS()
-      .setNumClasses(2)
-      .run(features)
-
-    val trainingPrediction = features.map { case LabeledPoint(label, features) =>
-            val prediction = model.predict(features)
-            (prediction, label)
-      }
-
-      println("training accuracy")
-      Metrics.computeAccuracy(trainingPrediction)
-//
-
-    //    /*********************************
-//      * Testing on held out chromosome
-//    ***********************************/
-//    val heldoutChr = dataset.heldoutChr
-//    val chrTest = featurize(sc, test.filter(r => r.win.region.referenceName == heldoutChr), conf.deepbindPath)
-//
-//    var predictionAndLabels = chrTest.map { case LabeledPoint(label, features) =>
-//      val prediction = model.predict(features)
-//      (prediction, label)
-//    }
-//
-//    println("held out chr accuracy")
-//    Metrics.computeAccuracy(predictionAndLabels)
-//
-//
-//    /*********************************
-//      * Testing on held out cell type
-//      * ***********************************/
-//    val heldOutCellType = dataset.heldoutCellType
-//    val cellTypeTest = featurize(sc, test.filter(r => r.win.region.referenceName == heldOutCellType), conf.deepbindPath)
-//
-//    predictionAndLabels = cellTypeTest.map { case LabeledPoint(label, features) =>
-//      val prediction = model.predict(features)
-//      (prediction, label)
-//    }
-//    println("held out cell type accuracy")
-//    Metrics.computeAccuracy(predictionAndLabels)
-
   }
 
   /***********************************
@@ -204,20 +146,32 @@ object BaseModel extends Serializable  {
           - Max, 0.99%, 0.95%, 0.75%, 0.50%, mean
           - max DNASE fold change across each bin
     *************************************/
-  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], deepbindPath: String): RDD[LabeledPoint] = {
+  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], deepbindPath: String, folds: Int): RDD[((Int, DenseVector[Double]), Int)] = {
     val motif = new Motif(sc, deepbindPath)
     val filteredPositives = rdd.filter(_.win.getDnase.length > 0)
-    val motifScores: RDD[(Map[String, Double], LabeledWindow)] =
-      motif.scoreSequences(Dataset.tfs, filteredPositives.map(_.win.getSequence)).zip(filteredPositives)
+    val filteredNegatives = rdd.filter(_.win.getDnase.length == 0)
+          .map(r => {
+            ((0, DenseVector(0.0, 0.0)), r.win.getRegion.referenceName.hashCode % folds)
+          })
 
-    motifScores
+    val motifScores: RDD[(Map[String, Array[Double]], LabeledWindow)] =
+      motif.scoreSequences(filteredPositives.map(_.win.getSequence), Dataset.tfs).zip(filteredPositives)
+    println(motifScores.count)
+
+    val positives = motifScores
         .map(r => {
           // known motif score
           // max DNASE fold change across each bin
+          val tf = r._2.win.getTf
           val maxScore = r._2.win.getDnase.map(_.peak).max
           val minScore = r._2.win.getDnase.map(_.peak).min
-          val fold = (maxScore - minScore) / minScore
-          new LabeledPoint(r._2.label, Vectors.dense(r._1(r._2.win.getTf), fold))
+          val dnasefold = (maxScore - minScore) / minScore
+          val max = r._1(tf).max
+          val min = r._1(tf).min
+          val mean = r._1(tf).sum/r._1(tf).size
+          ((r._2.label, DenseVector(min, max, mean, dnasefold)), r._2.win.getRegion.referenceName.hashCode % folds)
         })
+
+    positives.union(filteredNegatives)
   }
 }

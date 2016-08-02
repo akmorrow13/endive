@@ -11,17 +11,16 @@ class MotifSuite extends EndiveFunSuite {
 
   // training data of region and labels
   var labelPath = resourcePath("ARID3A.train.labels.head30.tsv")
-  var deepbindPath = "file:///Users/akmorrow/ADAM/endive/workfiles/deepbind"
+  var deepbindPath = "/Users/akmorrow/ADAM/endive/workfiles/deepbind"
 
-  sparkTest("deepbind") {
-    val labels: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelPath)
-
+  sparkTest("deepbind for a small RDD of sequences") {
     // extract sequences from reference over training regions
-    val sequences: RDD[LabeledWindow] =
-      labels.map(r => LabeledWindow(Window(r._1, r._2, r._3, "ATGCG" * 40, List(), List()), r._4))
+    val sequences: RDD[String] = sc.parallelize(Seq("AGGUAAUAAUUUGCAUGAAAUAACUUGGAGAGGAUAGC"))
     val motif = new Motif(sc, deepbindPath)
 
-    motif.scoreSequences(Dataset.tfs, sequences.map(_.win.sequence))
+    val tfs = Dataset.tfs
+    val results = motif.getDeepBindScores(sequences, tfs).collect
+    println(results)
 
   }
 

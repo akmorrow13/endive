@@ -25,9 +25,11 @@ class CellTypeSpecificSuite extends EndiveFunSuite {
 
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] =
-      labels.map(r => LabeledWindow(Window(r._1, r._2, r._3, "ATGCG" * 40, List(), List()), r._4))
+      labels.map(r => LabeledWindow(Window(r._1, r._2, r._3, "ATGCG" * 40, None, None), r._4))
 
-    val cellTypeInfo = new CellTypeSpecific(windowSize,stride,dnaseRDD, rnaseqRDD)
+    val sd = new SequenceDictionary(Dataset.chrs.map(r => SequenceRecord(r, 10000000)).toVector)
+
+    val cellTypeInfo = new CellTypeSpecific(windowSize,stride,dnaseRDD, rnaseqRDD, sd)
     val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithSequences(sequences)
     assert(fullMatrix.count == 29)
   }

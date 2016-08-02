@@ -43,6 +43,21 @@ object Preprocess {
   }
 
   /**
+   * Loads tsv file
+   * @param sc SparkContext
+   * @param filePath tsv filepath to load
+   * @param headerTag tags in first row, if any, that should be excluded from load
+   * @return RDD of rows from tsv file
+   */
+  def loadCsv(sc: SparkContext, filePath: String, headerTag: String): RDD[Array[String]] = {
+    val rdd = sc.textFile(filePath).filter(r => !r.contains(headerTag))
+    println(s"Loaded file ${filePath} with ${rdd.count} records")
+    rdd.map( line => {
+      line.split(",")
+    })
+  }
+
+  /**
    * Loads labels from all a chipseq label file
    * flatmaps all cell types into an individual datapoint
    * @param sc
