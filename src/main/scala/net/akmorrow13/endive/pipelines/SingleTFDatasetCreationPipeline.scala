@@ -73,6 +73,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
 
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
+
     val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelsPath)._1
     train.setName("Raw Train Data").cache()
 
