@@ -35,9 +35,8 @@ object Preprocess {
    * @param headerTag tags in first row, if any, that should be excluded from load
    * @return RDD of rows from tsv file
    */
-  def loadTsv(sc: SparkContext, filePath: String, headerTag: String): RDD[Array[String]] = {
-    val rdd = sc.textFile(filePath).filter(r => !r.contains(headerTag))
-    println(s"Loaded file ${filePath} with ${rdd.count} records")
+  def loadTsv(sc: SparkContext, filePath: String, headerTag: String, numPartitions: Int = 500): RDD[Array[String]] = {
+    val rdd = sc.textFile(filePath, numPartitions).filter(r => !r.contains(headerTag))
     rdd.map( line => {
       line.split("\t")
     })
@@ -50,18 +49,20 @@ object Preprocess {
    * @param filePath tsv file of chipseq labels
    * @return parsed files of (tf, cell type, region, score)
    */
-  def loadLabels(sc: SparkContext, filePath: String): RDD[(String, String, ReferenceRegion, Int)] = {
+  def loadLabels(sc: SparkContext, filePath: String, numPartitions: Int = 500): RDD[(String, String, ReferenceRegion, Int)] = {
     assert(filePath.endsWith("tsv") || filePath.endsWith("tsv.gz"))
     val headerTag = "start"
     // parse header for cell types
-    val cellTypes = sc.textFile(filePath).filter(r => r.contains(headerTag)).first().split("\t").drop(3)
+    val tsvRDD = sc.textFile(filePath, numPartitions)
+    val cellTypes = tsvRDD.filter(r => r.contains(headerTag)).first().split("\t").drop(3)
     val file = filePath.split("/").last
     // parse file name for tf
     val tf = file.split('.')(0)
-    println(s"loading  labels for cell type ${cellTypes} from file ${file}")
+    println(s"loading  labels for cell type ${cellTypes.mkString} from file ${file}")
 
-    val rdd = loadTsv(sc, filePath, headerTag)
-    rdd.flatMap(parts => {
+    val tsvRDDSplit = tsvRDD.filter(r => !r.contains(headerTag)).map(_.split("\t"))
+
+    tsvRDDSplit.flatMap(parts => {
       cellTypes.zipWithIndex.map( cellType => {
         (tf, cellType._1, ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong), extractLabel(parts(3 + cellType._2)))
       })
