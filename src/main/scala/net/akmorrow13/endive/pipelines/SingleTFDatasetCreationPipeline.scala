@@ -46,7 +46,6 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
    * @param args
    */
   def main(args: Array[String]) = {
-
     if (args.size < 1) {
       println("Incorrect number of arguments...Exiting now.")
     } else {
@@ -56,7 +55,10 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
       val yaml = new Yaml(new Constructor(classOf[EndiveConf]))
       val appConfig = yaml.load(configtext).asInstanceOf[EndiveConf]
       EndiveConf.validate(appConfig)
+      val rootLogger = Logger.getRootLogger()
+      rootLogger.setLevel(Level.INFO)
       val conf = new SparkConf().setAppName("ENDIVE:SingleTFDatasetCreationPipeline")
+      conf.setIfMissing("spark.master", "local[4]")
       val sc = new SparkContext(conf)
       run(sc, appConfig)
       sc.stop()
@@ -71,7 +73,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
 
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
-    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelsPath).cache()
+    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelsPath).setName("Raw Train Data").cache()
 
     println("First reading labels")
     train.count()
