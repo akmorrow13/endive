@@ -63,7 +63,6 @@ case class Window(tf: String,
     val stringifiedMotifs = motifs.map(_.toString).mkString(Window.EPIDELIM)
     val stringifiedRNAseq = rnaseq.map(_.toString).mkString(Window.EPIDELIM)
     s"${tf},${cellType},${region.referenceName},${region.start},${region.end},${sequence}${Window.OUTERDELIM}${stringifiedDnase}${Window.OUTERDELIM}${stringifiedRNAseq}${Window.OUTERDELIM}${stringifiedMotifs}"
-
   }
 }
 

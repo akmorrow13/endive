@@ -10,7 +10,6 @@ import scala.util.{ Try, Success, Failure }
 object LabeledWindowLoader {
 
   def stringToLabeledWindow(str: String): LabeledWindow = {
-
     val d = str.split(Window.OUTERDELIM)
     val dataArray = d(0).split(Window.CHIPSEQDELIM)
     
