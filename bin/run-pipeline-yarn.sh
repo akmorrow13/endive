@@ -11,11 +11,6 @@ shift
 # Figure out where the Scala framework is installed
 FWDIR="$(cd `dirname $0`/..; pwd)"
 
-if [ -z "$1" ]; then
-  echo "Usage: run-pipeline-yarn.sh <class> <jar> [<args>]" >&2
-  exit 1
-fi
-
 if [[ "$RUN_LOCAL" ]]; then
     echo "RUN_LOCAL is set, running pipeline locally"
 	$FWDIR/bin/run-main.sh $CLASS "$@"
@@ -49,12 +44,15 @@ KEYSTONE_MEM=${KEYSTONE_MEM:-1g}
 KEYSTONE_MEM=120g
 export KEYSTONE_MEM
 
+export LD_LIBRARY_PATH=/home/eecs/vaishaal/gcc-build/lib64:/home/eecs/vaishaal/gcc-build/lib:/home/eecs/vaishaal/openblas-install/lib
+export CPATH=/home/eecs/vaishaal/gcc-build/include
+
 # Set some commonly used config flags on the cluster
 "$SPARK_SUBMIT" \
   --master yarn\
   --class $CLASS \
-  --num-executors  12 \
-  --executor-cores 24 \
+  --num-executors  65 \
+  --executor-cores 16 \
   --driver-class-path $JARFILE:$ASSEMBLYJAR:$HOME/hadoop/conf \
   --driver-library-path /opt/amp/gcc/lib64:/opt/amp/openblas/lib:$FWDIR/lib \
   --conf spark.executor.extraLibraryPath=/opt/amp/openblas/lib:$FWDIR/lib \
@@ -74,8 +72,8 @@ export KEYSTONE_MEM
   --conf spark.executorEnv.OMP_NUM_THREADS=1 \
   --conf spark.storage.memoryFraction=0.6 \
   --conf spark.network.timeout=300s \
-  --driver-memory 60g \
-  --executor-memory 90g \
+  --driver-memory 40g \
+  --executor-memory 40g \
   --jars $ASSEMBLYJAR \
   $JARFILE \
   "$@"
