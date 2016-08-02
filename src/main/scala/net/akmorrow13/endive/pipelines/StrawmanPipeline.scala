@@ -26,6 +26,7 @@ import nodes.util.CommonSparseFeatures
 import nodes.util.{Identity, Cacher, ClassLabelIndicatorsFromIntLabels, TopKClassifier, MaxClassifier, VectorCombiner}
 import utils.{Image, MatrixUtils, Stats, ImageMetadata, LabeledImage, RowMajorArrayVectorizedImage, ChannelMajorArrayVectorizedImage}
 
+import com.github.fommil.netlib.BLAS
 import evaluation.BinaryClassifierEvaluator
 import net.akmorrow13.endive.processing.Sampling
 import org.apache.log4j.{Level, Logger}
@@ -65,9 +66,12 @@ object StrawmanPipeline extends Serializable with Logging {
       val appConfig = yaml.load(configtext).asInstanceOf[EndiveConf]
       EndiveConf.validate(appConfig)
       val conf = new SparkConf().setAppName("ENDIVE")
+      conf.setIfMissing("spark.master", "local[4]")
       Logger.getLogger("org").setLevel(Level.WARN)
       Logger.getLogger("akka").setLevel(Level.WARN)
       val sc = new SparkContext(conf)
+      val blasVersion = BLAS.getInstance().getClass().getName()
+      println(s"Currently used version of blas is ${blasVersion}")
       run(sc, appConfig)
     }
   }
@@ -93,22 +97,19 @@ object StrawmanPipeline extends Serializable with Logging {
 
 
   def run(sc: SparkContext, conf: EndiveConf) {
-    val dataTxtRDD:RDD[String] = sc.textFile(conf.windowLoc, minPartitions=600)
+    val dataTxtRDD:RDD[String] = sc.textFile(conf.aggregatedSequenceOutput, minPartitions=600)
 
-    val allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.windowLoc, sc).cache()
+    val allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.aggregatedSequenceOutput, sc).cache()
     allData.count()
-    println("Grouping Data for cross validation")
-    val groupedData = allData.groupBy(lw => lw.win.getRegion.referenceName).cache()
-    groupedData.count()
 
-    val foldsData = groupedData.map(x => (x._1.hashCode() % conf.folds, x._2))
+    val foldsData = allData.map(x => (x.win.getRegion.referenceName.hashCode() % conf.folds, x))
 
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
 
     for (i <- (0 until conf.folds)) {
-      var train = foldsData.filter(x => x._1 != i).flatMap(x => x._2).cache()
+      var train = foldsData.filter(x => x._1 != i).map(x => x._2).cache()
       train.count()
-      val test = foldsData.filter(x => x._1 == i).flatMap(x => x._2).cache()
+      val test = foldsData.filter(x => x._1 == i).map(x => x._2).cache()
 
       println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
 
