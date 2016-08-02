@@ -10,7 +10,6 @@ class EndiveConf extends Serializable {
   @BeanProperty var sequenceLoc: String = null
   @BeanProperty var rnaseqLoc: String = null
   @BeanProperty var dnaseLoc: String = null
-  @BeanProperty var featureLoc: String = null
 
   /* output files */
   @BeanProperty var aggregatedSequenceOutput: String = null
@@ -36,7 +35,6 @@ class EndiveConf extends Serializable {
   /* gene reference required for rnaseq location extraction */
   @BeanProperty var genes: String = null
 
-  /* Featurization parameters */
   @BeanProperty var kmerLength: Int = 8
   @BeanProperty var sequenceLength: Int = 100
 }
