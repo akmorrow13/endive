@@ -6,6 +6,8 @@ import org.apache.hadoop.mapred.FileAlreadyExistsException
 import net.akmorrow13.endive.processing.Preprocess
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
+import org.bdgenomics.utils.io.LocalFileByteAccess
+import scala.collection.mutable.ArrayBuffer
 import scala.sys.process._
 import scala.util.Random
 
@@ -31,14 +33,22 @@ class Motif(@transient sc: SparkContext, deepbindPath: String) extends Serializa
     // local locations of files to read and write from
     val idFile = new File(s"${deepbindPath}/tfDatabase.ids").getPath
 
-    val db = Preprocess.loadCsv(sc, idFile, "Protein")
+    val bufferedSource = scala.io.Source.fromFile(idFile)
+    val buffer: ArrayBuffer[Array[String]] = new ArrayBuffer[Array[String]]()
+      for (line <- bufferedSource.getLines) {
+        buffer += line.split(",").map(_.trim)
+      }
+    bufferedSource.close
+
+
+    val db = buffer.toArray
 
     // filter db by tfs we want to access
-    val filteredDb: RDD[Array[String]] = db.map(r => r(0).split(" # "))
+    val filteredDb: Array[Array[String]] = db.map(r => r(0).split(" # "))
         .map(r => Array(r(0), r(1)))
 
     // filter out parameters included in db but not in parameters folder
-    val tfDatabase: Map[String, String] = filteredDb.collect.map(r => (r(0), r(1))).toMap
+    val tfDatabase: Map[String, String] = filteredDb.map(r => (r(0), r(1))).toMap
     sequences.map(s => getDeepBindScore(s, tfDatabase, idFile))
   }
 
