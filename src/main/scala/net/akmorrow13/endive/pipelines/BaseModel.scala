@@ -94,24 +94,13 @@ object BaseModel extends Serializable  {
     println("running on tfs:")
     tfs.foreach(println)
 
-    // extract sequences from reference over training regions
-//    val sequences: RDD[LabeledWindow] =
-//      DatasetCreationPipeline.extractSequencesAndLabels(referencePath, labels)
-
-    // Load DNase data of (cell type, peak record)
-//    val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, dnasePath)
-//
-    val records = DatasetCreationPipeline.getSequenceDictionary(referencePath)
-      .records.filter(r => Dataset.chrs.contains(r.name))
-
     val sd = new SequenceDictionary(records)
 
-//    val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
-
-
     // deepbind does not have creb1 scores so we will hold out for now
-//    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
-//      .filter(r => r.win.getTf != "CREB1")
+    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
+      .filter(r => r.win.getTf != "CREB1")
+      .cache()
+    println("joinedData", fullMatrix.count)
 
     val foldsData: RDD[(BaseFeature, Int)] = featurize(sc, fullMatrix,tfs, conf.motifDBPath, None, sd)
           .map(r => (r, r.labeledWindow.win.getRegion.referenceName.hashCode % conf.folds))
@@ -119,9 +108,6 @@ object BaseModel extends Serializable  {
           .cache()
 
     println(s"joined with motifs ${foldsData.count}")
-
-    // save featurized data
-    foldsData.map(r => r._1.labeledWindow.toString()).saveAsTextFile(conf.featurizedOutput)
 
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
 
@@ -159,6 +145,12 @@ object BaseModel extends Serializable  {
       val yTestPositives = test.filter(_.labeledWindow.win.getDnase.length > 0).map(_.labeledWindow.label).cache()
       val yTestNegatives = test.filter(_.labeledWindow.win.getDnase.length == 0).map(_.labeledWindow.label).cache()
       val yTest = yTestPositives.union(yTestNegatives).map(_.toDouble)
+
+      var train = foldsData.filter(x => x._2 != i).map(x => x._1).cache()
+      train.count()
+      val test = foldsData.filter(x => x._2 == i).map(x => x._1).cache()
+
+      println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
 
       println("Training model")
       val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 1).fit(XTrainPositives, yTrainPositives)
@@ -208,12 +200,10 @@ object BaseModel extends Serializable  {
 
     println("records with overlapping dnase count: ", filteredPositives.count)
     println("records without overlapping dnase count: ", filteredNegatives.count)
-
     val positives = motifScores
         .map(r => {
           // known motif score
           // max DNASE fold change across each bin
-          val tf = r.win.getTf
           val maxScore = r.win.getDnase.map(_.peak).max
           val minScore = r.win.getDnase.map(_.peak).min
           val dnasefold = (maxScore - minScore) / minScore
@@ -226,6 +216,7 @@ object BaseModel extends Serializable  {
 
           BaseFeature(r, DenseVector(min, max, mean, dnasefold))
         })
+    println("after motifs and featurizing", positives.count)
 
     positives.union(filteredNegatives)
   }

@@ -50,22 +50,17 @@ class Motif(@transient sc: SparkContext,
    * @return
    */
   def getDeepBindScores(sequences: RDD[String],
-                         tfs: List[String],
-                         deepbindPath: String): RDD[Map[String, Double]] = {
-
+                        tfs: List[String]): RDD[Map[String, Double]] = {
     // local locations of files to read and write from
     val idFile = new File(s"${deepbindPath}/tfDatabase.ids").getPath
-
     val bufferedSource = scala.io.Source.fromFile(idFile)
     val buffer: ArrayBuffer[Array[String]] = new ArrayBuffer[Array[String]]()
     for (line <- bufferedSource.getLines) {
       buffer += line.split(",").map(_.trim)
     }
     bufferedSource.close
-
-
     val db = buffer.toArray
-
+    println(db)
     // filter db by tfs we want to access
     val filteredDb: Array[Array[String]] = db.map(r => r(0).split(" # "))
       .map(r => Array(r(0), r(1)))
@@ -143,7 +138,6 @@ class Motif(@transient sc: SparkContext,
                        tfDatabase: Map[String, String],
                       idFile: String,
                       deepbindPath: String): Map[String, Double] = {
-
     val result: String = s"${deepbindPath}/deepbindArg ${idFile} ${sequence}" !!
 
     val header = result.split("\n")(0).split("\t")

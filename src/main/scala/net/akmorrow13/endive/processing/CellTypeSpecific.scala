@@ -20,16 +20,17 @@ class CellTypeSpecific(@transient windowSize: Int,
     val str = this.stride
     val win = this.windowSize
 
+    println("cell type specific partition count", in.partitions.length)
     // TODO: this does not calculate held out chrs
     val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.getRegion, r.win.getCellType))
-      .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+     // .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
       .leftOuterJoin(mappedDnase)
       .map(r => {
         val dnase = r._2._2.getOrElse(List())
         LabeledWindow(Window(r._2._1.win.getTf, r._2._1.win.getCellType,
           r._2._1.win.getRegion, r._2._1.win.getSequence, dnase = Some(dnase)), r._2._1.label)
       })
-    x
+    x.repartition(20)
   }
 
   /**
@@ -56,7 +57,7 @@ class CellTypeSpecific(@transient windowSize: Int,
 
     // TODO: this does not calculate held out chrs
       val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.getRegion, r.win.getCellType))
-        .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+        //  .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
         .leftOuterJoin(cellData)
         .map(r => {
           val (dnase, rnaseq) =
@@ -98,8 +99,9 @@ object CellTypeSpecific {
       val region = ReferenceRegion(d._1.referenceName, newStart, newEnd)
       unmergeRegions(region, windowSize, stride).map(r => ((r, d._2), d._3))
     }).groupBy(_._1).mapValues(r => r.seq.map(_._2).toList)
-
-    windowed.partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+    //val x=windowed.partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+    windowed.repartition(20)
+   
   }
 
   /**
