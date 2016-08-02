@@ -64,7 +64,7 @@ object Preprocess {
    * @param filePath tsv file of chipseq labels
    * @return parsed files of (tf, cell type, region, score)
    */
-  def loadLabels(sc: SparkContext, filePath: String, numPartitions: Int = 500): RDD[(String, String, ReferenceRegion, Int)] = {
+  def loadLabels(sc: SparkContext, filePath: String, numPartitions: Int = 500): Tuple2[RDD[(String, String, ReferenceRegion, Int)], Array[String]] = {
     assert(filePath.endsWith("tsv") || filePath.endsWith("tsv.gz"))
     val headerTag = "start"
     // parse header for cell types
@@ -77,11 +77,12 @@ object Preprocess {
 
     val tsvRDDSplit = tsvRDD.filter(r => !r.contains(headerTag)).map(_.split("\t"))
 
-    tsvRDDSplit.flatMap(parts => {
+    val result = tsvRDDSplit.flatMap(parts => {
       cellTypes.zipWithIndex.map( cellType => {
         (tf, cellType._1, ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong), extractLabel(parts(3 + cellType._2)))
       })
     })
+    (result, cellTypes)
   }
 
   def loadLabelFolder(sc: SparkContext, folder: String): RDD[(String, String, ReferenceRegion, Int)] = {
@@ -91,7 +92,7 @@ object Preprocess {
       if (d.exists && d.isDirectory) {
         val files = d.listFiles.filter(_.isFile).toList
         files.map(f => {
-          data = data.union(loadLabels(sc, f.getPath))
+          data = data.union(loadLabels(sc, f.getPath)._1)
         })
       } else {
         throw new Exception(s"${folder} is not a valid directory for peaks")
@@ -102,7 +103,7 @@ object Preprocess {
       val status = fs.listStatus(new Path(folder))
       for (i <- status) {
         val file: String = i.getPath.getName
-        data = data.union(loadLabels(sc, file))
+        data = data.union(loadLabels(sc, file)._1)
       }
     } catch {
       case e: Exception => println(s"Directory ${folder} could not be loaded")
@@ -198,6 +199,14 @@ object Preprocess {
       } catch {
         case e: Exception => println(s"Directory ${folder} could not be loaded")
       }
+    }
+    data
+  }
+
+  def loadPeakFiles(sc: SparkContext, files: Array[String]): RDD[(String, PeakRecord)] = {
+    var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]
+    for (f <- files) {
+      data = data.union(loadPeaks(sc, f))
     }
     data
   }

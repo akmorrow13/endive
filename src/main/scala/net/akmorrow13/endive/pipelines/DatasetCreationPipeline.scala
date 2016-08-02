@@ -19,6 +19,8 @@ import java.io.File
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.processing.Sequence
 import net.akmorrow13.endive.utils._
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -91,36 +93,46 @@ object DatasetCreationPipeline extends Serializable  {
     val windowSize = 200
     val stride = 50
 
-    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
-        .cache()
+    val fs: FileSystem = FileSystem.get(new Configuration())
+    val labelStatus = fs.listStatus(new Path(labelsPath))
+    println(s"first label file: ${labelStatus.head.getPath.getName}")
+    val dnaseStatus = fs.listStatus(new Path(dnasePath))
+    println(s"first dnase file: ${dnaseStatus.head.getPath.getName}")
 
-    println("First reading labels")
-    train.count()
+      for (i <- labelStatus) {
+        val file: String = i.getPath.getName
+        try {
+          val (train: RDD[(String, String, ReferenceRegion, Int)], cellTypes: Array[String]) = Preprocess.loadLabels(sc, file)
+          val tf = train.first._1
+          println(s"celltypes for tf ${tf}, file ${file}:")
+          cellTypes.foreach(println)
 
-    // extract sequences from reference over training regions
-    val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
+          // extract sequences from reference over training regions
+          val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
 
-    // Load DNase data of (cell type, peak record)
-    val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, dnasePath)
-          .map(r => (Window.filterCellTypeName(r._1), r._2))
-      .cache()
+          // Load DNase data of (cell type, peak record)
+          val dnaseFiles = dnaseStatus.filter(r => {
+            cellTypes.contains(r.getPath.getName.split(".")(1))
+          })
+          val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.getName))
+            .map(r => (Window.filterCellTypeName(r._1), r._2))
+            .cache()
 
-//    // load rnase data
-//    val rnaLoader = new RNAseq(genes, sc)
-//    val rnaseq: RDD[(String, RNARecord)] = rnaLoader.loadRNAFolder(sc, rnaseqPath)
-//      .cache()
+          val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+          val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
 
-    val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
+          val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
 
-    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
+          // save data
+          val output = aggregatedSequenceOutput + s"_${tf}"
+          fullMatrix.map(_.toString).saveAsTextFile(output)
+          println(s"saved dataset for tf ${tf}")
 
-    // save data
-    fullMatrix.map(_.toString).saveAsTextFile(aggregatedSequenceOutput)
-
-    println("Now matching labels with reference genome")
-    sequences.count()
+        } catch {
+          case e: Exception => println(s"Directory ${file} could not be loaded")
+        }
+      }
 
   }
 
