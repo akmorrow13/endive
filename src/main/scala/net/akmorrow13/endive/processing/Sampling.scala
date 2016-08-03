@@ -57,7 +57,6 @@ object Sampling {
       })
       filteredNegs.union(positives).toIterator
     }).map(_._2)
-
   }
 }
 

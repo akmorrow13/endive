@@ -51,6 +51,7 @@ class Motif(@transient sc: SparkContext,
    */
   def getDeepBindScores(sequences: RDD[String],
                         tfs: List[String]): RDD[Map[String, Double]] = {
+
     // local locations of files to read and write from
     val idFile = new File(s"${deepbindPath}/tfDatabase.ids").getPath
     val bufferedSource = scala.io.Source.fromFile(idFile)
