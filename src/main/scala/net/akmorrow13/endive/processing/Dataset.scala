@@ -33,6 +33,7 @@ object Dataset {
     "chr19",
     "chr1",
     "chr20",
+    "chr21",
     "chr22",
     "chr2",
     "chr3",
@@ -40,6 +41,7 @@ object Dataset {
     "chr5",
     "chr6",
     "chr7",
+    "chr8",
     "chr9",
     "chrX")
 

@@ -177,7 +177,7 @@ object BaseModel extends Serializable  {
             BaseFeature(r, DenseVector(0.0,0.0,0.0,0.0))
           })
 
-    val motifScores: RDD[(Map[String, Array[Double]], LabeledWindow)] =
+    val motifScores: RDD[(Map[String, Double], LabeledWindow)] =
       motif.scoreSequences(filteredPositives.map(_.win.getSequence), Dataset.tfs).zip(filteredPositives)
 
     println("records with overlapping dnase count: ", filteredPositives.count)
@@ -191,9 +191,9 @@ object BaseModel extends Serializable  {
           val maxScore = r._2.win.getDnase.map(_.peak).max
           val minScore = r._2.win.getDnase.map(_.peak).min
           val dnasefold = (maxScore - minScore) / minScore
-          val max = r._1(tf).max
-          val min = r._1(tf).min
-          val mean = r._1(tf).sum/r._1(tf).size
+          val max = r._1(tf)
+          val min = r._1(tf)
+          val mean = r._1(tf)
           BaseFeature(r._2, DenseVector(min, max, mean, dnasefold))
         })
 

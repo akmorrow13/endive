@@ -19,6 +19,10 @@ workfiles/
 .worksheet
 *.iml
 
+# database dependencies
+deepbindArgs
+deepbind/deepbind
+deepbind/db/params
 # emacs files
 *~
 *#*

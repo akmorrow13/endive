@@ -74,8 +74,6 @@ object DatasetCreationPipeline extends Serializable  {
     if (referencePath == null)
       throw new Exception("referencepath not defined")
     val genes = conf.genes
-    if (genes == null)
-      throw new Exception("gene path not defined")
     val aggregatedSequenceOutput = conf.aggregatedSequenceOutput
     if (aggregatedSequenceOutput == null)
       throw new Exception("aggregatedSequenceOutput not defined")
@@ -100,7 +98,7 @@ object DatasetCreationPipeline extends Serializable  {
     println(s"first dnase file: ${dnaseStatus.head.getPath.getName}")
 
       for (i <- labelStatus) {
-        val file: String = i.getPath.getName
+        val file: String = i.getPath.toString
         try {
           val (train: RDD[(String, String, ReferenceRegion, Int)], cellTypes: Array[String]) = Preprocess.loadLabels(sc, file)
           val tf = train.first._1
@@ -125,7 +123,7 @@ object DatasetCreationPipeline extends Serializable  {
           val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
 
           // save data
-          val output = aggregatedSequenceOutput + s"_${tf}"
+          val output =  s"${aggregatedSequenceOutput}/${tf}"
           fullMatrix.map(_.toString).saveAsTextFile(output)
           println(s"saved dataset for tf ${tf}")
 

@@ -35,6 +35,7 @@ class EndiveConf extends Serializable {
   /* gene reference required for rnaseq location extraction */
   @BeanProperty var genes: String = null
 
+  /* Featurization parameters */
   @BeanProperty var kmerLength: Int = 8
   @BeanProperty var sequenceLength: Int = 100
 }
@@ -44,10 +45,6 @@ object EndiveConf {
     /* Add line for required arugments here to validate 
      * TODO: This is a kludge but idk what else to do
      */
-
-    if (conf.labels == null) {
-      throw new IllegalArgumentException("Labels path is mandatory")
-    }
 
     if (conf.reference == null) {
       throw new IllegalArgumentException("Refrence path is mandatory")

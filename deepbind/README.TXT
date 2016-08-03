@@ -10,8 +10,8 @@ For each input sequence, the deepbind executable scores each subsequence
 of a pre-determined length (e.g. 20) and returns only the maximum or the
 average over these per-position scores.
 
-Larger scores indicated stronger binding. The scores themselves are on an
-arbitrary scale, and vary from model to model due to variation in the
+Larger scores indicated stronger binding. The scores themselves are on an 
+arbitrary scale, and vary from model to model due to variation in the 
 quality of training data for different proteins.
 
 
@@ -64,7 +64,8 @@ To see details of each ID, use the --dump-info flag:
 CHANGES v0.1 -> v0.11
 ---------------------
 
-- Fixed bug where last position in input sequence was
+- Fixed bug where last position in input sequence was 
   not evaluated for a score; suggested by Irene Kaplow.
 
 - Added --window-size and --average flags based on feedback.
+
