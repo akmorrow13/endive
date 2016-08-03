@@ -83,10 +83,7 @@ object DatasetCreationPipeline extends Serializable  {
     val dnasePath = conf.dnase
     if (dnasePath == null)
       throw new Exception("dnasePath not defined")
-    val rnaseqPath = conf.rnaseq
-    if (rnaseqPath == null)
-      throw new Exception("rnaseqPath not defined")
-
+    
     // challenge parameters
     val windowSize = 200
     val stride = 50
@@ -95,24 +92,29 @@ object DatasetCreationPipeline extends Serializable  {
     val labelStatus = fs.listStatus(new Path(labelsPath))
     println(s"first label file: ${labelStatus.head.getPath.getName}")
     val dnaseStatus = fs.listStatus(new Path(dnasePath))
-    println(s"first dnase file: ${dnaseStatus.head.getPath.getName}")
+    println(s"first dnase file: ${dnaseStatus.head.getPath.getName.split('.')(1)}")
 
       for (i <- labelStatus) {
         val file: String = i.getPath.toString
         try {
           val (train: RDD[(String, String, ReferenceRegion, Int)], cellTypes: Array[String]) = Preprocess.loadLabels(sc, file)
-          val tf = train.first._1
-          println(s"celltypes for tf ${tf}, file ${file}:")
+          train.setName("train").cache()
+          train.count
+
+	  val tf = train.first._1
+          println(s"celltypes for tf ${tf}:")
           cellTypes.foreach(println)
 
           // extract sequences from reference over training regions
           val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
-
+          // val sequences: RDD[LabeledWindow] = sc.emptyRDD[LabeledWindow]
+	  println("extracted sequences", sequences.count)
           // Load DNase data of (cell type, peak record)
-          val dnaseFiles = dnaseStatus.filter(r => {
-            cellTypes.contains(r.getPath.getName.split(".")(1))
+	  val dnaseFiles = dnaseStatus.filter(r => {
+		cellTypes.contains(r.getPath.getName.split('.')(1))
           })
-          val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.getName))
+ 	 
+          val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
             .map(r => (Window.filterCellTypeName(r._1), r._2))
             .cache()
 

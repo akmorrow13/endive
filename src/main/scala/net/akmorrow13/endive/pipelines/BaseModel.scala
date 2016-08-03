@@ -79,7 +79,10 @@ object BaseModel extends Serializable  {
     if (conf.featurizedOutput == null)
       throw new Exception("output for featured data not defined")
 
-    val genes = conf.genes
+    if(conf.deepbindPath == null)
+      throw new Exception("deepbind path not defined")
+
+ val genes = conf.genes
     // create new sequence with reference path
     val referencePath = conf.reference
     // load chip seq labels from 1 file
@@ -94,7 +97,8 @@ object BaseModel extends Serializable  {
     println("running on tfs:")
     tfs.foreach(println)
 
-    val sd = new SequenceDictionary(records)
+
+    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
     // deepbind does not have creb1 scores so we will hold out for now
     val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
@@ -145,10 +149,6 @@ object BaseModel extends Serializable  {
       val yTestPositives = test.filter(_.labeledWindow.win.getDnase.length > 0).map(_.labeledWindow.label).cache()
       val yTestNegatives = test.filter(_.labeledWindow.win.getDnase.length == 0).map(_.labeledWindow.label).cache()
       val yTest = yTestPositives.union(yTestNegatives).map(_.toDouble)
-
-      var train = foldsData.filter(x => x._2 != i).map(x => x._1).cache()
-      train.count()
-      val test = foldsData.filter(x => x._2 == i).map(x => x._1).cache()
 
       println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
 
