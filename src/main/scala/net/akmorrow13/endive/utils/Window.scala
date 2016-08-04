@@ -1,7 +1,9 @@
 package net.akmorrow13.endive.utils
 
+import java.io.ByteArrayOutputStream
 import net.akmorrow13.endive.processing.{RNARecord, PeakRecord}
 import org.bdgenomics.adam.models.ReferenceRegion
+import scala.util.{ Try, Success, Failure }
 
 /**
  * required to standardize cell type names
@@ -13,16 +15,28 @@ object Window {
              sequence: String,
              dnase: Option[List[PeakRecord]] = None,
              rnaseq: Option[List[RNARecord]] = None): Window = {
-    new Window(tf, filterCellTypeName(cellType), region, sequence, dnase.getOrElse(List()), rnaseq.getOrElse(List()))
+    Window(tf, filterCellTypeName(cellType), region, sequence, dnase.getOrElse(List()), rnaseq.getOrElse(List()))
   }
 
   def filterCellTypeName(cellType: String): String = {
     cellType.filterNot("-_".toSet)
   }
+  /* TODO this is a hack
+   * We should turn everything into Avro objects to serialize */
+
+  /* Delimiter between Sequence DNASE and RNASE  */
+  val OUTERDELIM = "\\|\\|"
+
+  /* Delimiter inside Sequence and label*/
+  val SEQDELIM = ","
+
+  /* Delimiter to split RNASE AND DNASE windows */
+  val DNARNADELIM= ";"
+
 }
 
 /* Base data class */
-class Window(tf: String,
+case class Window(tf: String,
                   cellType: String,
                   region: ReferenceRegion,
                   sequence: String,
@@ -38,9 +52,9 @@ class Window(tf: String,
 
   override
   def toString:String = {
-    val stringifiedDnase = dnase.map(_.toString).mkString(";")
-    val stringifiedRNAseq = rnaseq.map(_.toString).mkString(";")
-    s"${tf},${cellType},${region.referenceName},${region.start},${region.end},${sequence}-${stringifiedDnase}-${stringifiedRNAseq}"
+    val stringifiedDnase = dnase.map(_.toString).mkString(Window.DNARNADELIM)
+    val stringifiedRNAseq = rnaseq.map(_.toString).mkString(Window.DNARNADELIM)
+    s"${tf},${cellType},${region.referenceName},${region.start},${region.end},${sequence}${Window.OUTERDELIM}${stringifiedDnase}${Window.OUTERDELIM}${stringifiedRNAseq}"
   }
 }
 
