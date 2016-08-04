@@ -25,7 +25,7 @@ object Window {
    * We should turn everything into Avro objects to serialize */
 
   /* Delimiter between Sequence DNASE and RNASE  */
-  val OUTERDELIM = "\\|\\|"
+  val OUTERDELIM = "!"
 
   /* Delimiter inside Sequence and label*/
   val CHIPSEQDELIM = ","

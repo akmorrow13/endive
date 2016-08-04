@@ -38,7 +38,7 @@ class KmerSuite extends EndiveFunSuite {
   }
 
   sparkTest("should extract kmers using reference and regions") {
-    val trainRDD: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelPath)
+    val trainRDD: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelPath)._1
 
     val reference = Sequence(sc.parallelize(Seq(fragment)), sc)
     val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(trainRDD.map(_._3))
