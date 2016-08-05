@@ -32,9 +32,10 @@ object Sampling {
    */
   def subselectSamples(sc: SparkContext,
                        rdd: RDD[LabeledWindow],
+                       sd: SequenceDictionary,
                        distance: Long = 700L,
-                       sd: SequenceDictionary): RDD[LabeledWindow] = {
-    val partitionedRDD = rdd.keyBy(r => (r.win.getRegion, r.win.getTf)).partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.tfs.toVector))
+                       partitioner: Vector[String] = Dataset.tfs.toVector): RDD[LabeledWindow] = {
+    val partitionedRDD = rdd.keyBy(r => (r.win.getRegion, r.win.getTf)).partitionBy(new LabeledReferenceRegionPartitioner(sd, partitioner))
 
     partitionedRDD.mapPartitions(iter => {
       val sites = iter.toList

@@ -140,13 +140,25 @@ object DatasetCreationPipeline extends Serializable  {
   }
 
 
-  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(String, String, ReferenceRegion, Int)]): RDD[LabeledWindow]  = {
+  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(String, String, ReferenceRegion, Int)], placeHolder: Boolean = false): RDD[LabeledWindow]  = {
     /* TODO: This is a kludge that relies that the master + slaves share NFS
      * but the correct thing to do is to use scp/nfs to distribute the sequence data
      * across the cluster
      */
-
-    regionsAndLabels.mapPartitions { part =>
+    // if sequences isnt required
+    if (placeHolder) {
+      regionsAndLabels.mapPartitions { part =>
+        part.map { r =>
+          val startIdx = r._3.start
+          val endIdx = r._3.end
+          val sequence = "N"
+          val label = r._4
+          val win: Window = Window(r._1, r._2, r._3, sequence)
+          LabeledWindow(win, label)
+        }
+      }
+    } else {
+      regionsAndLabels.mapPartitions { part =>
         val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
         part.map { r =>
           val startIdx = r._3.start
@@ -157,6 +169,9 @@ object DatasetCreationPipeline extends Serializable  {
           LabeledWindow(win, label)
         }
       }
+    }
+
+
   }
 
 }

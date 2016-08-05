@@ -18,7 +18,7 @@ class SamplingSuite extends EndiveFunSuite {
                                 })
     val sd = new SequenceDictionary(Dataset.chrs.map(r => SequenceRecord(r, 10000000)).toVector)
 
-    val sampledRDD = Sampling.subselectSamples(sc, trainRDD, 700L, sd)
+    val sampledRDD = Sampling.subselectSamples(sc, trainRDD, sd, 700L)
     val positives = sampledRDD.filter(_.label == 1.0)
     val negatives = sampledRDD.filter(_.label == 0.0)
     assert(negatives.count < positives.count * 20) // number of alloted sliding windows
