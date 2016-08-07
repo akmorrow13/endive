@@ -97,20 +97,16 @@ object BaseModel extends Serializable  {
     println("running on tfs:")
     tfs.foreach(println)
 
+    val records = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+      .records.filter(r => Dataset.chrs.contains(r.name))
 
-    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+    val sd = new SequenceDictionary(records)
 
     // deepbind does not have creb1 scores so we will hold out for now
-    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
-      .filter(r => r.win.getTf != "CREB1")
-      .cache()
-    println("joinedData", fullMatrix.count)
-
     val foldsData: RDD[(BaseFeature, Int)] = featurize(sc, fullMatrix,tfs, conf.motifDBPath, None, sd)
           .map(r => (r, r.labeledWindow.win.getRegion.referenceName.hashCode % conf.folds))
           .setName("foldsData")
           .cache()
-
     println(s"joined with motifs ${foldsData.count}")
 
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)

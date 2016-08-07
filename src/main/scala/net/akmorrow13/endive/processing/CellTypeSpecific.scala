@@ -93,13 +93,14 @@ object CellTypeSpecific {
   def window[T: ClassTag](rdd: RDD[(ReferenceRegion, String, T)], sd: SequenceDictionary): RDD[((ReferenceRegion, String), List[T])] = {
     val stride = 50
     val windowSize = 200
+    println("in window", rdd.first)
     val windowed: RDD[((ReferenceRegion, String), List[T])]  = rdd.flatMap(d => {
       val newStart = d._1.start / stride * stride
       val newEnd =  d._1.end / stride * stride + stride
       val region = ReferenceRegion(d._1.referenceName, newStart, newEnd)
       unmergeRegions(region, windowSize, stride).map(r => ((r, d._2), d._3))
     }).groupBy(_._1).mapValues(r => r.seq.map(_._2).toList)
-    windowed.partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+    windowed //.partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
    
   }
 

@@ -76,8 +76,6 @@ object NoSeqBaseModel extends Serializable  {
     val windowSize = 200
     val stride = 50
 
-    if (conf.featurizedOutput == null)
-      throw new Exception("output for featured data not defined")
 
     // create new sequence with reference path
     val referencePath = conf.reference

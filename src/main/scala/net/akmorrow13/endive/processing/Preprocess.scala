@@ -193,16 +193,10 @@ object Preprocess {
       val peak = parts(5).toDouble
       val pValue = parts(6).toDouble
       (tf, PeakRecord(region, -1, -1, pValue, -1, peak))
+      (cellType, PeakRecord(region, -1, -1, pValue, -1, peak))
     })
   }
 
-  /**
-   *
-   * @param sc
-   * @param folder
-   * @param tfs
-   * @return rdd of motifs mapped by (transcription factor, peakrecord with pvalue and peak specified)
-   */
   def loadMotifFolder(sc: SparkContext, folder: String, tfs: Option[Array[String]]): RDD[(String, PeakRecord)] = {
 
     var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]

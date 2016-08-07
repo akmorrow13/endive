@@ -5,6 +5,8 @@ import net.akmorrow13.endive.utils.{Window, LabeledReferenceRegionPartitioner, L
 import org.apache.hadoop.mapred.FileAlreadyExistsException
 
 import net.akmorrow13.endive.processing.{Dataset, CellTypeSpecific, PeakRecord, Preprocess}
+import net.akmorrow13.endive.processing.{CellTypeSpecific, PeakRecord, Preprocess}
+>>>>>>> 82f5a34... updated BaseModel for db
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
@@ -50,7 +52,8 @@ class Motif(@transient sc: SparkContext,
    * @return
    */
   def getDeepBindScores(sequences: RDD[String],
-                        tfs: List[String]): RDD[Map[String, Double]] = {
+                         tfs: List[String],
+                         deepbindPath: String): RDD[Map[String, Double]] = {
 
     // local locations of files to read and write from
     val idFile = new File(s"${deepbindPath}/tfDatabase.ids").getPath
