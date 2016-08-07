@@ -14,8 +14,9 @@ object Window {
              region: ReferenceRegion,
              sequence: String,
              dnase: Option[List[PeakRecord]] = None,
-             rnaseq: Option[List[RNARecord]] = None): Window = {
-    Window(tf, filterCellTypeName(cellType), region, sequence, dnase.getOrElse(List()), rnaseq.getOrElse(List()))
+             rnaseq: Option[List[RNARecord]] = None,
+             motifs: Option[List[PeakRecord]] = None): Window = {
+    Window(tf, filterCellTypeName(cellType), region, sequence, dnase.getOrElse(List()), rnaseq.getOrElse(List()), motifs.getOrElse(List()))
   }
 
   def filterCellTypeName(cellType: String): String = {
@@ -41,7 +42,8 @@ case class Window(tf: String,
                   region: ReferenceRegion,
                   sequence: String,
                   dnase: List[PeakRecord],
-                  rnaseq: List[RNARecord]) extends Serializable {
+                  rnaseq: List[RNARecord],
+                  motifs: List[PeakRecord]) extends Serializable {
 
   def getRegion: ReferenceRegion = region
   def getTf: String = tf
@@ -49,12 +51,14 @@ case class Window(tf: String,
   def getSequence: String = sequence
   def getDnase: List[PeakRecord] = dnase
   def getRnaseq: List[RNARecord] = rnaseq
+  def getMotifs: List[PeakRecord] = motifs
 
   override
   def toString:String = {
     val stringifiedDnase = dnase.map(_.toString).mkString(Window.EPIDELIM)
+    val stringifiedMotifs = motifs.map(_.toString).mkString(Window.EPIDELIM)
     val stringifiedRNAseq = rnaseq.map(_.toString).mkString(Window.EPIDELIM)
-    s"${tf},${cellType},${region.referenceName},${region.start},${region.end},${sequence}${Window.OUTERDELIM}${stringifiedDnase}${Window.OUTERDELIM}${stringifiedRNAseq}"
+    s"${tf},${cellType},${region.referenceName},${region.start},${region.end},${sequence}${Window.OUTERDELIM}${stringifiedDnase}${Window.OUTERDELIM}${stringifiedRNAseq}${Window.OUTERDELIM}${stringifiedMotifs}"
 
   }
 }

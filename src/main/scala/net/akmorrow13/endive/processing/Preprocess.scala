@@ -175,6 +175,59 @@ object Preprocess {
     })
   }
 
+  /**
+   * Loads motif files, which are tab delimited peak files
+   * see https://genome.ucsc.edu/FAQ/FAQformat.html
+   *
+   * @param sc
+   * @param filePath
+   */
+  def loadMotifs(sc: SparkContext, filePath: String): RDD[(String, PeakRecord)] = {
+    val cellType = filePath.split("/").last.split('_')(0)
+    println(s"loading motifs for ${cellType}")
+    val rdd = loadTsv(sc, filePath, "#pattern")
+    rdd.map(parts => {
+      val region = ReferenceRegion(parts(1), parts(2).toLong, parts(3).toLong)
+      val l = parts.drop(3).toList.filter(r => r != ".")
+      val peak = parts(5).toDouble
+      val pValue = parts(6).toDouble
+      (cellType, PeakRecord(region, -1, -1, pValue, -1, peak))
+    })
+  }
+
+  def loadMotifFolder(sc: SparkContext, folder: String, tfs: Option[Array[String]]): RDD[(String, PeakRecord)] = {
+
+    var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]
+    if (sc.isLocal) {
+      val d = new File(folder)
+      if (d.exists && d.isDirectory) {
+        val files = d.listFiles.filter(_.isFile).toList
+        files.map(f => {
+          data = data.union(loadMotifs(sc, f.getPath))
+        })
+      } else {
+        throw new Exception(s"${folder} is not a valid directory for peaks")
+      }
+    } else {
+      try{
+        val fs: FileSystem = FileSystem.get(new Configuration())
+        val status = { // filter by transcription factors
+          val s = fs.listStatus(new Path(folder))
+          if (tfs.isDefined) {
+            s.filter(r => tfs.get.contains(r.getPath.getName.split("_")(0)))
+          } else s
+        }
+        for (i <- status) {
+          val file: String = i.getPath.toString
+          data = data.union(loadMotifs(sc, file))
+        }
+      } catch {
+        case e: Exception => println(s"Directory ${folder} could not be loaded")
+      }
+    }
+    data
+  }
+
   def loadPeakFolder(sc: SparkContext, folder: String): RDD[(String, PeakRecord)] = {
 
     var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]

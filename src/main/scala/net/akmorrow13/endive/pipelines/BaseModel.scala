@@ -86,32 +86,41 @@ object BaseModel extends Serializable  {
     val dnasePath = conf.dnase
 
     // RDD of (tf name, celltype, region, score)
-    val labels: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
+    val fullMatrix: RDD[LabeledWindow] = sc.textFile(labelsPath)
+      .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
+
+    val tfs = fullMatrix.map(_.win.tf).distinct.collect()
+    println("running on tfs:")
+    tfs.foreach(println)
 
     // extract sequences from reference over training regions
-    val sequences: RDD[LabeledWindow] =
-      DatasetCreationPipeline.extractSequencesAndLabels(referencePath, labels)
+//    val sequences: RDD[LabeledWindow] =
+//      DatasetCreationPipeline.extractSequencesAndLabels(referencePath, labels)
 
     // Load DNase data of (cell type, peak record)
-    val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, dnasePath)
+//    val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, dnasePath)
+//
+    val records = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+      .records.filter(r => Dataset.chrs.contains(r.name))
 
-    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+    val sd = new SequenceDictionary(records)
 
-    val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
+//    val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
 
 
     // deepbind does not have creb1 scores so we will hold out for now
-    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
-      .filter(r => r.win.getTf != "CREB1")
+//    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
+//      .filter(r => r.win.getTf != "CREB1")
 
-    val foldsData: RDD[(BaseFeature, Int)] = featurize(sc, fullMatrix, conf.deepbindPath)
+    val foldsData: RDD[(BaseFeature, Int)] = featurize(sc, fullMatrix,tfs, conf.motifDBPath, None, sd)
           .map(r => (r, r.labeledWindow.win.getRegion.referenceName.hashCode % conf.folds))
           .setName("foldsData")
           .cache()
 
-    // save featurized data
-    foldsData.map(r => r._1.toString()).saveAsTextFile(conf.featurizedOutput)
+    println(s"joined with motifs ${foldsData.count}")
 
+    // save featurized data
+    foldsData.map(r => r._1.labeledWindow.toString()).saveAsTextFile(conf.featurizedOutput)
 
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
 
@@ -169,16 +178,21 @@ object BaseModel extends Serializable  {
           - Max, 0.99%, 0.95%, 0.75%, 0.50%, mean
           - max DNASE fold change across each bin
     *************************************/
-  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], deepbindPath: String): RDD[BaseFeature] = {
-    val motif = new Motif(sc, deepbindPath)
+  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow],
+                tfs: Array[String],
+                motifDB: String,
+                deepbindPath: Option[String] = None,
+                sd:SequenceDictionary): RDD[BaseFeature] = {
+    val motif = new Motif(sc, sd)
+
     val filteredPositives = rdd.filter(_.win.getDnase.length > 0)
     val filteredNegatives = rdd.filter(_.win.getDnase.length == 0)
           .map(r => {
             BaseFeature(r, DenseVector(0.0,0.0,0.0,0.0))
           })
 
-    val motifScores: RDD[(Map[String, Double], LabeledWindow)] =
-      motif.scoreSequences(filteredPositives.map(_.win.getSequence), Dataset.tfs).zip(filteredPositives)
+    val motifScores: RDD[LabeledWindow] =
+        motif.scoreMotifs(filteredPositives, 200, 50, tfs, motifDB)
 
     println("records with overlapping dnase count: ", filteredPositives.count)
     println("records without overlapping dnase count: ", filteredNegatives.count)
@@ -187,14 +201,18 @@ object BaseModel extends Serializable  {
         .map(r => {
           // known motif score
           // max DNASE fold change across each bin
-          val tf = r._2.win.getTf
-          val maxScore = r._2.win.getDnase.map(_.peak).max
-          val minScore = r._2.win.getDnase.map(_.peak).min
+          val tf = r.win.getTf
+          val maxScore = r.win.getDnase.map(_.peak).max
+          val minScore = r.win.getDnase.map(_.peak).min
           val dnasefold = (maxScore - minScore) / minScore
-          val max = r._1(tf)
-          val min = r._1(tf)
-          val mean = r._1(tf)
-          BaseFeature(r._2, DenseVector(min, max, mean, dnasefold))
+          val motifs = r.win.motifs
+          val max: Double = motifs.map(_.peak).max
+          val min: Double = motifs.map(_.peak).min
+          val mean =
+            if (motifs.length > 0) 0.0
+             else r.win.motifs.map(_.peak).sum/motifs.length
+
+          BaseFeature(r, DenseVector(min, max, mean, dnasefold))
         })
 
     positives.union(filteredNegatives)

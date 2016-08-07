@@ -1,23 +1,46 @@
 package net.akmorrow13.endive.featurizers
 
 import java.io.{PrintWriter, File}
+import net.akmorrow13.endive.utils.{Window, LabeledReferenceRegionPartitioner, LabeledWindow}
 import org.apache.hadoop.mapred.FileAlreadyExistsException
 
-import net.akmorrow13.endive.processing.Preprocess
+import net.akmorrow13.endive.processing.{CellTypeSpecific, PeakRecord, Preprocess}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
+import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
 import org.bdgenomics.utils.io.LocalFileByteAccess
 import scala.collection.mutable.ArrayBuffer
 import scala.sys.process._
 import scala.util.Random
 
-class Motif(@transient sc: SparkContext, deepbindPath: String) extends Serializable {
+class Motif(@transient sc: SparkContext,
+            sd: SequenceDictionary) extends Serializable {
 
-  def scoreSequences(sequences: RDD[String], tfs: List[String]): RDD[Map[String, Double]] = {
-    val dbScores: RDD[Map[String, Double]] = getDeepBindScores(sequences, tfs)
-    // TODO: should average over all scoring metrics
-    dbScores
+
+  def scoreMotifs(in: RDD[LabeledWindow],
+                  windowSize: Int,
+                  stride: Int,
+                  tfs: Array[String],
+                  motifDB: String): RDD[LabeledWindow] = {
+    val motifs: RDD[(ReferenceRegion, String, PeakRecord)] = Preprocess.loadMotifFolder(sc, motifDB, Some(tfs))
+            .map(r => (r._2.region, r._1, r._2))
+    val windowedMotifs = CellTypeSpecific.window[PeakRecord](motifs, sd)
+
+    val str = stride
+    val win = windowSize
+
+    val x: RDD[LabeledWindow] = in.filter(r => tfs.contains(r.win.getTf))
+      .keyBy(r => (r.win.getRegion, r.win.getCellType))
+      .partitionBy(new LabeledReferenceRegionPartitioner(sd, tfs.toVector))
+      .leftOuterJoin(windowedMotifs)
+      .map(r => {
+        val motifs = r._2._2
+        LabeledWindow(Window(r._2._1.win.getTf, r._2._1.win.getCellType,
+          r._2._1.win.getRegion, r._2._1.win.getSequence, Some(r._2._1.win.getDnase), Some(r._2._1.win.getRnaseq), motifs), r._2._1.label)
+      })
+    x
   }
+
 
   /**
    * gets deepbind scores for tfs
@@ -27,7 +50,8 @@ class Motif(@transient sc: SparkContext, deepbindPath: String) extends Serializa
    * @return
    */
   def getDeepBindScores(sequences: RDD[String],
-                        tfs: List[String]): RDD[Map[String, Double]] = {
+                         tfs: List[String],
+                         deepbindPath: String): RDD[Map[String, Double]] = {
 
     // local locations of files to read and write from
     val idFile = new File(s"${deepbindPath}/tfDatabase.ids").getPath
@@ -48,7 +72,7 @@ class Motif(@transient sc: SparkContext, deepbindPath: String) extends Serializa
 
     // filter out parameters included in db but not in parameters folder
     val tfDatabase: Map[String, String] = filteredDb.map(r => (r(0), r(1))).toMap
-    sequences.map(s => getDeepBindScore(s, tfDatabase, idFile))
+    sequences.map(s => getDeepBindScore(s, tfDatabase, idFile, deepbindPath))
   }
 
   /**
@@ -59,7 +83,8 @@ class Motif(@transient sc: SparkContext, deepbindPath: String) extends Serializa
    * @return
    */
   def getDeepBindScoresPerPartition(sequences: RDD[String],
-                        tfs: List[String]): RDD[Array[Double]] = {
+                        tfs: List[String],
+                        deepbindPath: String): RDD[Array[Double]] = {
 
     // local locations of files to read and write from
     val idFile = new File(s"${deepbindPath}/tfDatabase.ids").getPath
@@ -116,7 +141,8 @@ class Motif(@transient sc: SparkContext, deepbindPath: String) extends Serializa
    */
   def getDeepBindScore(sequence: String,
                        tfDatabase: Map[String, String],
-                      idFile: String): Map[String, Double] = {
+                      idFile: String,
+                      deepbindPath: String): Map[String, Double] = {
 
     val result: String = s"${deepbindPath}/deepbindArg ${idFile} ${sequence}" !!
 

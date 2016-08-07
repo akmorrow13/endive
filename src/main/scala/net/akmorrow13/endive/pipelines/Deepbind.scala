@@ -103,8 +103,8 @@ object Deepbind extends Serializable {
         val sequences = extractSequences(referencePath, regions).cache()
         println(s"extracted sequences for ${chr}, ${sequences.count}")
 
-        val motifFinder = new Motif(sc, deepbindPath)
-        val scores: RDD[Array[Double]] = motifFinder.getDeepBindScoresPerPartition(sequences.map(_._2), Dataset.tfs).cache()
+        val motifFinder = new Motif(sc,sd)
+        val scores: RDD[Array[Double]] = motifFinder.getDeepBindScoresPerPartition(sequences.map(_._2), Dataset.tfs, deepbindPath).cache()
         println("completed deepbind scoring:", scores.count)
 
         val finalResults: RDD[String] = regions.zip(scores)

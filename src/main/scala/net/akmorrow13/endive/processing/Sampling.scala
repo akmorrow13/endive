@@ -34,42 +34,30 @@ object Sampling {
                        rdd: RDD[LabeledWindow],
                        sd: SequenceDictionary,
                        distance: Long = 700L,
-                       partitioner: Vector[String] = Dataset.tfs.toVector): RDD[LabeledWindow] = {
-    val partitionedRDD = rdd.keyBy(r => (r.win.getRegion, r.win.getTf)).partitionBy(new LabeledReferenceRegionPartitioner(sd, partitioner))
+                       partition: Boolean = true,
+                       partitioner: Vector[String] = Dataset.cellTypes.toVector): RDD[LabeledWindow] = {
+    val partitionedRDD: RDD[((ReferenceRegion, String), LabeledWindow)] =
+      if (partition)
+        rdd.keyBy(r => (r.win.getRegion, r.win.getTf)).partitionBy(new LabeledReferenceRegionPartitioner(sd, partitioner))
+      else rdd.keyBy(r => (r.win.getRegion, r.win.getTf))
 
     partitionedRDD.mapPartitions(iter => {
       val sites = iter.toList
       val positives = sites.filter(r => r._2.label == 1.0)
       val negatives = sites.filter(r => r._2.label == 0.0)
-              .filter( r => r._2.win.getDnase.length > 0)  // filter regions only with dnase
       val minimum = 200L
 
       // favor negative samples closer to positive samples with open chromatin
       val filteredNegs = negatives.filter(n => {
         val neighbors = positives.filter(p => {
           val dist =  n._2.win.getRegion.distance(p._2.win.getRegion)
-          dist.isDefined && dist.get < distance && dist.get > minimum
+          dist.isDefined && dist.get < distance && dist.get > minimum && p._2.win.getTf == n._2.win.getTf && p._2.win.getCellType == n._2.win.getCellType
         })
         !neighbors.isEmpty
       })
       filteredNegs.union(positives).toIterator
-    })
-    val minimum = 200L
-    val positives = rdd.filter(r => r.label == 1.0)
-    val negatives = rdd.filter(r => r.label == 0.0)
-    val positivesB = sc.broadcast(positives.collect)
+    }).map(_._2)
 
-    // favor negative samples closer to positive samples
-    val filteredNegs = negatives.filter(n => {
-      val neighbors = positivesB.value.filter(r => {
-        val dist =  n.win.getRegion.distance(r.win.getRegion)
-        dist.isDefined && dist.get < distance && dist.get > minimum
-      })
-      !neighbors.isEmpty
-    })
-    println(s"final negatives with accessible chromatin around peaks count: ${filteredNegs.count}")
-
-    filteredNegs.union(positives)
   }
 }
 

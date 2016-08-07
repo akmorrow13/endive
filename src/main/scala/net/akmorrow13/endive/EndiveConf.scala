@@ -19,7 +19,7 @@ class EndiveConf extends Serializable {
 
   /* location of sequence motif data */
   @BeanProperty var deepbindPath: String = null
-
+  @BeanProperty var motifDBPath: String = null
 
   /* These are required if createWindows is True */
   @BeanProperty var labels: String = null
