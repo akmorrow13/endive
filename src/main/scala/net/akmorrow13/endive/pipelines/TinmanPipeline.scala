@@ -44,7 +44,7 @@ import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import scala.util.Random
 
-object StrawmanPipeline extends Serializable with Logging {
+object TinmanPipeline extends Serializable with Logging {
 
   /**
    * A very basic pipeline that *doesn't* featurize the data
@@ -124,7 +124,14 @@ object StrawmanPipeline extends Serializable with Logging {
 
       println("Building Pipeline")
       val sequenceFeaturizer =
-      Transformer.apply[LabeledWindow, DenseVector[Double]](x => denseFeaturize(x.win.sequence)) andThen Cacher[DenseVector[Double]]()
+      Transformer.apply[LabeledWindow, String](x => x.win.sequence) andThen
+      Trim andThen
+      LowerCase() andThen
+      Tokenizer("|") andThen
+      NGramsFeaturizer(6 to 7) andThen
+      TermFrequency(x => 1.0) andThen
+      (CommonSparseFeatures[Seq[String]](1024), train) andThen
+      Transformer.apply[SparseVector[Double], DenseVector[Double]](x => x.toDenseVector) andThen Cacher[DenseVector[Double]]()
 
 
       val predictor = Pipeline.gather[LabeledWindow, DenseVector[Double]] {
