@@ -53,6 +53,10 @@ case class Window(tf: String,
   def getRnaseq: List[RNARecord] = rnaseq
   def getMotifs: List[PeakRecord] = motifs
 
+  def setMotifs(motifs: List[PeakRecord]): Window = {
+    new Window(this.tf, this.cellType, this.region, this.sequence, this.getDnase, this.getRnaseq, motifs)
+  }
+
   override
   def toString:String = {
     val stringifiedDnase = dnase.map(_.toString).mkString(Window.EPIDELIM)

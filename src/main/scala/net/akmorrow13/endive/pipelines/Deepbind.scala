@@ -78,8 +78,8 @@ object Deepbind extends Serializable {
       throw new Exception("output for deepbind scores not defined")
     val aggregatedSequenceOutput = conf.aggregatedSequenceOutput
 
-    if (conf.reference == null)
-      throw new Exception("reference not defined")
+    if (conf.labels == null)
+      throw new Exception("labels not defined")
     val referencePath = conf.reference
 
     if (conf.deepbindPath == null)
@@ -88,39 +88,32 @@ object Deepbind extends Serializable {
 
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-    Dataset.chrs.foreach(chr => {
-      // divy up chr into 50 partitions
-      val rec: Option[SequenceRecord] =
-        sd.apply(chr)
+    val fullMatrix: RDD[LabeledWindow] = sc.textFile(conf.labels)
+      .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
+      .repartition(500)
 
-      if (rec.isDefined) {
-        val chrLength = rec.get.length
-        val region = ReferenceRegion(chr, 0, chrLength)
-        // map to windows
-        val regions: RDD[ReferenceRegion] = sc.parallelize(CellTypeSpecific.unmergeRegions(region, windowSize, stride))
-                  .repartition(100)
+    val tfs = fullMatrix.map(_.win.tf).distinct.collect()
+    println("running on tfs:")
+    tfs.foreach(println)
+    assert(tfs.length == 1)
 
-        val sequences = extractSequences(referencePath, regions).cache()
-        println(s"extracted sequences for ${chr}, ${sequences.count}")
+    val motifFinder = new Motif(sc, sd)
+    val scores: RDD[Double] = motifFinder.getDeepBindScoresPerPartition(fullMatrix.map(_.win.sequence), tfs.toList, deepbindPath).cache().map(_.head)
+    println("completed deepbind scoring:", scores.count)
 
-        val motifFinder = new Motif(sc,sd)
-        val scores: RDD[Array[Double]] = motifFinder.getDeepBindScoresPerPartition(sequences.map(_._2), Dataset.tfs, deepbindPath).cache()
-        println("completed deepbind scoring:", scores.count)
-
-        val finalResults: RDD[String] = regions.zip(scores)
-            .map( r=> (s"${r._1.start}:${r._1.end}:${r._2.mkString(",")}"))
-        println(s"completed serialization of scores and regions, ${finalResults}")
-
-        // save scores to chr output + chr
-        val fileLocation = s"${aggregatedSequenceOutput}_${chr}"
-        println(s"saving to file location:${fileLocation}")
-        finalResults.saveAsTextFile(fileLocation)
-
-      } else throw new Exception(s"${chr} not found in sd")
-
+    val finalResults: RDD[LabeledWindow] = fullMatrix.zip(scores).map(r => {
+      val deepbind = PeakRecord(r._1.win.region, -1, -1, -1, -1, r._2)
+      LabeledWindow(r._1.win.setMotifs(List(deepbind)), r._1.label)
     })
 
-
+    // save scores to chr output + chr
+    val fileLocation = s"${aggregatedSequenceOutput}/deepbind_${tfs.head}"
+    println(s"saving to file location:${fileLocation}")
+    finalResults
+      .map(r => ((r.win.region, r.win.cellType), r))
+      .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+      .map(r => r._2.toString)
+      .saveAsTextFile(fileLocation)
   }
 
   def extractSequences(referencePath: String, regions: RDD[ReferenceRegion]): RDD[(ReferenceRegion, String)]  = {

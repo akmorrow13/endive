@@ -28,6 +28,7 @@ import nodes.util.ClassLabelIndicatorsFromIntLabels
 
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS}
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
@@ -151,21 +152,26 @@ object BaseModel extends Serializable  {
         .setName("yTrainPositive").cache()
       val yTrainNegatives = train.filter(_.labeledWindow.win.getDnase.length == 0).map(_.labeledWindow.label)
         .setName("yTrainNegative").cache()
+      val yTrain = yTrainPositives.union(yTrainNegatives).map(_.toDouble)
+
 
       // testing labels
       val yTestPositives = test.filter(_.labeledWindow.win.getDnase.length > 0).map(_.labeledWindow.label).cache()
       val yTestNegatives = test.filter(_.labeledWindow.win.getDnase.length == 0).map(_.labeledWindow.label).cache()
+      val yTest = yTestPositives.union(yTestNegatives).map(_.toDouble)
 
       println("Training model")
       val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 1).fit(XTrainPositives, yTrainPositives)
 
       val yPredTrain = predictor(XTrainPositives).union(XTrainNegatives.map(r => 0.0))
-      val evalTrain = BinaryClassifierEvaluator(yTrainPositives.union(yTrainNegatives).map(_ > 0), yPredTrain.map(_ > 0))
-      println("Train Results: \n " +  evalTrain.summary())
+      val evalTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain))
+      println("Train Results: \n ")
+      Metrics.printMetrics(evalTrain)
 
       val yPredTest = predictor(XTestPositives).union(XTestNegatives.map(r => 0.0))
-      val evalTest = BinaryClassifierEvaluator(yTestPositives.map(_ > 0)union(yTestNegatives).map(_ > 0), yPredTest.map(_ > 0))
-      println("Test Results: \n " +  evalTest.summary())
+      val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest))
+      println("Test Results: \n ")
+      Metrics.printMetrics(evalTrain)
 
     }
   }
@@ -185,8 +191,14 @@ object BaseModel extends Serializable  {
                 sd:SequenceDictionary): RDD[BaseFeature] = {
     val motif = new Motif(sc, sd)
 
-    val filteredPositives = rdd.filter(_.win.getDnase.length > 0)
-    val filteredNegatives = rdd.filter(_.win.getDnase.length == 0)
+    val filteredRDD = Sampling.subselectSamples(sc, rdd, sd, partition = false)
+    println(s"filtered rdd ${filteredRDD.count}, original rdd ${rdd.count}")
+    println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
+      s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
+
+
+    val filteredPositives = filteredRDD.filter(_.win.getDnase.length > 0)
+    val filteredNegatives = filteredRDD.filter(_.win.getDnase.length == 0)
           .map(r => {
             BaseFeature(r, DenseVector(0.0,0.0,0.0,0.0))
           })

@@ -4,7 +4,7 @@ import java.io.{PrintWriter, File}
 import net.akmorrow13.endive.utils.{Window, LabeledReferenceRegionPartitioner, LabeledWindow}
 import org.apache.hadoop.mapred.FileAlreadyExistsException
 
-import net.akmorrow13.endive.processing.{CellTypeSpecific, PeakRecord, Preprocess}
+import net.akmorrow13.endive.processing.{Dataset, CellTypeSpecific, PeakRecord, Preprocess}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
@@ -31,7 +31,7 @@ class Motif(@transient sc: SparkContext,
 
     val x: RDD[LabeledWindow] = in.filter(r => tfs.contains(r.win.getTf))
       .keyBy(r => (r.win.getRegion, r.win.getCellType))
-      .partitionBy(new LabeledReferenceRegionPartitioner(sd, tfs.toVector))
+      .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
       .leftOuterJoin(windowedMotifs)
       .map(r => {
         val motifs = r._2._2

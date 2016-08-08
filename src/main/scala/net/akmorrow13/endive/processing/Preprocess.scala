@@ -181,20 +181,28 @@ object Preprocess {
    *
    * @param sc
    * @param filePath
+   * @return rdd of motifs mapped by (transcription factor, peakrecord with pvalue and peak specified)
    */
   def loadMotifs(sc: SparkContext, filePath: String): RDD[(String, PeakRecord)] = {
-    val cellType = filePath.split("/").last.split('_')(0)
-    println(s"loading motifs for ${cellType}")
+    val tf = filePath.split("/").last.split('_')(0)
+    println(s"loading motifs for ${tf}")
     val rdd = loadTsv(sc, filePath, "#pattern")
     rdd.map(parts => {
       val region = ReferenceRegion(parts(1), parts(2).toLong, parts(3).toLong)
       val l = parts.drop(3).toList.filter(r => r != ".")
       val peak = parts(5).toDouble
       val pValue = parts(6).toDouble
-      (cellType, PeakRecord(region, -1, -1, pValue, -1, peak))
+      (tf, PeakRecord(region, -1, -1, pValue, -1, peak))
     })
   }
 
+  /**
+   *
+   * @param sc
+   * @param folder
+   * @param tfs
+   * @return rdd of motifs mapped by (transcription factor, peakrecord with pvalue and peak specified)
+   */
   def loadMotifFolder(sc: SparkContext, folder: String, tfs: Option[Array[String]]): RDD[(String, PeakRecord)] = {
 
     var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]
