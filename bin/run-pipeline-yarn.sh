@@ -14,7 +14,10 @@ FWDIR="$(cd `dirname $0`/..; pwd)"
 if [[ "$RUN_LOCAL" ]]; then
     echo "RUN_LOCAL is set, running pipeline locally"
 	$FWDIR/bin/run-main.sh $CLASS "$@"
+	MASTER="local[4]"
 	exit 0
+else
+	MASTER="yarn"
 fi
 
 if [ -z "$OMP_NUM_THREADS" ]; then
@@ -49,10 +52,12 @@ export CPATH=/home/eecs/vaishaal/gcc-build/include
 
 # Set some commonly used config flags on the cluster
 "$SPARK_SUBMIT" \
-  --master yarn\
+  --master $MASTER \
   --class $CLASS \
-  --num-executors  65 \
-  --executor-cores 16 \
+  --num-executors  24 \
+  --driver-memory 60g \
+  --executor-memory 40g \
+  --executor-cores 12 \
   --driver-class-path $JARFILE:$ASSEMBLYJAR:$HOME/hadoop/conf \
   --driver-library-path /opt/amp/gcc/lib64:/opt/amp/openblas/lib:$FWDIR/lib \
   --conf spark.executor.extraLibraryPath=/opt/amp/openblas/lib:$FWDIR/lib \

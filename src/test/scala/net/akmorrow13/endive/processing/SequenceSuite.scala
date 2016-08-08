@@ -23,7 +23,7 @@ class SequenceSuite extends EndiveFunSuite {
     .build()
 
   sparkTest("should extract reference sequences using reference and regions") {
-    val trainRDD = Preprocess.loadLabels(sc, labelPath)
+    val trainRDD = Preprocess.loadLabels(sc, labelPath)._1
     // assert tsv loader only loads unbould labels
     assert(trainRDD.count == 29)
     assert(trainRDD.filter(r => r._4 == -1).count() == 1)

@@ -10,7 +10,6 @@ class EndiveConf extends Serializable {
   @BeanProperty var sequenceLoc: String = null
   @BeanProperty var rnaseqLoc: String = null
   @BeanProperty var dnaseLoc: String = null
-  @BeanProperty var featureLoc: String = null
 
   /* output files */
   @BeanProperty var aggregatedSequenceOutput: String = null
@@ -20,7 +19,7 @@ class EndiveConf extends Serializable {
 
   /* location of sequence motif data */
   @BeanProperty var deepbindPath: String = null
-
+  @BeanProperty var motifDBPath: String = null
 
   /* These are required if createWindows is True */
   @BeanProperty var labels: String = null
@@ -46,10 +45,6 @@ object EndiveConf {
     /* Add line for required arugments here to validate 
      * TODO: This is a kludge but idk what else to do
      */
-
-    if (conf.labels == null) {
-      throw new IllegalArgumentException("Labels path is mandatory")
-    }
 
     if (conf.reference == null) {
       throw new IllegalArgumentException("Refrence path is mandatory")

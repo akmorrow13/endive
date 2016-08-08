@@ -25,30 +25,17 @@ import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 
 object Metrics {
 
-  def computeAccuracy(x: RDD[(Double, Double)]) = {
-    println("AUROC: ", computeAUROC(x))
-    println("auPR: ", computePR(x))
-  }
+  def printMetrics(metrics: BinaryClassificationMetrics) {
+    // AUPRC
+    val auPRC = metrics.areaUnderPR
+    println("Area under precision-recall curve = " + auPRC)
 
-  /**
-   * Computes AUROC for predicted and actual labels of type double
-   * @param x predicted and actual labels
-   * @return AUROC
-   */
-  def computeAUROC(x: RDD[(Double, Double)]): Double = {
-    val metrics = new BinaryClassificationMetrics(x)
-    metrics.areaUnderROC()
-  }
+    // ROC Curve
+    val roc = metrics.roc
 
-
-  /**
-   * Calculates precision recall curve
-   * @param x predicted and actual labels
-   * @return area under precision recall
-   */
-  def computePR(x: RDD[(Double, Double)]): Double = {
-    val metrics = new BinaryClassificationMetrics(x)
-    metrics.areaUnderPR()
+    // AUROC
+    val auROC = metrics.areaUnderROC
+    println("Area under ROC = " + auROC)
   }
 
   /**

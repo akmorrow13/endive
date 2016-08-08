@@ -19,6 +19,8 @@ import java.io.File
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.processing.Sequence
 import net.akmorrow13.endive.utils._
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -72,8 +74,6 @@ object DatasetCreationPipeline extends Serializable  {
     if (referencePath == null)
       throw new Exception("referencepath not defined")
     val genes = conf.genes
-    if (genes == null)
-      throw new Exception("gene path not defined")
     val aggregatedSequenceOutput = conf.aggregatedSequenceOutput
     if (aggregatedSequenceOutput == null)
       throw new Exception("aggregatedSequenceOutput not defined")
@@ -83,44 +83,56 @@ object DatasetCreationPipeline extends Serializable  {
     val dnasePath = conf.dnase
     if (dnasePath == null)
       throw new Exception("dnasePath not defined")
-    val rnaseqPath = conf.rnaseq
-    if (rnaseqPath == null)
-      throw new Exception("rnaseqPath not defined")
-
+    
     // challenge parameters
     val windowSize = 200
     val stride = 50
 
-    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabelFolder(sc, labelsPath)
-        .cache()
+    val fs: FileSystem = FileSystem.get(new Configuration())
+    val labelStatus = fs.listStatus(new Path(labelsPath))
+    println(s"first label file: ${labelStatus.head.getPath.getName}")
+    val dnaseStatus = fs.listStatus(new Path(dnasePath))
+    println(s"first dnase file: ${dnaseStatus.head.getPath.getName.split('.')(1)}")
 
-    println("First reading labels")
-    train.count()
+      for (i <- labelStatus) {
+        val file: String = i.getPath.toString
+        try {
+          val (train: RDD[(String, String, ReferenceRegion, Int)], cellTypes: Array[String]) = Preprocess.loadLabels(sc, file)
+          train.setName("train").cache()
+          train.count
 
-    // extract sequences from reference over training regions
-    val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
+	  val tf = train.first._1
+          println(s"celltypes for tf ${tf}:")
+          cellTypes.foreach(println)
 
-    // Load DNase data of (cell type, peak record)
-    val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFolder(sc, dnasePath)
-          .map(r => (Window.filterCellTypeName(r._1), r._2))
-      .cache()
+          // extract sequences from reference over training regions
+          val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
+          // val sequences: RDD[LabeledWindow] = sc.emptyRDD[LabeledWindow]
+	  println("extracted sequences", sequences.count)
+          // Load DNase data of (cell type, peak record)
+	  val dnaseFiles = dnaseStatus.filter(r => {
+		cellTypes.contains(r.getPath.getName.split('.')(1))
+          })
+ 	 
+          val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
+            .map(r => (Window.filterCellTypeName(r._1), r._2))
+            .cache()
 
-//    // load rnase data
-//    val rnaLoader = new RNAseq(genes, sc)
-//    val rnaseq: RDD[(String, RNARecord)] = rnaLoader.loadRNAFolder(sc, rnaseqPath)
-//      .cache()
+          val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+          val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
 
-    val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
+          val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
 
-    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
+          // save data
+          val output =  s"${aggregatedSequenceOutput}/${tf}"
+          fullMatrix.map(_.toString).saveAsTextFile(output)
+          println(s"saved dataset for tf ${tf}")
 
-    // save data
-    fullMatrix.map(_.toString).saveAsTextFile(aggregatedSequenceOutput)
-
-    println("Now matching labels with reference genome")
-    sequences.count()
+        } catch {
+          case e: Exception => println(s"Directory ${file} could not be loaded")
+        }
+      }
 
   }
 
@@ -130,13 +142,25 @@ object DatasetCreationPipeline extends Serializable  {
   }
 
 
-  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(String, String, ReferenceRegion, Int)]): RDD[LabeledWindow]  = {
+  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(String, String, ReferenceRegion, Int)], placeHolder: Boolean = false): RDD[LabeledWindow]  = {
     /* TODO: This is a kludge that relies that the master + slaves share NFS
      * but the correct thing to do is to use scp/nfs to distribute the sequence data
      * across the cluster
      */
-
-    regionsAndLabels.mapPartitions { part =>
+    // if sequences isnt required
+    if (placeHolder) {
+      regionsAndLabels.mapPartitions { part =>
+        part.map { r =>
+          val startIdx = r._3.start
+          val endIdx = r._3.end
+          val sequence = "N"
+          val label = r._4
+          val win: Window = Window(r._1, r._2, r._3, sequence)
+          LabeledWindow(win, label)
+        }
+      }
+    } else {
+      regionsAndLabels.mapPartitions { part =>
         val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
         part.map { r =>
           val startIdx = r._3.start
@@ -147,6 +171,9 @@ object DatasetCreationPipeline extends Serializable  {
           LabeledWindow(win, label)
         }
       }
+    }
+
+
   }
 
 }

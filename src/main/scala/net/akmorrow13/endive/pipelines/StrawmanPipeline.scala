@@ -17,6 +17,7 @@ package net.akmorrow13.endive.pipelines
 
 import breeze.linalg._
 import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.processing.Sequence
 import net.akmorrow13.endive.utils._
 import nodes.learning._
@@ -126,27 +127,14 @@ object StrawmanPipeline extends Serializable with Logging {
       val yPredTrain = predictor(XTrain)
       val evalTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
       println("Train Results: \n ")
-      printMetrics(evalTrain)
+      Metrics.printMetrics(evalTrain)
 
 
       val yPredTest = predictor(XTest)
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
       println("Test Results: \n ")
-      printMetrics(evalTest)
+      Metrics.printMetrics(evalTest)
     }
-  }
-
-  def printMetrics(metrics: BinaryClassificationMetrics) {
-    // AUPRC
-    val auPRC = metrics.areaUnderPR
-    println("Area under precision-recall curve = " + auPRC)
-
-    // ROC Curve
-    val roc = metrics.roc
-
-    // AUROC
-    val auROC = metrics.areaUnderROC
-    println("Area under ROC = " + auROC)
   }
 
   def loadTsv(sc: SparkContext, filePath: String): RDD[(ReferenceRegion, Int)] = {

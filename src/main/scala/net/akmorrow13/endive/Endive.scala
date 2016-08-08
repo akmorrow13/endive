@@ -72,7 +72,7 @@ object Endive extends Serializable  {
     val reference = Sequence(referencePath, sc)
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
-    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelsPath)
+    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelsPath)._1
 
     // extract sequences from reference over training regions
     val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(train.map(_._3))
