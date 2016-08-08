@@ -100,21 +100,6 @@ object Deepbind extends Serializable {
     val motifFinder = new Motif(sc, sd)
     val scores: RDD[Double] = motifFinder.getDeepBindScoresPerPartition(fullMatrix.map(_.win.sequence), tfs.toList, deepbindPath).cache().map(_.head)
     println("completed deepbind scoring:", scores.count)
-        val sequences = extractSequences(referencePath, regions).cache()
-        println(s"extracted sequences for ${chr}, ${sequences.count}")
-
-        val motifFinder = new Motif(sc,sd)
-        val scores: RDD[Array[Double]] = motifFinder.getDeepBindScoresPerPartition(sequences.map(_._2), Dataset.tfs, deepbindPath).cache()
-        println("completed deepbind scoring:", scores.count)
-
-        val finalResults: RDD[String] = regions.zip(scores)
-            .map( r=> (s"${r._1.start}:${r._1.end}:${r._2.mkString(",")}"))
-        println(s"completed serialization of scores and regions, ${finalResults}")
-
-        // save scores to chr output + chr
-        val fileLocation = s"${aggregatedSequenceOutput}_${chr}"
-        println(s"saving to file location:${fileLocation}")
-        finalResults.saveAsTextFile(fileLocation)
 
 
     val finalResults: RDD[LabeledWindow] = fullMatrix.zip(scores).map(r => {

@@ -76,53 +76,48 @@ object BaseModel extends Serializable  {
     val windowSize = 200
     val stride = 50
 
-    if (conf.featurizedOutput == null)
-      throw new Exception("output for featured data not defined")
-
-    if(conf.deepbindPath == null)
-      throw new Exception("deepbind path not defined")
-
- val genes = conf.genes
-    // create new sequence with reference path
-    val referencePath = conf.reference
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
-    val dnasePath = conf.dnase
 
     // RDD of (tf name, celltype, region, score)
     val fullMatrix: RDD[LabeledWindow] = sc.textFile(labelsPath)
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
+      .cache()
 
     val tfs = fullMatrix.map(_.win.tf).distinct.collect()
     println("running on tfs:")
     tfs.foreach(println)
 
-    val records = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+    val records = DatasetCreationPipeline.getSequenceDictionary(conf.reference)
       .records.filter(r => Dataset.chrs.contains(r.name))
 
     val sd = new SequenceDictionary(records)
 
+
+    val cellTypes: Array[String] = fullMatrix.map(x => (x.win.cellType)).countByValue().keys.toArray
+    val folds = cellTypes.size
+
     // deepbind does not have creb1 scores so we will hold out for now
-    val foldsData: RDD[(BaseFeature, Int)] = featurize(sc, fullMatrix,tfs, conf.motifDBPath, None, sd)
-          .map(r => (r, r.labeledWindow.win.getRegion.referenceName.hashCode % conf.folds))
+    val foldsData: RDD[BaseFeature] = featurize(sc, fullMatrix,tfs, conf.motifDBPath, None, sd)
           .setName("foldsData")
           .cache()
     println(s"joined with motifs ${foldsData.count}")
 
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
 
-    for (i <- (0 until conf.folds)) {
+    for (i <- (0 until folds)) {
       println("calcuated for fold ", i)
       
-      val train = foldsData.filter(x => x._2 != i).map(x => x._1)
+      val train = foldsData.filter(x => x.labeledWindow.win.getCellType != cellTypes(i))
         .setName("trainData")
         .cache()
       train.count()
-      val test = foldsData.filter(x => x._2 == i).map(x => x._1)
+      val test = foldsData.filter(x => x.labeledWindow.win.getCellType == cellTypes(i))
         .setName("testData")
         .cache()
 
       println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
+      println(s"test cellType : ${cellTypes(i)}")
 
       // training features
       val XTrainPositives = train.filter(_.labeledWindow.win.getDnase.length > 0).map(_.features)
@@ -159,7 +154,7 @@ object BaseModel extends Serializable  {
       val yPredTest = predictor(XTestPositives).union(XTestNegatives.map(r => 0.0))
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest))
       println("Test Results: \n ")
-      Metrics.printMetrics(evalTrain)
+      Metrics.printMetrics(evalTest)
 
     }
   }
@@ -192,29 +187,28 @@ object BaseModel extends Serializable  {
           })
 
     val motifScores: RDD[LabeledWindow] =
-        motif.scoreMotifs(filteredPositives, 200, 50, tfs, motifDB)
+        motif.scoreMotifs(filteredRDD, 200, 50, tfs, motifDB)
 
     println("records with overlapping dnase count: ", filteredPositives.count)
     println("records without overlapping dnase count: ", filteredNegatives.count)
-    val positives = motifScores
+    val results = motifScores
         .map(r => {
           // known motif score
-          // max DNASE fold change across each bin
-          val maxScore = r.win.getDnase.map(_.peak).max
-          val minScore = r.win.getDnase.map(_.peak).min
-          val dnasefold = (maxScore - minScore) / minScore
+	  val dnasefold = 
+		if (r.win.getDnase.length > 0) {
+          		// max DNASE fold change across each bin
+          		val maxScore = r.win.getDnase.map(_.peak).max
+          		val minScore = r.win.getDnase.map(_.peak).min
+          		(maxScore - minScore) / minScore
+		} else 0.0
           val motifs = r.win.motifs
-          val max: Double = motifs.map(_.peak).max
-          val min: Double = motifs.map(_.peak).min
-          val mean =
-            if (motifs.length > 0) 0.0
-             else r.win.motifs.map(_.peak).sum/motifs.length
-
+          val (min: Double, max: Double, mean: Double) =
+            if (motifs.length > 0) (motifs.map(_.peak).min, motifs.map(_.peak).max, r.win.motifs.map(_.peak).sum/motifs.length)
+	    else (0.0, 0.0, 0.0)
           BaseFeature(r, DenseVector(min, max, mean, dnasefold))
         })
-    println("after motifs and featurizing", positives.count)
-
-    positives.union(filteredNegatives)
+    println("after motifs and featurizing",results.count)
+    results
   }
 }
 

@@ -85,36 +85,38 @@ object NoSeqBaseModel extends Serializable  {
 
     val fullMatrix: RDD[LabeledWindow] = sc.textFile(labelsPath)
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
+      .cache()
 
     val records = DatasetCreationPipeline.getSequenceDictionary(referencePath)
                 .records.filter(r => Dataset.chrs.contains(r.name))
 
     val sd = new SequenceDictionary(records)
 
-    val foldsData: RDD[(BaseFeature, Int)] = featurize(sc, fullMatrix, sd)
-      .map(r => (r, r.labeledWindow.win.getCellType.hashCode % conf.folds))
+  
+    
+    val cellTypes: Array[String] = fullMatrix.map(x => (x.win.cellType)).countByValue().keys.toArray
+    val folds = cellTypes.size
+
+    val foldsData: RDD[BaseFeature] = featurize(sc, fullMatrix, sd)
       .setName("foldsData")
       .cache()
 
+
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
 
-    for (i <- (0 until conf.folds)) {
+    for (i <- (0 until folds)) {
       println("calcuated for fold ", i)
 
-      val train = foldsData.filter(x => x._2 != i).map(x => x._1)
+      val train = foldsData.filter(x => x.labeledWindow.win.getCellType != cellTypes(i))
         .setName("trainData")
         .cache()
-      train.count()
-      val test = foldsData.filter(x => x._2 == i).map(x => x._1)
+      val test = foldsData.filter(x =>  x.labeledWindow.win.getCellType == cellTypes(i))
         .setName("testData")
         .cache()
+      println(train.count, test.count)
 
       // get training and testing cell types for this fold
-      val trainCellTypes = train.map(_.labeledWindow.win.cellType).distinct().collect
-      println("Fold ${i}, training cell types:")
-      trainCellTypes.foreach(println)
-
-      val testCellType = test.first.labeledWindow.win.getCellType
+      val testCellType = cellTypes(i)
       println(s"Fold ${i}, testing cell types ${testCellType}")
 
       println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
@@ -151,7 +153,7 @@ object NoSeqBaseModel extends Serializable  {
       val yPredTest = predictor(XTestPositives).union(XTestNegatives.map(r => 0.0))
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest))
       println("Test Results: \n ")
-      Metrics.printMetrics(evalTrain)
+      Metrics.printMetrics(evalTest)
 
     }
   }

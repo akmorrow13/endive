@@ -5,8 +5,6 @@ import net.akmorrow13.endive.utils.{Window, LabeledReferenceRegionPartitioner, L
 import org.apache.hadoop.mapred.FileAlreadyExistsException
 
 import net.akmorrow13.endive.processing.{Dataset, CellTypeSpecific, PeakRecord, Preprocess}
-import net.akmorrow13.endive.processing.{CellTypeSpecific, PeakRecord, Preprocess}
->>>>>>> 82f5a34... updated BaseModel for db
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}

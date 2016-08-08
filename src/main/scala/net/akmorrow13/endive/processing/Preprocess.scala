@@ -193,7 +193,6 @@ object Preprocess {
       val peak = parts(5).toDouble
       val pValue = parts(6).toDouble
       (tf, PeakRecord(region, -1, -1, pValue, -1, peak))
-      (cellType, PeakRecord(region, -1, -1, pValue, -1, peak))
     })
   }
 
