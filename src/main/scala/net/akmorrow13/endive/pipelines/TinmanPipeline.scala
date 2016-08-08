@@ -17,7 +17,6 @@ package net.akmorrow13.endive.pipelines
 
 import breeze.linalg._
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.processing.Sequence
 import net.akmorrow13.endive.utils._
 import nodes.learning._
@@ -45,7 +44,7 @@ import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import scala.util.Random
 
-object StrawmanPipeline extends Serializable with Logging {
+object TinmanPipeline extends Serializable with Logging {
 
   /**
    * A very basic pipeline that *doesn't* featurize the data
@@ -125,7 +124,14 @@ object StrawmanPipeline extends Serializable with Logging {
 
       println("Building Pipeline")
       val sequenceFeaturizer =
-      Transformer.apply[LabeledWindow, DenseVector[Double]](x => denseFeaturize(x.win.sequence)) andThen Cacher[DenseVector[Double]]()
+      Transformer.apply[LabeledWindow, String](x => x.win.sequence) andThen
+      Trim andThen
+      LowerCase() andThen
+      Tokenizer("|") andThen
+      NGramsFeaturizer(6 to 7) andThen
+      TermFrequency(x => 1.0) andThen
+      (CommonSparseFeatures[Seq[String]](1024), train) andThen
+      Transformer.apply[SparseVector[Double], DenseVector[Double]](x => x.toDenseVector) andThen Cacher[DenseVector[Double]]()
 
 
       val predictor = Pipeline.gather[LabeledWindow, DenseVector[Double]] {
@@ -136,14 +142,27 @@ object StrawmanPipeline extends Serializable with Logging {
       val yPredTrain = predictor(train).get()
       val evalTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
       println("Train Results: \n ")
-      Metrics.printMetrics(evalTrain)
+      printMetrics(evalTrain)
 
 
       val yPredTest = predictor(test).get()
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
       println("Test Results: \n ")
-      Metrics.printMetrics(evalTest)
+      printMetrics(evalTest)
     }
+  }
+
+  def printMetrics(metrics: BinaryClassificationMetrics) {
+    // AUPRC
+    val auPRC = metrics.areaUnderPR
+    println("Area under precision-recall curve = " + auPRC)
+
+    // ROC Curve
+    val roc = metrics.roc
+
+    // AUROC
+    val auROC = metrics.areaUnderROC
+    println("Area under ROC = " + auROC)
   }
 
   def loadTsv(sc: SparkContext, filePath: String): RDD[(ReferenceRegion, Int)] = {
