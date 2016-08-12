@@ -26,9 +26,12 @@ class EndiveConf extends Serializable {
   @BeanProperty var reference: String = null
 
 
-  /* Not implemented data sources*/
+  /* data sources*/
 
+  /* dnase data */
   @BeanProperty var dnase: String = null
+  @BeanProperty var dnaseBams: String = null
+
   @BeanProperty var rnaseq: String = null
   @BeanProperty var chipPeaks: String = null
 
