@@ -14,9 +14,9 @@ parallelExecution in Test := false
 fork := true
 
 {
-  val defaultSparkVersion = "1.5.0-cdh5.5.1"
+  val defaultSparkVersion = "1.6.0"
   val sparkVersion = scala.util.Properties.envOrElse("SPARK_VERSION", defaultSparkVersion)
-  val defaultHadoopVersion = "2.6.0-cdh5.5.1"
+  val defaultHadoopVersion = "2.6.0-cdh5.8.0"
   val hadoopVersion =
     scala.util.Properties.envOrElse("SPARK_HADOOP_VERSION", defaultHadoopVersion)
   val excludeHadoop = ExclusionRule(organization = "org.apache.hadoop")
