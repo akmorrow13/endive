@@ -68,6 +68,9 @@ object ProcessDnaseBams extends Serializable with Logging {
     val output = conf.getFeaturizedOutput
     val referencePath = conf.reference
 
+    val positiveFolder = s"${output}/positive/"
+    val negativeFolder = s"${output}/negative/"
+
     // read all bams in file and save positive coverage
     try {
       val fs: FileSystem = FileSystem.get(new Configuration())
@@ -76,18 +79,25 @@ object ProcessDnaseBams extends Serializable with Logging {
         val filePath: String = i.getPath.toString
         val fileName = i.getPath.getName
         val cellType = Dataset.filterCellTypeName(fileName.split('.')(1))
+
+        val positiveFile = s"${positiveFolder}${fileName}.adam"
+        val negativeFile = s"${negativeFolder}${fileName}.adam"
+
         log.info(s"processsing file ${filePath} for cell type ${cellType}")
 
         val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-        try {
+        // check if positive alignments coverage already exists
+        if (!fs.listStatus(new Path(positiveFolder)).contains(positiveFile)) {
           // get positive strand coverage and key by region, cellType
           var positiveAlignments = sc.loadAlignments(filePath).transform(_.filter(r => !r.getReadNegativeStrand))
+          println("positiveCount: " + positiveAlignments.rdd.count)
+          positiveAlignments.rdd.cache
 
           log.info("repartitioning positive rdd")
           val posRdd: RDD[AlignmentRecord] = positiveAlignments.rdd
             .filter(r => r.getContigName != null)
-            .keyBy(r => (r.getContigName, cellType))
+            .keyBy(r => (ReferenceRegion(r), cellType))
             .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
             .map(r => r._2)
 
@@ -95,34 +105,35 @@ object ProcessDnaseBams extends Serializable with Logging {
           val positiveCoverage = positiveAlignments.toCoverage(true) // collapse coverage
 
           log.info("Now saving positive coverage to disk")
-          var outputFile = s"${output}/positive/${fileName}.adam"
-          log.info(outputFile)
-          positiveCoverage.save(outputFile)
+          positiveCoverage.save(positiveFile)
+          positiveAlignments.rdd.unpersist(false)
+        } else {
+          println(s"positive file ${positiveFile} exists. skipping")
+        }
 
-
-          // Calculate negative coverage
-
+        // check if negative alignments coverage already exists
+        if (!fs.listStatus(new Path(negativeFolder)).contains(negativeFile)) {
           var negativeAlignments = sc.loadAlignments(filePath).transform(_.filter(r => r.getReadNegativeStrand))
           log.info("repartitioning negative rdd")
           val negRdd: RDD[AlignmentRecord] = negativeAlignments.rdd
             .filter(r => r.getContigName != null)
-            .keyBy(r => (r.getContigName, cellType))
+            .keyBy(r => (ReferenceRegion(r), cellType))
             .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
             .map(r => r._2)
+
+          println("negativeCount: " + negativeAlignments.rdd.count)
+          negativeAlignments.rdd.cache
 
           negativeAlignments = negativeAlignments.transform(r => negRdd)
           val negativeCoverage = negativeAlignments.toCoverage(true) // collapse coverage
 
           log.info("Now saving negative coverage to disk")
-          outputFile = s"${output}/negative/${fileName}.adam"
-          log.info(outputFile)
-          negativeCoverage.save(outputFile)
-        } catch {
-          case e: Exception => {
-            log.info(e.getMessage)
-            log.info(s"skipping ${fileName}")
-          }
+          negativeCoverage.save(negativeFile)
+          negativeAlignments.rdd.unpersist(false)
+        } else {
+          println(s"negative file ${negativeFile} exists. skipping")
         }
+
 
       }
     } catch {
