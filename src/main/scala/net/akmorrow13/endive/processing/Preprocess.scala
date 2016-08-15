@@ -22,9 +22,6 @@ import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.apache.hadoop.fs._
 import org.apache.hadoop.conf._
-import org.apache.hadoop.io._
-import org.apache.hadoop.mapred._
-import org.apache.hadoop.util._
 
 object Preprocess {
 
@@ -85,6 +82,17 @@ object Preprocess {
     (result, cellTypes)
   }
 
+  /**
+   * loads coverage from dnase files assuming they are all partitioned by LabeledReferenceRegionPartititioner
+   * partitioned on cell type
+   * @param sc
+   * @param folder
+   * @param cellTypes
+   */
+  def loadCoverage(sc: SparkContext, folder: String, cellTypes: String): Unit = {
+
+  }
+
   def loadLabelFolder(sc: SparkContext, folder: String): RDD[(String, String, ReferenceRegion, Int)] = {
     var data: RDD[(String, String, ReferenceRegion, Int)] = sc.emptyRDD[(String, String, ReferenceRegion, Int)]
     val d = new File(folder)
@@ -99,10 +107,8 @@ object Preprocess {
       }
     } else {
     try{
-      val fs: FileSystem = FileSystem.get(new Configuration())
-      val status = fs.listStatus(new Path(folder))
-      for (i <- status) {
-        val file: String = i.getPath.getName
+      val fileNames = getFileNamesFromDirectory(sc, folder)
+      for (file <- fileNames) {
         data = data.union(loadLabels(sc, file)._1)
       }
     } catch {
@@ -229,6 +235,23 @@ object Preprocess {
     data
   }
 
+  /**
+   * gets a list of file names in a directory
+   * @param sc
+   * @param directory
+   * @return Array of filenames
+   */
+  def getFileNamesFromDirectory(sc: SparkContext, directory: String): Array[String] = {
+    try{
+      val fs: FileSystem = FileSystem.get(new Configuration())
+      val fileNames: Array[String] = fs.listStatus(new Path(directory)).map(_.getPath.toString)
+      fileNames
+    } catch {
+      case e: Exception => println(s"Directory ${directory} could not be loaded")
+        null
+    }
+  }
+
   def loadPeakFolder(sc: SparkContext, folder: String): RDD[(String, PeakRecord)] = {
 
     var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]
@@ -244,10 +267,8 @@ object Preprocess {
       }
     } else {
       try{
-        val fs: FileSystem = FileSystem.get(new Configuration())
-        val status = fs.listStatus(new Path(folder))
-        for (i <- status) {
-        val file: String = i.getPath.toString
+        val fileNames = getFileNamesFromDirectory(sc, folder)
+        for (file <- fileNames) {
         data = data.union(loadPeaks(sc, file))
       }
       } catch {

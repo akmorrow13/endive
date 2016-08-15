@@ -30,7 +30,11 @@ class EndiveConf extends Serializable {
 
   /* dnase data */
   @BeanProperty var dnase: String = null
-  @BeanProperty var dnaseBams: String = null
+  @BeanProperty var useRawDnase: Boolean = false
+  // location to RDD for list of (region, counts from files) for forward strands
+  @BeanProperty var dnasePositives: String = null
+  // location to RDD for list of (region, counts from files) for backward strands
+  @BeanProperty var dnaseNegatives: String = null
 
   @BeanProperty var rnaseq: String = null
   @BeanProperty var chipPeaks: String = null

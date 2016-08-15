@@ -6,6 +6,12 @@ import org.bdgenomics.adam.models.SequenceDictionary
 
 object Dataset {
 
+  def filterCellTypeName(cellType: String): String = {
+    val newCellType = cellType.filterNot("-_".toSet)
+    require(cellTypes.contains(newCellType), "Error, celltype not found in list of available cell types")
+    newCellType
+  }
+
   // held out values for final round
   val heldOutChrs = List("chr1", "chr8", "chr21")
   val heldOutTypes = List("PC-3", "liver", "induced_pluripotent_stem_cell")

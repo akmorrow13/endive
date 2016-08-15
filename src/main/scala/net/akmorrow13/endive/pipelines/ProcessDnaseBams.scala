@@ -16,17 +16,23 @@
 package net.akmorrow13.endive.pipelines
 
 import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.processing.Dataset
+import net.akmorrow13.endive.utils.LabeledReferenceRegionPartitioner
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
+import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
+import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.formats.avro.AlignmentRecord
 import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
+import org.bdgenomics.utils.misc.Logging
 
 
-object ProcessDnaseBams extends Serializable  {
+object ProcessDnaseBams extends Serializable with Logging {
 
   /**
    * A very basic dataset creation pipeline that *doesn't* featurize the data
@@ -58,27 +64,58 @@ object ProcessDnaseBams extends Serializable  {
   def run(sc: SparkContext, conf: EndiveConf) {
 
     println("STARTING DNase Processing")
-    val dnase = conf.dnaseBams
+    val dnase = conf.dnase
     val output = conf.getFeaturizedOutput
+    val referencePath = conf.reference
 
     // read all bams in file and save positive coverage
     try{
       val fs: FileSystem = FileSystem.get(new Configuration())
-      val status = fs.listStatus(new Path(dnase))
+      val status = fs.listStatus(new Path(dnase)).filter(i => i.getPath.getName.endsWith(".bam"))
       for (i <- status) {
-        val file: String = i.getPath.toString
-        println(s"processsing file ${file}")
+        val filePath: String = i.getPath.toString
+        val fileName = i.getPath.getName
+        val cellType = Dataset.filterCellTypeName(fileName.split('.')(1))
+        log.info(s"processsing file ${filePath} for cell type ${cellType}")
 
-        // get positive strand coverage
-        val alignments = sc.loadAlignments(file).transform(_.filter(r => !r.getReadNegativeStrand))
-        println("number of partitions", alignments.rdd.partitions.length)
+        val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-        val coverage = alignments.toCoverage(true) // collapse coverage
+        // get positive strand coverage and key by region, cellType
+        var positiveAlignments = sc.loadAlignments(filePath).transform(_.filter(r => !r.getReadNegativeStrand))
 
-        println("Now saving to disk")
-        val outputFile = s"${dnase}/coverage_positive_${i.getPath.getName}.adam"
-        println(outputFile)
-        coverage.save(outputFile)
+        log.info("repartitioning positive rdd")
+        val posRdd: RDD[AlignmentRecord] = positiveAlignments.rdd
+                      .filter(r => r.getContigName != null)
+                      .keyBy(r => (r.getContigName, cellType))
+                      .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+                      .map(r => r._2)
+
+        positiveAlignments = positiveAlignments.transform(r => posRdd)
+        val positiveCoverage = positiveAlignments.toCoverage(true) // collapse coverage
+
+        log.info("Now saving positive coverage to disk")
+        var outputFile = s"${dnase}/coverage/positive/${fileName}.adam"
+        log.info(outputFile)
+        positiveCoverage.save(outputFile)
+
+
+        // Calculate negative coverage
+        var negativeAlignments = sc.loadAlignments(filePath).transform(_.filter(r => r.getReadNegativeStrand))
+        log.info("repartitioning negative rdd")
+        val negRdd: RDD[AlignmentRecord] = negativeAlignments.rdd
+          .filter(r => r.getContigName != null)
+          .keyBy(r => (r.getContigName, cellType))
+          .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+          .map(r => r._2)
+
+        negativeAlignments = negativeAlignments.transform(r => negRdd)
+        val negativeCoverage = negativeAlignments.toCoverage(true) // collapse coverage
+
+        log.info("Now saving negative coverage to disk")
+        outputFile = s"${dnase}/coverage/negative/${fileName}.adam"
+        log.info(outputFile)
+        negativeCoverage.save(outputFile)
+
       }
     } catch {
       case e: Exception => println(s"Directory ${dnase} could not be loaded")

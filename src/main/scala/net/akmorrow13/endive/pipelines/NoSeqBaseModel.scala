@@ -17,9 +17,7 @@ package net.akmorrow13.endive.pipelines
 
 import java.io.File
 import breeze.linalg.DenseVector
-import evaluation.BinaryClassifierEvaluator
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
 import net.akmorrow13.endive.processing.Dataset
@@ -31,14 +29,15 @@ import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.regression.LabeledPoint
+import org.bdgenomics.adam.rdd.features.CoverageRDD
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary, ReferenceRegion}
-import org.bdgenomics.adam.util.TwoBitFile
-import org.bdgenomics.utils.io.LocalFileByteAccess
+import org.bdgenomics.adam.rdd.Coverage
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
+import org.bdgenomics.adam.rdd.ADAMContext._
 
 
 object NoSeqBaseModel extends Serializable  {
@@ -92,14 +91,26 @@ object NoSeqBaseModel extends Serializable  {
 
     val sd = new SequenceDictionary(records)
 
-  
-    
     val cellTypes: Array[String] = fullMatrix.map(x => (x.win.cellType)).countByValue().keys.toArray
     val folds = cellTypes.size
 
-    val foldsData: RDD[BaseFeature] = featurize(sc, fullMatrix, sd)
-      .setName("foldsData")
-      .cache()
+    val foldsData: RDD[BaseFeature] =
+      if (conf.useRawDnase) {
+        // filter out relevent cell types for this transcription factor
+        val positives: CoverageRDD = sc.loadFeatures(conf.getDnasePositives).toCoverage
+
+        val negatives: CoverageRDD = sc.loadFeatures(conf.getDnaseNegatives).toCoverage
+        null
+//        // get relevant Dnase files
+//        val dnase: RDD[DnaseCounts] =
+//        featurizeRaw(sc, fullMatrix, sd, positives)
+//          .setName("foldsData")
+//          .cache()
+      } else {
+        featurize(sc, fullMatrix, sd)
+          .setName("foldsData")
+          .cache()
+      }
 
 
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
@@ -193,4 +204,31 @@ object NoSeqBaseModel extends Serializable  {
 
       })
   }
+
+
+//  def featurizeRaw(sc: SparkContext,
+//                   rdd: RDD[LabeledWindow],
+//                   sd: SequenceDictionary,
+//                   dnase: RDD[Coverage]): RDD[BaseFeature] = {
+//
+//    val filteredRDD = Sampling.subselectSamples(sc, rdd, sd, partition = false)
+//    println(s"filtered rdd ${filteredRDD.count}, original rdd ${rdd.count}")
+//    println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
+//      s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
+//
+//    // average by dnase cell type at all positions
+//
+//    // join by position to get (chr, start, end, celltype1, celltype2, celltype3, celltype4) starting with RDD[Coverage]
+//    rdd.keyBy(_.win.region).left
+//
+//
+//    filteredRDD
+//      .map(r => {
+//        if (r.win.getDnase.length > 0) {
+//
+//        }
+//
+//      })
+//  }
+
 }

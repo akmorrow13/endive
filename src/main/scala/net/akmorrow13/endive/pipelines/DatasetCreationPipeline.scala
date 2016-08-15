@@ -115,7 +115,7 @@ object DatasetCreationPipeline extends Serializable  {
           })
  	 
           val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
-            .map(r => (Window.filterCellTypeName(r._1), r._2))
+            .map(r => (Dataset.filterCellTypeName(r._1), r._2))
             .cache()
 
           val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)

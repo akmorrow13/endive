@@ -1,7 +1,7 @@
 package net.akmorrow13.endive.utils
 
 import java.io.ByteArrayOutputStream
-import net.akmorrow13.endive.processing.{RNARecord, PeakRecord}
+import net.akmorrow13.endive.processing.{Dataset, RNARecord, PeakRecord}
 import org.bdgenomics.adam.models.ReferenceRegion
 import scala.util.{ Try, Success, Failure }
 
@@ -16,12 +16,9 @@ object Window {
              dnase: Option[List[PeakRecord]] = None,
              rnaseq: Option[List[RNARecord]] = None,
              motifs: Option[List[PeakRecord]] = None): Window = {
-    Window(tf, filterCellTypeName(cellType), region, sequence, dnase.getOrElse(List()), rnaseq.getOrElse(List()), motifs.getOrElse(List()))
+    Window(tf, Dataset.filterCellTypeName(cellType), region, sequence, dnase.getOrElse(List()), rnaseq.getOrElse(List()), motifs.getOrElse(List()))
   }
 
-  def filterCellTypeName(cellType: String): String = {
-    cellType.filterNot("-_".toSet)
-  }
   /* TODO this is a hack
    * We should turn everything into Avro objects to serialize */
 

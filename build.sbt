@@ -45,7 +45,7 @@ fork := true
   "org.bdgenomics.utils" %% "utils-misc" % "0.2.7",
   "org.bdgenomics.utils" %% "utils-cli" % "0.2.7",
   "org.bdgenomics.utils" %% "utils-metrics" % "0.2.7" ,
-  "org.bdgenomics.adam" %% "adam-core" % "0.19.1-SNAPSHOT",
+  "org.bdgenomics.adam" %% "adam-core" % "0.19.2-SNAPSHOT",
   "org.apache.spark" % "spark-core_2.10" % sparkVersion excludeAll(excludeHadoop),
   "org.apache.spark" % "spark-mllib_2.10" % sparkVersion excludeAll(excludeHadoop),
   "org.apache.spark" % "spark-sql_2.10" % sparkVersion excludeAll(excludeHadoop),
@@ -80,6 +80,10 @@ resolvers ++= Seq(
 
 resolvers += Resolver.sonatypeRepo("public")
 
+resolvers += Resolver.mavenLocal
+
+resolvers += "Local Maven Repository" at "file:///"+Path.userHome+"/.m2/repository"
+
 mergeStrategy in assembly <<= (mergeStrategy in assembly) { (old) =>
   {
     case PathList("javax", "servlet", xs @ _*)               => MergeStrategy.first
@@ -97,5 +101,6 @@ mergeStrategy in assembly <<= (mergeStrategy in assembly) { (old) =>
 }
 
 assemblyOption in assembly := (assemblyOption in assembly).value.copy(includeScala = false, includeDependency = false)
+
 
 test in assembly := {}
