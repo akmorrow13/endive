@@ -69,7 +69,7 @@ object ProcessDnaseBams extends Serializable with Logging {
     val referencePath = conf.reference
 
     // read all bams in file and save positive coverage
-    try{
+    try {
       val fs: FileSystem = FileSystem.get(new Configuration())
       val status = fs.listStatus(new Path(dnase)).filter(i => i.getPath.getName.endsWith(".bam"))
       for (i <- status) {
@@ -80,41 +80,49 @@ object ProcessDnaseBams extends Serializable with Logging {
 
         val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-        // get positive strand coverage and key by region, cellType
-        var positiveAlignments = sc.loadAlignments(filePath).transform(_.filter(r => !r.getReadNegativeStrand))
+        try {
+          // get positive strand coverage and key by region, cellType
+          var positiveAlignments = sc.loadAlignments(filePath).transform(_.filter(r => !r.getReadNegativeStrand))
 
-        log.info("repartitioning positive rdd")
-        val posRdd: RDD[AlignmentRecord] = positiveAlignments.rdd
-                      .filter(r => r.getContigName != null)
-                      .keyBy(r => (r.getContigName, cellType))
-                      .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
-                      .map(r => r._2)
+          log.info("repartitioning positive rdd")
+          val posRdd: RDD[AlignmentRecord] = positiveAlignments.rdd
+            .filter(r => r.getContigName != null)
+            .keyBy(r => (r.getContigName, cellType))
+            .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+            .map(r => r._2)
 
-        positiveAlignments = positiveAlignments.transform(r => posRdd)
-        val positiveCoverage = positiveAlignments.toCoverage(true) // collapse coverage
+          positiveAlignments = positiveAlignments.transform(r => posRdd)
+          val positiveCoverage = positiveAlignments.toCoverage(true) // collapse coverage
 
-        log.info("Now saving positive coverage to disk")
-        var outputFile = s"${dnase}/coverage/positive/${fileName}.adam"
-        log.info(outputFile)
-        positiveCoverage.save(outputFile)
+          log.info("Now saving positive coverage to disk")
+          var outputFile = s"${output}/positive/${fileName}.adam"
+          log.info(outputFile)
+          positiveCoverage.save(outputFile)
 
 
-        // Calculate negative coverage
-        var negativeAlignments = sc.loadAlignments(filePath).transform(_.filter(r => r.getReadNegativeStrand))
-        log.info("repartitioning negative rdd")
-        val negRdd: RDD[AlignmentRecord] = negativeAlignments.rdd
-          .filter(r => r.getContigName != null)
-          .keyBy(r => (r.getContigName, cellType))
-          .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
-          .map(r => r._2)
+          // Calculate negative coverage
 
-        negativeAlignments = negativeAlignments.transform(r => negRdd)
-        val negativeCoverage = negativeAlignments.toCoverage(true) // collapse coverage
+          var negativeAlignments = sc.loadAlignments(filePath).transform(_.filter(r => r.getReadNegativeStrand))
+          log.info("repartitioning negative rdd")
+          val negRdd: RDD[AlignmentRecord] = negativeAlignments.rdd
+            .filter(r => r.getContigName != null)
+            .keyBy(r => (r.getContigName, cellType))
+            .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+            .map(r => r._2)
 
-        log.info("Now saving negative coverage to disk")
-        outputFile = s"${dnase}/coverage/negative/${fileName}.adam"
-        log.info(outputFile)
-        negativeCoverage.save(outputFile)
+          negativeAlignments = negativeAlignments.transform(r => negRdd)
+          val negativeCoverage = negativeAlignments.toCoverage(true) // collapse coverage
+
+          log.info("Now saving negative coverage to disk")
+          outputFile = s"${output}/negative/${fileName}.adam"
+          log.info(outputFile)
+          negativeCoverage.save(outputFile)
+        } catch {
+          case e: Exception => {
+            log.info(e.getMessage)
+            log.info(s"skipping ${fileName}")
+          }
+        }
 
       }
     } catch {
