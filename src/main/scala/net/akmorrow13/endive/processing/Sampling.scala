@@ -34,11 +34,10 @@ object Sampling {
                        rdd: RDD[LabeledWindow],
                        sd: SequenceDictionary,
                        distance: Long = 700L,
-                       partition: Boolean = true,
-                       partitioner: Vector[String] = Dataset.cellTypes.toVector): RDD[LabeledWindow] = {
+                       partition: Boolean = true): RDD[LabeledWindow] = {
     val partitionedRDD: RDD[((ReferenceRegion, String), LabeledWindow)] =
       if (partition)
-        rdd.keyBy(r => (r.win.getRegion, r.win.getTf)).partitionBy(new LabeledReferenceRegionPartitioner(sd, partitioner))
+        rdd.keyBy(r => (r.win.getRegion, r.win.getTf)).partitionBy(new LabeledReferenceRegionPartitioner(sd))
       else rdd.keyBy(r => (r.win.getRegion, r.win.getTf))
 
     partitionedRDD.mapPartitions(iter => {

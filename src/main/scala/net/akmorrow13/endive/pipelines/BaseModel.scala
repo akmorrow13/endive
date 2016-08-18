@@ -89,7 +89,7 @@ object BaseModel extends Serializable  {
     tfs.foreach(println)
 
     val records = DatasetCreationPipeline.getSequenceDictionary(conf.reference)
-      .records.filter(r => Dataset.chrs.contains(r.name))
+      .records.filter(r => Chromosomes.toVector.contains(r.name))
 
     val sd = new SequenceDictionary(records)
 

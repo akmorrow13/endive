@@ -1,5 +1,6 @@
 package net.akmorrow13.endive.utils
 
+import net.akmorrow13.endive.processing.CellTypes
 import org.apache.spark.Partitioner
 import org.bdgenomics.adam.models.{ReferenceRegion, ReferencePosition, SequenceDictionary}
 
@@ -7,7 +8,7 @@ import org.bdgenomics.adam.models.{ReferenceRegion, ReferencePosition, SequenceD
  * Repartitions objects that are keyed by a ReferencePosition or ReferenceRegion
  * into a single partition per contig.
  */
-case class LabeledReferenceRegionPartitioner(sd: SequenceDictionary, cellTypes: Vector[String]) extends Partitioner {
+case class LabeledReferenceRegionPartitioner(sd: SequenceDictionary, cellTypes: Vector[String] = CellTypes.toVector) extends Partitioner {
 
   // extract all combinations of chromosome, celltype
   private val reference: Vector[(String, String)] = for (x <- sd.records.map(_.name); y <- cellTypes) yield (x,y)

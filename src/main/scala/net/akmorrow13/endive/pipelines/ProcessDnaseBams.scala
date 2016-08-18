@@ -16,7 +16,7 @@
 package net.akmorrow13.endive.pipelines
 
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.processing.Dataset
+import net.akmorrow13.endive.processing.{CellTypes, Dataset}
 import net.akmorrow13.endive.utils.LabeledReferenceRegionPartitioner
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem}
@@ -98,7 +98,7 @@ object ProcessDnaseBams extends Serializable with Logging {
           val posRdd: RDD[AlignmentRecord] = positiveAlignments.rdd
             .filter(r => r.getContigName != null)
             .keyBy(r => (ReferenceRegion(r), cellType))
-            .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+            .partitionBy(new LabeledReferenceRegionPartitioner(sd))
             .map(r => r._2)
 
           positiveAlignments = positiveAlignments.transform(r => posRdd)
@@ -118,7 +118,7 @@ object ProcessDnaseBams extends Serializable with Logging {
           val negRdd: RDD[AlignmentRecord] = negativeAlignments.rdd
             .filter(r => r.getContigName != null)
             .keyBy(r => (ReferenceRegion(r), cellType))
-            .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+            .partitionBy(new LabeledReferenceRegionPartitioner(sd))
             .map(r => r._2)
 
           println("negativeCount: " + negativeAlignments.rdd.count)

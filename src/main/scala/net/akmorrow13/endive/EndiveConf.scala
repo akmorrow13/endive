@@ -1,4 +1,7 @@
 package net.akmorrow13.endive
+
+import net.akmorrow13.endive.processing.{CellTypes, Chromosomes, Dataset}
+
 import scala.reflect.{BeanProperty, ClassTag}
 
 class EndiveConf extends Serializable {
@@ -6,7 +9,6 @@ class EndiveConf extends Serializable {
   /* These are required if createWindows is False */
 
   @BeanProperty var windowLoc: String = null
-  @BeanProperty var folds: Int = 2
   @BeanProperty var sequenceLoc: String = null
   @BeanProperty var rnaseqLoc: String = null
   @BeanProperty var dnaseLoc: String = null
@@ -24,6 +26,11 @@ class EndiveConf extends Serializable {
   /* These are required if createWindows is True */
   @BeanProperty var labels: String = null
   @BeanProperty var reference: String = null
+
+  /* Cross validation parameteres */
+  @BeanProperty var folds: Int = 2
+  @BeanProperty var heldoutChr: Int = 1
+  @BeanProperty var heldOutCells: Int = 1
 
 
   /* data sources*/
@@ -56,5 +63,14 @@ object EndiveConf {
     if (conf.reference == null) {
       throw new IllegalArgumentException("Refrence path is mandatory")
     }
+
+    if (conf.heldoutChr > Chromosomes.toVector.length - 1) {
+      throw new IllegalArgumentException("chrPerFold must be less than 23")
+    }
+
+    if (conf.heldOutCells > CellTypes.toVector.length - 1) {
+      throw new IllegalArgumentException("chrPerFold must be less than 23")
+    }
+
   }
 }

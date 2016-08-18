@@ -112,7 +112,7 @@ object Deepbind extends Serializable {
     println(s"saving to file location:${fileLocation}")
     finalResults
       .map(r => ((r.win.region, r.win.cellType), r))
-      .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+      .partitionBy(new LabeledReferenceRegionPartitioner(sd))
       .map(r => r._2.toString)
       .saveAsTextFile(fileLocation)
   }

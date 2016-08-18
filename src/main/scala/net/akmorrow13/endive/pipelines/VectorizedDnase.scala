@@ -22,25 +22,21 @@ import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
 import net.akmorrow13.endive.processing.Dataset
 import nodes.learning.LogisticRegressionEstimator
-import nodes.util.ClassLabelIndicatorsFromIntLabels
 
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
-import org.apache.spark.mllib.linalg.Vectors
-import org.apache.spark.mllib.regression.LabeledPoint
-import org.bdgenomics.adam.rdd.features.CoverageRDD
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary, ReferenceRegion}
-import org.bdgenomics.adam.rdd.Coverage
+import org.bdgenomics.adam.models.{ SequenceDictionary, ReferenceRegion }
+import org.bdgenomics.adam.models.Coverage
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
 import org.bdgenomics.adam.rdd.ADAMContext._
 
 
-object NoSeqBaseModel extends Serializable  {
+object VectorizedDnase extends Serializable  {
 
   /**
    * A very basic dataset creation pipeline that *doesn't* featurize the data
@@ -87,7 +83,7 @@ object NoSeqBaseModel extends Serializable  {
       .cache()
 
     val records = DatasetCreationPipeline.getSequenceDictionary(referencePath)
-                .records.filter(r => Chromosomes.toVector.contains(r.name))
+      .records.filter(r => Chromosomes.toVector.contains(r.name))
 
     val sd = new SequenceDictionary(records)
 
@@ -95,25 +91,37 @@ object NoSeqBaseModel extends Serializable  {
     val folds = EndiveUtils.generateFoldsRDD(windowsRDD, conf.heldOutCells, conf.heldoutChr, conf.folds)
     val chrCellTypes:Iterable[(String, String)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
 
+    // load coverage for all cell types
+    val coverageFiles = conf.dnase.split(",")
+    var coverage: RDD[(CellTypes.Value, Coverage)] = sc.emptyRDD[(CellTypes.Value, Coverage)]
+    coverageFiles.map(f => {
+      val cellType: CellTypes.Value =
+        CellTypes.withName(Dataset.filterCellTypeName(f.split("/").last.split('.')(1)))
+      val coverageRdd = sc.loadCoverage(f)
+      coverage = coverage.union(coverageRdd.rdd.map(r => (cellType, r)))
+    })
+
     println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
       println("FOLD " + i)
-      val train = featurize(sc, folds(i)._1, sd)
-      val test = featurize(sc, folds(i)._2, sd, false)
-
-      println("TRAIN SIZE IS " + train.count())
-      println("TEST SIZE IS " + test.count())
-
 
       // get testing cell types for this fold
-      val cellTypesTest: Iterable[String] = test.map(x => (x.labeledWindow.win.cellType)).countByValue().keys
+      val cellTypesTest = folds(i)._2.map(x => (x.win.cellType)).countByValue().keys.toList
       println(s"Fold ${i}, testing cell types:")
       cellTypesTest.foreach(println)
 
+      val cellTypesTrain = folds(i)._1.map(x => (x.win.cellType)).countByValue().keys.toList
+
       // get testing chrs for this fold
-      val chromosomesTest:Iterable[String] = test.map(x => (x.labeledWindow.win.getRegion.referenceName)).countByValue().keys
+      val chromosomesTest:Iterable[String] = folds(i)._2.map(x => (x.win.getRegion.referenceName)).countByValue().keys
       println(s"Fold ${i}, testing chromsomes:")
       chromosomesTest.foreach(println)
+
+      val train = featurize(sc, folds(i)._1, coverage, sd, true)
+      val test = featurize(sc, folds(i)._2, coverage, sd, false)
+
+      println("TRAIN SIZE IS " + train.count())
+      println("TEST SIZE IS " + test.count())
 
       // training features
       val XTrainPositives = train.filter(_.labeledWindow.win.getDnase.length > 0).map(_.features)
@@ -152,18 +160,32 @@ object NoSeqBaseModel extends Serializable  {
     }
   }
 
-  /***********************************
-    ** featurize data wth motifs
-    *  Bins that do overlap DNASE peaks are scored using a linear classifier with a log loss function
-    *  Linear Classifier Input features:
-          - Known motifs: -log2(motif score) region summary statistics
-          - Max, 0.99%, 0.95%, 0.75%, 0.50%, mean
-          - max DNASE fold change across each bin
-    *************************************/
-  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], sd: SequenceDictionary, filter: Boolean = true): RDD[BaseFeature] = {
 
+  /**
+   * Featurize with full calcuated dnase coverage
+   * @param sc SparkContext
+   * @param rdd RDD of labeledWindow
+   * @param coverage point coverage
+   * @param sd SequenceDictionary
+   * @param subselectNegatives whether or not to subselect the dataset
+   * @return
+   */
+  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], coverage: RDD[(CellTypes.Value, Coverage)], sd: SequenceDictionary, subselectNegatives: Boolean = true): RDD[BaseFeature] = {
+
+    val cellTypes = rdd.map(x => (x.win.cellType)).countByValue().keys.toList
+    println("cell types: ")
+    cellTypes.foreach(println)
+
+    // filter coverage by relevent cellTypes and group by (ReferenceName, CellType)
+    val filteredCoverage: RDD[((CellTypes.Value, Chromosomes.Value), Iterator[Coverage])] =
+      coverage
+        .filter(r => cellTypes.contains(r._1.toString))
+        .groupBy(r => (r._1, Chromosomes.withName(r._2.contigName)))
+        .mapValues(_.map(_._2).toIterator)
+
+    // perform negative sampling
     val filteredRDD =
-      if (filter)
+      if (subselectNegatives)
         Sampling.subselectSamples(sc, rdd, sd, partition = false)
       else
         rdd
@@ -173,25 +195,34 @@ object NoSeqBaseModel extends Serializable  {
     println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
       s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
 
-    filteredRDD
-      .map(r => {
-        if (r.win.getDnase.length > 0) {
-          // max DNASE fold change across each bin
-          val maxScore = r.win.getDnase.map(_.peak).max
-          val minScore = r.win.getDnase.map(_.peak).min
-          val dnasefold = (maxScore - minScore) / minScore
-          // percentage of overlap
-          val x = List.range(r.win.getRegion.start, r.win.getRegion.end)
-          val others = r.win.getDnase.flatMap(n => {
-            List.range(n.region.start, n.region.end).filter(n => n < r.win.getRegion.start || n > r.win.getRegion.end)
-          }).distinct
-          val coverage = x.filterNot(r => others.contains(r)).length/r.win.getRegion.length
-          BaseFeature(r, DenseVector(coverage, dnasefold))
-        } else {
-          BaseFeature(r, DenseVector(0.0,0.0))
-        }
+    val labeledGroupedWindows: RDD[((CellTypes.Value, Chromosomes.Value), Iterable[LabeledWindow])] = filteredRDD.groupBy(w => (CellTypes.withName(w.win.getCellType), Chromosomes.withName(w.win.getRegion.referenceName)))
+    val coverageAndWindows: RDD[((CellTypes.Value, Chromosomes.Value), (Iterable[LabeledWindow], Option[Iterator[Coverage]]))] = labeledGroupedWindows.leftOuterJoin(filteredCoverage)
 
-      })
+    coverageAndWindows.mapValues(iter => {
+      val windows: List[LabeledWindow] = iter._1.toList
+      val cov: List[(ReferenceRegion, Coverage)] = iter._2.getOrElse(Iterator()).toList
+              .map(r => (ReferenceRegion(r), r))
+
+      windows.map(labeledWindow => {
+        // filter and flatmap coverage
+        val dnase: List[(Long, Double)] = cov.filter(c => labeledWindow.win.region.overlaps(c._1)).map(_._2)
+          .flatMap(r => {
+            val positions = r.start until r.end
+            positions.map(n => (n, r.count))
+          })
+
+        var positions = Map[Long, Double]()
+        // intersect with coverage
+        dnase.foreach(r => {
+          positions = positions + (r._1 -> r._2)
+        })
+        positions = positions.filterKeys(r => r >= labeledWindow.win.region.start && r <= labeledWindow.win.region.end)
+        // positions should be size of window
+        assert(positions.size == 200)
+        BaseFeature(labeledWindow, DenseVector(positions.values.toArray))
+      }).toIterator
+    }).flatMap(_._2)
+
   }
 
 

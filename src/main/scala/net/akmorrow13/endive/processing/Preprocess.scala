@@ -19,7 +19,7 @@ import java.io.{InputStreamReader, BufferedReader, File}
 
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.models.{ Coverage, ReferenceRegion }
 import org.apache.hadoop.fs._
 import org.apache.hadoop.conf._
 
@@ -181,6 +181,24 @@ object Preprocess {
     })
   }
 
+
+  /**
+   * Loads narrowPeak files, which are tab delimited peak files
+   * see https://genome.ucsc.edu/FAQ/FAQformat.html
+   *
+   * @param sc
+   * @param filePath
+   */
+  def loadWigs(sc: SparkContext, filePath: String): RDD[(String, PeakRecord)] = {
+    val cellType = filePath.split("/").last.split('.')(1)
+    val rdd = loadTsv(sc, filePath, "#")
+    rdd.map(parts => {
+      val region = ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong)
+      val signalValue = parts(3).toDouble
+      (cellType, PeakRecord(region, 0, signalValue, 0, 0, 0))
+    })
+  }
+
   /**
    * Loads motif files, which are tab delimited peak files
    * see https://genome.ucsc.edu/FAQ/FAQformat.html
@@ -252,6 +270,7 @@ object Preprocess {
     }
   }
 
+
   def loadPeakFolder(sc: SparkContext, folder: String): RDD[(String, PeakRecord)] = {
 
     var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]
@@ -274,6 +293,14 @@ object Preprocess {
       } catch {
         case e: Exception => println(s"Directory ${folder} could not be loaded")
       }
+    }
+    data
+  }
+
+  def loadWigFiles(sc: SparkContext, files: Array[String]): RDD[(String, PeakRecord)] = {
+    var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]
+    for (f <- files) {
+      data = data.union(loadWigs(sc, f))
     }
     data
   }
@@ -335,6 +362,16 @@ case class PeakRecord(region: ReferenceRegion, score: Int, signalValue: Double, 
   override
   def toString: String = {
     s"${region.referenceName},${region.start},${region.end},${score},${signalValue},${pValue},${qValue},${peak}"
+  }
+
+  /**
+   * Convert Coverage to PeakRecord. Counts are stored in signalValue
+   * @param coverage
+   * @return PeakRecord
+   */
+  def fromCoverage(coverage: Coverage): PeakRecord = {
+    val region = ReferenceRegion(coverage.contigName, coverage.start, coverage.end)
+    PeakRecord(region, -1, coverage.count, -1, -1, -1)
   }
 }
 
