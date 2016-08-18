@@ -15,17 +15,21 @@
  */
 package net.akmorrow13.endive.pipelines
 
+
 import java.io.File
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.processing.Sequence
 import net.akmorrow13.endive.utils._
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.models.{SequenceDictionary, SequenceRecord, ReferenceRegion}
 import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.rdd.GenomicPositionPartitioner
 import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
 import org.bdgenomics.formats.avro._
 import org.bdgenomics.formats.avro.NucleotideContigFragment
@@ -34,6 +38,7 @@ import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
+
 
 
 object SingleTFDatasetCreationPipeline extends Serializable  {
@@ -60,6 +65,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
       val conf = new SparkConf().setAppName("ENDIVE:SingleTFDatasetCreationPipeline")
       conf.setIfMissing("spark.master", "local[4]")
       val sc = new SparkContext(conf)
+      // println(sc.textFile(appConfig.labels).count())
       run(sc, appConfig)
       sc.stop()
     }
@@ -67,29 +73,48 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
 
   def run(sc: SparkContext, conf: EndiveConf) {
 
-    println("STARTING DATA SET CREATION PIPELINE")
+    println("STARTING SINGLE TF DATA SET CREATION PIPELINE")
+    val fs: FileSystem = FileSystem.get(new Configuration())
     // create new sequence with reference path
     val referencePath = conf.reference
+    val dnasePath = conf.dnase
 
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
 
-    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelsPath)._1
-    train.setName("Raw Train Data").cache()
+    // challenge params
+    val windowSize = 200
+    val stride = 50
+
+    val (train: RDD[(String, String, ReferenceRegion, Int)], cellTypes: Array[String]) = Preprocess.loadLabels(sc, labelsPath)
+
 
     println("First reading labels")
-    train.count()
-
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
 
-    println("Now matching labels with reference genome")
-    sequences.count()
+    println("Now Extracting sequences")
+    // val sequences: RDD[LabeledWindow] = sc.emptyRDD[LabeledWindow]
+    println("extracted sequences", sequences.count)
+    // Load DNase data of (cell type, peak record)
+    val dnaseStatus = fs.listStatus(new Path(dnasePath))
+    val dnaseFiles = dnaseStatus.filter(r => {
+      cellTypes.contains(r.getPath.getName.split('.')(1))
+    })
 
-    println("Now saving to disk")
-    sequences.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput)
+    val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
+      .map(r => (Window.filterCellTypeName(r._1), r._2))
+      .cache()
+
+      val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+
+      val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
+
+      val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
+
+      // save data
+      fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput)
   }
-
 
   def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(String, String, ReferenceRegion, Int)]): RDD[LabeledWindow]  = {
     /* TODO: This is a kludge that relies that the master + slaves share NFS

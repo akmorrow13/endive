@@ -82,7 +82,7 @@ object Preprocess {
         (tf, cellType._1, ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong), extractLabel(parts(3 + cellType._2)))
       })
     })
-    (result, cellTypes)
+    (result.cache(), cellTypes)
   }
 
   def loadLabelFolder(sc: SparkContext, folder: String): RDD[(String, String, ReferenceRegion, Int)] = {

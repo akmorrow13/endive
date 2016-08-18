@@ -7,18 +7,15 @@ name := "endive"
 version := "0.1"
 
 
-scalaVersion := "2.10.4"
+scalaVersion := "2.10.5"
 
 parallelExecution in Test := false
 
 fork := true
 
 {
-  val defaultSparkVersion = "1.6.0"
-  val sparkVersion = scala.util.Properties.envOrElse("SPARK_VERSION", defaultSparkVersion)
-  val defaultHadoopVersion = "2.6.0-cdh5.8.0"
-  val hadoopVersion =
-    scala.util.Properties.envOrElse("SPARK_HADOOP_VERSION", defaultHadoopVersion)
+  val sparkVersion = "1.6.0"
+  val hadoopVersion = "2.6.0-cdh5.8.0"
   val excludeHadoop = ExclusionRule(organization = "org.apache.hadoop")
   val excludeSpark = ExclusionRule(organization = "org.apache.spark")
   val exclude1 = ExclusionRule(organization = "com.google.guava")

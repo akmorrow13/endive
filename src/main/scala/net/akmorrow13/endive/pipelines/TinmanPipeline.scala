@@ -104,23 +104,28 @@ object TinmanPipeline extends Serializable with Logging {
     val allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.aggregatedSequenceOutput, sc).setName("All Data").cache()
     allData.count()
 
-    val foldsData = allData.map(x => (x.win.getRegion.referenceName.hashCode() % conf.folds, x))
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
+    val (foldsData, cellTypes, chromosomes) = EndiveUtils.generateFoldsRDD(allData, numFolds = 2)
+    val cellTypesMap:Map[String, Int] = cellTypes.zipWithIndex.toMap
+      /* Make an estimator? */
+    val cellTypeFeaturizer = Transformer.apply[LabeledWindow, Int](x => cellTypesMap(x.win.cellType)) andThen new ClassLabelIndicatorsFromIntLabels(cellTypes.size)
+
 
     for (i <- (0 until conf.folds)) {
+
+      println("Fold " + i)
+      println("HELD OUT CELL TYPES " + foldsData(i)._3.mkString(","))
+      println("HELD OUT CHROMOSOMES " + foldsData(i)._4.mkString(","))
       val r = new java.util.Random()
-      var train = foldsData.filter(x => x._1 != i).filter(x => x._2.label == 1 || (x._2.label == 0 && r.nextFloat < 0.001)).map(x => x._2).setName("train").cache()
+      var train = foldsData(i)._1.filter(x => x.label == 1 || (x.label == 0 && r.nextFloat < 0.001)).setName("train").cache()
       train.count()
-      val test = foldsData.filter(x => x._1 == i).map(x => x._2).setName("test").cache()
+      val test = foldsData(i)._2.setName("test").cache()
+      test.count()
+
       val yTrain = train.map(_.label).setName("yTrain").cache()
       val yTest = test.map(_.label).setName("yTest").cache()
 
       println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
-
-      /* Make an estimator? */
-      val cellTypes:Map[String, Int] = train.map(x => (x.win.cellType)).countByValue().keys.zipWithIndex.toMap
-      val cellTypeFeaturizer = Transformer.apply[LabeledWindow, Int](x => cellTypes(x.win.cellType)) andThen new ClassLabelIndicatorsFromIntLabels(cellTypes.size)
-
 
       println("Building Pipeline")
       val sequenceFeaturizer =

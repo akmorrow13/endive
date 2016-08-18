@@ -21,18 +21,18 @@ def generateFoldsRDD(allData:RDD[LabeledWindow], numHeldOutCellTypes: Int = 1, n
     /* this will work with exponentially high probability */
     val chromosomes:Iterable[String] = sampledData.map(x => (x.win.getRegion.referenceName)).countByValue().keys
 
-    for (i <- (0 until numFolds)) yield
+    (for (i <- (0 until numFolds)) yield
         {
         val holdOutCellTypes = r.shuffle(cellTypes).take(numHeldOutCellTypes).toSet
         val holdOutChromosomes = r.shuffle(chromosomes).take(numHeldOutChromosomes).toSet
         generateTrainTestSplit(allData, holdOutCellTypes, holdOutChromosomes)
-        }
+        }, cellTypes, chromosomes)
 }
 
 def generateTrainTestSplit(allData: RDD[LabeledWindow], holdOutCellTypes: Set[String],
  holdOutChromosomes: Set[String]) = {
         val train = allData.filter { window => !holdOutChromosomes.contains(window.win.getRegion.referenceName) && !holdOutCellTypes.contains(window.win.cellType) }.cache()
         val test = allData.filter { window => holdOutChromosomes.contains(window.win.getRegion.referenceName) && holdOutCellTypes.contains(window.win.cellType) }.cache()
-        (train, test)
+        (train, test, holdOutCellTypes, holdOutChromosomes)
  }
 }
