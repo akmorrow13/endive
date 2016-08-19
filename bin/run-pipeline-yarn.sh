@@ -20,6 +20,14 @@ else
 	MASTER="yarn"
 fi
 
+if [[ "$EC2" ]]; then
+    echo "Running ON EC2"
+	MASTER="spark://0.0.0.0:7077"
+else
+	MASTER="yarn"
+fi
+
+
 if [ -z "$OMP_NUM_THREADS" ]; then
     export OMP_NUM_THREADS=1 added as we were nondeterministically running into an openblas race condition 
 fi
@@ -50,14 +58,17 @@ export KEYSTONE_MEM
 export LD_LIBRARY_PATH=/home/eecs/vaishaal/gcc-build/lib64:/home/eecs/vaishaal/gcc-build/lib:/home/eecs/vaishaal/openblas-install/lib
 export CPATH=/home/eecs/vaishaal/gcc-build/include
 
+echo $MASTER
+
 # Set some commonly used config flags on the cluster
 "$SPARK_SUBMIT" \
+  --deploy-mode client \
   --master $MASTER \
   --class $CLASS \
-  --num-executors  24 \
-  --driver-memory 60g \
-  --executor-memory 40g \
-  --executor-cores 12 \
+  --num-executors  10 \
+  --driver-memory 40g \
+  --executor-memory 30g \
+  --executor-cores 32 \
   --driver-class-path $JARFILE:$ASSEMBLYJAR:$HOME/hadoop/conf \
   --driver-library-path /opt/amp/gcc/lib64:/opt/amp/openblas/lib:$FWDIR/lib \
   --conf spark.executor.extraLibraryPath=/opt/amp/openblas/lib:$FWDIR/lib \
@@ -77,8 +88,6 @@ export CPATH=/home/eecs/vaishaal/gcc-build/include
   --conf spark.executorEnv.OMP_NUM_THREADS=1 \
   --conf spark.storage.memoryFraction=0.6 \
   --conf spark.network.timeout=300s \
-  --driver-memory 40g \
-  --executor-memory 40g \
   --jars $ASSEMBLYJAR \
   $JARFILE \
   "$@"
