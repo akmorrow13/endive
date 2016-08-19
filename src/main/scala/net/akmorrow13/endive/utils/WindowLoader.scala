@@ -1,7 +1,7 @@
 package net.akmorrow13.endive.utils
 
 import java.io.ByteArrayInputStream
-import net.akmorrow13.endive.processing.{RNARecord, PeakRecord}
+import net.akmorrow13.endive.processing.{CellTypes, TranscriptionFactors, RNARecord, PeakRecord}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
@@ -17,8 +17,8 @@ object LabeledWindowLoader {
     val rnaseq: Option[List[RNARecord]] = d.lift(2).map(_.split(Window.EPIDELIM).map(r => RNARecord.fromString(r)).toList)
     val motifs: Option[List[PeakRecord]] = d.lift(3).map(_.split(Window.EPIDELIM).map(r => PeakRecord.fromString(r)).toList)
 
-    val tf = dataArray(1)
-    val cellType = dataArray(2)
+    val tf = TranscriptionFactors.apply(dataArray(1).toInt)
+    val cellType = CellTypes.apply(dataArray(2).toInt)
     val region = ReferenceRegion(dataArray(3), dataArray(4).toLong,dataArray(5).toLong)
     val label = dataArray(0).trim.toInt
     LabeledWindow(Window(tf, cellType, region, dataArray(6), dnase = dnase, rnaseq = rnaseq, motifs = motifs), label)

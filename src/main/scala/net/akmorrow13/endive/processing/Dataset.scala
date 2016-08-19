@@ -42,6 +42,10 @@ object CellTypes extends Enumeration {
 
   def toVector: Vector[String] = this.values.map(_.toString).toVector
 
+  def getEnumeration(cellType: String): CellTypes.Value = {
+    CellTypes.withName(Dataset.filterCellTypeName(cellType))
+  }
+
 }
 
 object Chromosomes extends Enumeration {

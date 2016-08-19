@@ -61,15 +61,15 @@ object Preprocess {
    * @param filePath tsv file of chipseq labels
    * @return parsed files of (tf, cell type, region, score)
    */
-  def loadLabels(sc: SparkContext, filePath: String, numPartitions: Int = 500): Tuple2[RDD[(String, String, ReferenceRegion, Int)], Array[String]] = {
+  def loadLabels(sc: SparkContext, filePath: String, numPartitions: Int = 500): Tuple2[RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], Array[CellTypes.Value]] = {
     assert(filePath.endsWith("tsv") || filePath.endsWith("tsv.gz"))
     val headerTag = "start"
     // parse header for cell types
     val tsvRDD = sc.textFile(filePath, numPartitions)
-    val cellTypes = tsvRDD.filter(r => r.contains(headerTag)).first().split("\t").drop(3)
+    val cellTypes = tsvRDD.filter(r => r.contains(headerTag)).first().split("\t").drop(3).map(r => CellTypes.withName(r))
     val file = filePath.split("/").last
     // parse file name for tf
-    val tf = file.split('.')(0)
+    val tf = TranscriptionFactors.withName(file.split('.')(0))
     println(s"loading  labels for cell type ${cellTypes.mkString} from file ${file}")
 
     val tsvRDDSplit = tsvRDD.filter(r => !r.contains(headerTag)).map(_.split("\t"))
@@ -82,19 +82,8 @@ object Preprocess {
     (result, cellTypes)
   }
 
-  /**
-   * loads coverage from dnase files assuming they are all partitioned by LabeledReferenceRegionPartititioner
-   * partitioned on cell type
-   * @param sc
-   * @param folder
-   * @param cellTypes
-   */
-  def loadCoverage(sc: SparkContext, folder: String, cellTypes: String): Unit = {
-
-  }
-
-  def loadLabelFolder(sc: SparkContext, folder: String): RDD[(String, String, ReferenceRegion, Int)] = {
-    var data: RDD[(String, String, ReferenceRegion, Int)] = sc.emptyRDD[(String, String, ReferenceRegion, Int)]
+  def loadLabelFolder(sc: SparkContext, folder: String): RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)] = {
+    var data: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)] = sc.emptyRDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)]
     val d = new File(folder)
     if (sc.isLocal) {
       if (d.exists && d.isDirectory) {
@@ -160,14 +149,14 @@ object Preprocess {
 
 
   /**
-   * Loads narrowPeak files, which are tab delimited peak files
+   * Loads narrowPeak files, which are tab delimited peak files. These store cell type specific information
    * see https://genome.ucsc.edu/FAQ/FAQformat.html
    *
    * @param sc
    * @param filePath
    */
-  def loadPeaks(sc: SparkContext, filePath: String): RDD[(String, PeakRecord)] = {
-    val cellType = filePath.split("/").last.split('.')(1)
+  def loadPeaks(sc: SparkContext, filePath: String): RDD[(CellTypes.Value, PeakRecord)] = {
+    val cellType = CellTypes.getEnumeration(filePath.split("/").last.split('.')(1))
     val rdd = loadTsv(sc, filePath, "any")
     rdd.map(parts => {
       val region = ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong)
@@ -189,8 +178,8 @@ object Preprocess {
    * @param sc
    * @param filePath
    */
-  def loadWigs(sc: SparkContext, filePath: String): RDD[(String, PeakRecord)] = {
-    val cellType = filePath.split("/").last.split('.')(1)
+  def loadWigs(sc: SparkContext, filePath: String): RDD[(CellTypes.Value, PeakRecord)] = {
+    val cellType = CellTypes.getEnumeration(filePath.split("/").last.split('.')(1))
     val rdd = loadTsv(sc, filePath, "#")
     rdd.map(parts => {
       val region = ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong)
@@ -207,9 +196,9 @@ object Preprocess {
    * @param filePath
    * @return rdd of motifs mapped by (transcription factor, peakrecord with pvalue and peak specified)
    */
-  def loadMotifs(sc: SparkContext, filePath: String): RDD[(String, PeakRecord)] = {
-    val tf = filePath.split("/").last.split('_')(0)
-    println(s"loading motifs for ${tf}")
+  def loadMotifs(sc: SparkContext, filePath: String): RDD[(TranscriptionFactors.Value, PeakRecord)] = {
+    val tf = TranscriptionFactors.withName(filePath.split("/").last.split('_')(0))
+    println(s"loading motifs for ${tf.toString}")
     val rdd = loadTsv(sc, filePath, "#pattern")
     rdd.map(parts => {
       val region = ReferenceRegion(parts(1), parts(2).toLong, parts(3).toLong)
@@ -220,9 +209,9 @@ object Preprocess {
     })
   }
 
-  def loadMotifFolder(sc: SparkContext, folder: String, tfs: Option[Array[String]]): RDD[(String, PeakRecord)] = {
+  def loadMotifFolder(sc: SparkContext, folder: String, tfs: Option[Array[TranscriptionFactors.Value]]): RDD[(TranscriptionFactors.Value, PeakRecord)] = {
 
-    var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]
+    var data: RDD[(TranscriptionFactors.Value, PeakRecord)] = sc.emptyRDD[(TranscriptionFactors.Value, PeakRecord)]
     if (sc.isLocal) {
       val d = new File(folder)
       if (d.exists && d.isDirectory) {
@@ -271,9 +260,9 @@ object Preprocess {
   }
 
 
-  def loadPeakFolder(sc: SparkContext, folder: String): RDD[(String, PeakRecord)] = {
+  def loadPeakFolder(sc: SparkContext, folder: String): RDD[(CellTypes.Value, PeakRecord)] = {
 
-    var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]
+    var data: RDD[(CellTypes.Value, PeakRecord)] = sc.emptyRDD[(CellTypes.Value, PeakRecord)]
     if (sc.isLocal) {
       val d = new File(folder)
       if (d.exists && d.isDirectory) {
@@ -297,16 +286,8 @@ object Preprocess {
     data
   }
 
-  def loadWigFiles(sc: SparkContext, files: Array[String]): RDD[(String, PeakRecord)] = {
-    var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]
-    for (f <- files) {
-      data = data.union(loadWigs(sc, f))
-    }
-    data
-  }
-
-  def loadPeakFiles(sc: SparkContext, files: Array[String]): RDD[(String, PeakRecord)] = {
-    var data: RDD[(String, PeakRecord)] = sc.emptyRDD[(String, PeakRecord)]
+  def loadPeakFiles(sc: SparkContext, files: Array[String]): RDD[(CellTypes.Value, PeakRecord)] = {
+    var data: RDD[(CellTypes.Value, PeakRecord)] = sc.emptyRDD[(CellTypes.Value, PeakRecord)]
     for (f <- files) {
       data = data.union(loadPeaks(sc, f))
     }

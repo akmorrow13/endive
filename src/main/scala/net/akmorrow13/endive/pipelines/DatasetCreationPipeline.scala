@@ -97,7 +97,7 @@ object DatasetCreationPipeline extends Serializable  {
       for (i <- labelStatus) {
         val file: String = i.getPath.toString
         try {
-          val (train: RDD[(String, String, ReferenceRegion, Int)], cellTypes: Array[String]) = Preprocess.loadLabels(sc, file)
+          val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, file)
           train.setName("train").cache()
           train.count
 
@@ -115,13 +115,12 @@ object DatasetCreationPipeline extends Serializable  {
           })
 
           // loading peak files
-          val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
-              .map(r => (Dataset.filterCellTypeName(r._1), r._2))
+          val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
               .cache()
 
           val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-          val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
+          val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
 
           val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
 
@@ -143,7 +142,7 @@ object DatasetCreationPipeline extends Serializable  {
   }
 
 
-  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(String, String, ReferenceRegion, Int)], placeHolder: Boolean = false): RDD[LabeledWindow]  = {
+  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], placeHolder: Boolean = false): RDD[LabeledWindow]  = {
     /* TODO: This is a kludge that relies that the master + slaves share NFS
      * but the correct thing to do is to use scp/nfs to distribute the sequence data
      * across the cluster

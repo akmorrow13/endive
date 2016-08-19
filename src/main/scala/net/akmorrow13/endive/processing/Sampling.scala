@@ -35,9 +35,9 @@ object Sampling {
                        sd: SequenceDictionary,
                        distance: Long = 700L,
                        partition: Boolean = true): RDD[LabeledWindow] = {
-    val partitionedRDD: RDD[((ReferenceRegion, String), LabeledWindow)] =
+    val partitionedRDD: RDD[((ReferenceRegion, TranscriptionFactors.Value), LabeledWindow)] =
       if (partition)
-        rdd.keyBy(r => (r.win.getRegion, r.win.getTf)).partitionBy(new LabeledReferenceRegionPartitioner(sd))
+        rdd.keyBy(r => (r.win.getRegion, r.win.getTf)).partitionBy(new LabeledReferenceRegionPartitioner(sd, TranscriptionFactors))
       else rdd.keyBy(r => (r.win.getRegion, r.win.getTf))
 
     partitionedRDD.mapPartitions(iter => {

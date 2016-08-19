@@ -1,5 +1,6 @@
 package net.akmorrow13.endive.utils
 
+import net.akmorrow13.endive.processing.CellTypes
 import org.apache.spark.rdd.RDD
 import scala.util.Random
 
@@ -13,10 +14,10 @@ def generateFoldsRDD(allData:RDD[LabeledWindow], numHeldOutCellTypes: Int = 1, n
 
     val sampledData = allData.sample(false, sampleFreq)
 
-    val cellTypesChromosomes:Set[(String, String)] = sampledData.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys.toSet
+    val cellTypesChromosomes:Set[(String, CellTypes.Value)] = sampledData.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys.toSet
 
     /* this will work with exponentially high probability */
-    val cellTypes:Iterable[String] = sampledData.map(x => (x.win.cellType)).countByValue().keys
+    val cellTypes:Iterable[CellTypes.Value] = sampledData.map(x => (x.win.cellType)).countByValue().keys
 
     /* this will work with exponentially high probability */
     val chromosomes:Iterable[String] = sampledData.map(x => (x.win.getRegion.referenceName)).countByValue().keys
@@ -29,7 +30,7 @@ def generateFoldsRDD(allData:RDD[LabeledWindow], numHeldOutCellTypes: Int = 1, n
         }
 }
 
-def generateTrainTestSplit(allData: RDD[LabeledWindow], holdOutCellTypes: Set[String],
+def generateTrainTestSplit(allData: RDD[LabeledWindow], holdOutCellTypes: Set[CellTypes.Value],
  holdOutChromosomes: Set[String]) = {
         val train = allData.filter { window => !holdOutChromosomes.contains(window.win.getRegion.referenceName) && !holdOutCellTypes.contains(window.win.cellType) }
           .setName("train").cache()

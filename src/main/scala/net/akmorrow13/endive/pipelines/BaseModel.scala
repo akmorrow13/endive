@@ -93,11 +93,11 @@ object BaseModel extends Serializable  {
 
     val sd = new SequenceDictionary(records)
 
-    val cellTypes: Array[String] = fullMatrix.map(x => (x.win.cellType)).countByValue().keys.toArray
+    val cellTypes: Array[CellTypes.Value] = fullMatrix.map(x => (x.win.cellType)).countByValue().keys.toArray
     val folds = cellTypes.size
 
     // deepbind does not have creb1 scores so we will hold out for now
-    val foldsData: RDD[BaseFeature] = featurize(sc, fullMatrix,tfs, conf.motifDBPath, None, sd)
+    val foldsData: RDD[BaseFeature] = featurize(sc, fullMatrix, tfs, conf.motifDBPath, None, sd)
           .setName("foldsData")
           .cache()
     println(s"joined with motifs ${foldsData.count}")
@@ -166,7 +166,7 @@ object BaseModel extends Serializable  {
           - max DNASE fold change across each bin
     *************************************/
   def featurize(sc: SparkContext, rdd: RDD[LabeledWindow],
-                tfs: Array[String],
+                tfs: Array[TranscriptionFactors.Value],
                 motifDB: String,
                 deepbindPath: Option[String] = None,
                 sd:SequenceDictionary): RDD[BaseFeature] = {
@@ -176,7 +176,6 @@ object BaseModel extends Serializable  {
     println(s"filtered rdd ${filteredRDD.count}, original rdd ${rdd.count}")
     println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
       s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
-
 
     val filteredPositives = filteredRDD.filter(_.win.getDnase.length > 0)
     val filteredNegatives = filteredRDD.filter(_.win.getDnase.length == 0)
