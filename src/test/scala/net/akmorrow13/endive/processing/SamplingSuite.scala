@@ -16,7 +16,7 @@ class SamplingSuite extends EndiveFunSuite {
                                   val win = Window(r._1, r._2, r._3, "AAAAA", None, None)
                                   LabeledWindow(win, r._4)
                                 })
-    val sd = new SequenceDictionary(Dataset.chrs.map(r => SequenceRecord(r, 10000000)).toVector)
+    val sd = getSequenceDictionary
 
     val sampledRDD = Sampling.subselectSamples(sc, trainRDD, sd, 700L)
     val positives = sampledRDD.filter(_.label == 1.0)

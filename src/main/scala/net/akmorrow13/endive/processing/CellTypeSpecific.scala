@@ -21,7 +21,6 @@ class CellTypeSpecific(@transient windowSize: Int,
     val win = this.windowSize
 
     println("cell type specific partition count", in.partitions.length)
-    // TODO: this does not calculate held out chrs
     val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.getRegion, r.win.getCellType))
       .partitionBy(new LabeledReferenceRegionPartitioner(sd))
       .leftOuterJoin(mappedDnase)
@@ -97,19 +96,21 @@ object CellTypeSpecific {
       val newStart = d._1.start / stride * stride
       val newEnd =  d._1.end / stride * stride + stride
       val region = ReferenceRegion(d._1.referenceName, newStart, newEnd)
-      unmergeRegions(region, windowSize, stride).map(r => ((r, d._2), d._3))
+      unmergeRegions(region, windowSize, stride, sd).map(r => ((r, d._2), d._3))
     }).groupBy(_._1).mapValues(r => r.seq.map(_._2).toList)
     windowed //.partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
   }
 
   /**
-   * take region and divide it up into chunkSize regions
+   * return all sliding windows overlapping the specified region
    * @param region Region to divide
    * @return list of divided smaller region
    */
-  def unmergeRegions(region: ReferenceRegion, win: Int, str: Int): List[ReferenceRegion] = {
-    val startValues: List[Long] = List.range(region.start, region.end + win, str)
-    startValues.map(st => ReferenceRegion(region.referenceName, st, st + win ))
+  def unmergeRegions(region: ReferenceRegion, win: Int, str: Int, sd: SequenceDictionary): List[ReferenceRegion] = {
+    val start = Math.max(region.start - win, 0)
+    val end = Math.min(region.end + win, sd.apply(region.referenceName).get.length)
+    val startValues: List[Long] = List.range(start, end, str)
+    val regions = startValues.map(st => ReferenceRegion(region.referenceName, st, st + win ))
+    regions.filter(r => r.overlaps(region))
   }
-
 }

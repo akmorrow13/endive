@@ -114,15 +114,10 @@ object DatasetCreationPipeline extends Serializable  {
 		cellTypes.contains(r.getPath.getName.split('.')(1))
           })
 
-//          // loading peak files
-//          val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
-//              .map(r => (Dataset.filterCellTypeName(r._1), r._2))
-//              .cache()
-
           // loading peak files
-          val dnase: RDD[(String, PeakRecord)] = Preprocess.loadWigFiles(sc, dnaseFiles.map(_.getPath.toString))
-            .map(r => (Dataset.filterCellTypeName(r._1), r._2))
-            .cache()
+          val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
+              .map(r => (Dataset.filterCellTypeName(r._1), r._2))
+              .cache()
 
           val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 

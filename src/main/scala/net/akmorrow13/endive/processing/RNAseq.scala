@@ -27,6 +27,7 @@ class RNAseq(geneReference: String, @transient sc: SparkContext) {
 
   val genes: RDD[Transcript] = Preprocess.loadTranscripts(sc, geneReference)
 
+
   def loadRNA(sc: SparkContext, filePath: String): RDD[(String, RNARecord)] = {
     val cellType = filePath.split("/").last.split('.')(1)
     val genesB = sc.broadcast(genes.collect.toList)
@@ -34,12 +35,12 @@ class RNAseq(geneReference: String, @transient sc: SparkContext) {
     val data = Preprocess.loadTsv(sc, filePath, "gene_id")
     val records = data.flatMap(parts => {
       // parse text file
-      val (geneId, transcriptIds, length, effective_length, expected_count, tpm,	fpkm)
-        = (parts(0), parts(1).split(","), parts(2).toDouble, parts(3).toDouble, parts(4).toDouble, parts(5).toDouble, parts(6).toDouble)
+      val (geneId, length, effective_length, expected_count, tpm,	fpkm)
+        = (parts(0), parts(2).toDouble, parts(3).toDouble, parts(4).toDouble, parts(5).toDouble, parts(6).toDouble)
 
-      val filteredTranscripts: List[Transcript] = genesB.value.filter(p => transcriptIds.contains(p.transcriptId)) // filter out relevent transcripts
+      val filteredTranscripts: List[Transcript] = genesB.value.filter(p => p.geneId == geneId) // filter out relevent genes
 
-      filteredTranscripts.map(t => (RNARecord(t.region, geneId, t.transcriptId, length, effective_length, expected_count, tpm, fpkm)))
+      filteredTranscripts.map(t => (RNARecord(t.region, geneId, length, effective_length, expected_count, tpm, fpkm)))
     })
     records.map(r => (cellType, r))
   }
