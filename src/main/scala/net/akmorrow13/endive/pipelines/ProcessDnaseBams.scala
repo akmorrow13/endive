@@ -72,18 +72,16 @@ object ProcessDnaseBams extends Serializable with Logging {
     val negativeFolder = s"${output}/negative/"
 
     // read all bams in file and save positive coverage
-    try {
       val fs: FileSystem = FileSystem.get(new Configuration())
       val status = fs.listStatus(new Path(dnase)).filter(i => i.getPath.getName.endsWith(".bam"))
       for (i <- status) {
         val filePath: String = i.getPath.toString
         val fileName = i.getPath.getName
         val cellType = Dataset.filterCellTypeName(fileName.split('.')(1))
-
         val positiveFile = s"${positiveFolder}${fileName}.adam"
         val negativeFile = s"${negativeFolder}${fileName}.adam"
 
-        log.info(s"processsing file ${filePath} for cell type ${cellType}")
+        println(s"processsing file ${filePath} for cell type ${cellType}")
 
         val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
@@ -136,11 +134,6 @@ object ProcessDnaseBams extends Serializable with Logging {
 
 
       }
-    } catch {
-      case e: Exception => println(s"Directory ${dnase} could not be loaded")
-    }
-
-
 
 
   }
