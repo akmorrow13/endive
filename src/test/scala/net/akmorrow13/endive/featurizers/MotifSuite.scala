@@ -19,10 +19,8 @@ class MotifSuite extends EndiveFunSuite {
     val sequences: RDD[String] = sc.parallelize(Seq("AGGUAAUAAUUUGCAUGAAAUAACUUGGAGAGGAUAGC"))
     val motif = new Motif(sc, sd)
 
-    val tfs = TranscriptionFactors.toVector.toList
+    val tfs = TranscriptionFactors.values.toList
     val results = motif.getDeepBindScores(sequences, tfs, deepbindPath)
-    println(results)
-
   }
 
 }

@@ -28,8 +28,8 @@ class RNAseq(geneReference: String, @transient sc: SparkContext) {
   val genes: RDD[Transcript] = Preprocess.loadTranscripts(sc, geneReference)
 
 
-  def loadRNA(sc: SparkContext, filePath: String): RDD[(String, RNARecord)] = {
-    val cellType = filePath.split("/").last.split('.')(1)
+  def loadRNA(sc: SparkContext, filePath: String): RDD[(CellTypes.Value, RNARecord)] = {
+    val cellType = CellTypes.getEnumeration(filePath.split("/").last.split('.')(1))
     val genesB = sc.broadcast(genes.collect.toList)
 
     val data = Preprocess.loadTsv(sc, filePath, "gene_id")
@@ -45,8 +45,8 @@ class RNAseq(geneReference: String, @transient sc: SparkContext) {
     records.map(r => (cellType, r))
   }
 
-  def loadRNAFolder(sc: SparkContext, folder: String): RDD[(String, RNARecord)] = {
-    var data: RDD[(String, RNARecord)] = sc.emptyRDD[(String, RNARecord)]
+  def loadRNAFolder(sc: SparkContext, folder: String): RDD[(CellTypes.Value, RNARecord)] = {
+    var data: RDD[(CellTypes.Value, RNARecord)] = sc.emptyRDD[(CellTypes.Value, RNARecord)]
     if (sc.isLocal) {
       val d = new File(folder)
       if (d.exists && d.isDirectory) {

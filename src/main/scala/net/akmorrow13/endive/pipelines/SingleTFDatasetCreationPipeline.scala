@@ -86,7 +86,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     val dnaseStatus = fs.listStatus(new Path(dnasePath))
     println(s"first dnase file: ${dnaseStatus.head.getPath.getName.split('.')(1)}")
 
-    val (train: RDD[(String, String, ReferenceRegion, Int)], cellTypes: Array[String]) = Preprocess.loadLabels(sc, labelsPath)
+    val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath)
     train.setName("Raw Train Data").cache()
 
     val tf = train.first._1
@@ -99,8 +99,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     })
 
     // load peak data from dnase
-    val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
-      .map(r => (Dataset.filterCellTypeName(r._1), r._2))
+    val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
       .cache()
 
     println("First reading labels")
@@ -109,7 +108,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
 
-    val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
+    val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
 
     val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
 
@@ -121,7 +120,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
   }
 
 
-  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(String, String, ReferenceRegion, Int)]): RDD[LabeledWindow]  = {
+  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)]): RDD[LabeledWindow]  = {
     /* TODO: This is a kludge that relies that the master + slaves share NFS
      * but the correct thing to do is to use scp/nfs to distribute the sequence data
      * across the cluster

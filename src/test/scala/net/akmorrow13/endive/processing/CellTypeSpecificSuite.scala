@@ -38,7 +38,7 @@ class CellTypeSpecificSuite extends EndiveFunSuite {
           (region2, cellType, peakRecord2),
           (region3, cellType, peakRecord3)))
 
-    val windowed: RDD[((ReferenceRegion, String), List[PeakRecord])] = CellTypeSpecific.window[PeakRecord](dnase, sd)
+    val windowed = CellTypeSpecific.window(dnase, sd)
     assert(windowed.count == 6)
     assert(windowed.filter(_._1._1.start == 0).map(_._2).first.size == 3)
     assert(windowed.filter(_._1._1.start == 50).map(_._2).first.size == 3)
@@ -50,7 +50,7 @@ class CellTypeSpecificSuite extends EndiveFunSuite {
 
   sparkTest("should merge dnase, rnaseq and labels") {
     val dnaseRDD = Preprocess.loadPeaks(sc, peakPath)
-    val labels: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelPath)._1
+    val labels = Preprocess.loadLabels(sc, labelPath)._1
     val rnaseq =  new RNAseq(genePath, sc)
     val rnaseqRDD = rnaseq.loadRNA(sc, rnaPath)
 

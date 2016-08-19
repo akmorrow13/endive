@@ -20,17 +20,20 @@ class Motif(@transient sc: SparkContext,
   def scoreMotifs(in: RDD[LabeledWindow],
                   windowSize: Int,
                   stride: Int,
-                  tfs: Array[String],
+                  tfs: Array[TranscriptionFactors.Value],
                   motifDB: String): RDD[LabeledWindow] = {
-    val motifs: RDD[(ReferenceRegion, String, PeakRecord)] = Preprocess.loadMotifFolder(sc, motifDB, Some(tfs))
+
+    // transcription factor specific motifs
+    val motifs: RDD[(ReferenceRegion, TranscriptionFactors.Value, PeakRecord)] = Preprocess.loadMotifFolder(sc, motifDB, Some(tfs))
             .map(r => (r._2.region, r._1, r._2))
-    val windowedMotifs = CellTypeSpecific.window[PeakRecord](motifs, sd)
+    val windowedMotifs = CellTypeSpecific.window(motifs, sd)
+          .map(r => ((r._1._1, r._1._2), r._2))
 
     val str = stride
     val win = windowSize
 
     val x: RDD[LabeledWindow] = in.filter(r => tfs.contains(r.win.getTf))
-      .keyBy(r => (r.win.getRegion, r.win.getCellType))
+      .keyBy(r => (r.win.getRegion, r.win.getTf))
       .partitionBy(new LabeledReferenceRegionPartitioner(sd))
       .leftOuterJoin(windowedMotifs)
       .map(r => {
@@ -50,7 +53,7 @@ class Motif(@transient sc: SparkContext,
    * @return
    */
   def getDeepBindScores(sequences: RDD[String],
-                         tfs: List[String],
+                         tfs: List[TranscriptionFactors.Value],
                          deepbindPath: String): RDD[Map[String, Double]] = {
 
     // local locations of files to read and write from
@@ -62,13 +65,15 @@ class Motif(@transient sc: SparkContext,
     }
     bufferedSource.close
     val db = buffer.toArray
-    println(db)
+
     // filter db by tfs we want to access
     val filteredDb: Array[Array[String]] = db.map(r => r(0).split(" # "))
       .map(r => Array(r(0), r(1)))
 
     // filter out parameters included in db but not in parameters folder
-    val tfDatabase: Map[String, String] = filteredDb.map(r => (r(0), r(1))).toMap
+    val tfDatabase: Map[String, String] =
+      filteredDb.map(r => (r(0), r(1))).toMap
+
     sequences.map(s => getDeepBindScore(s, tfDatabase, idFile, deepbindPath))
   }
 
@@ -80,7 +85,7 @@ class Motif(@transient sc: SparkContext,
    * @return
    */
   def getDeepBindScoresPerPartition(sequences: RDD[String],
-                        tfs: List[String],
+                        tfs: List[TranscriptionFactors.Value],
                         deepbindPath: String): RDD[Array[Double]] = {
 
     // local locations of files to read and write from
@@ -143,7 +148,7 @@ class Motif(@transient sc: SparkContext,
     val result: String = s"${deepbindPath}/deepbindArg ${idFile} ${sequence}" !!
 
     val header = result.split("\n")(0).split("\t")
-    // Array[(tf identifier, score)]
+    // Array[(tf identifier (i.e. 'D00032,2'), score)]
     val scores = header.zip(result.split("\n")(1).split("\t").map(_.toDouble))
 
     // Map scores to the name of transcription factor

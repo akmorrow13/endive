@@ -10,8 +10,8 @@ import scala.reflect.ClassTag
 
 class CellTypeSpecific(@transient windowSize: Int,
                       @transient stride: Int,
-                      dnase: RDD[(String, PeakRecord)],
-                      rnaseq: RDD[(String, RNARecord)],
+                      dnase: RDD[(CellTypes.Value, PeakRecord)],
+                      rnaseq: RDD[(CellTypes.Value, RNARecord)],
                       sd: SequenceDictionary) extends Serializable {
 
   def joinWithDNase(in: RDD[LabeledWindow]): RDD[LabeledWindow] = {
@@ -47,7 +47,7 @@ class CellTypeSpecific(@transient windowSize: Int,
     val mappedRnaseq = rnaseq.map(r => (r._2.region, r._1, r._2))
 
     // join together cell type specific information
-    val cellData: RDD[((ReferenceRegion, String), (Option[List[PeakRecord]], Option[List[RNARecord]]))]  =
+    val cellData: RDD[((ReferenceRegion, CellTypes.Value), (Option[List[PeakRecord]], Option[List[RNARecord]]))]  =
       CellTypeSpecific.joinDataSets(mappedDnase, mappedRnaseq, sd)
 
     val str = this.stride
@@ -81,18 +81,18 @@ object CellTypeSpecific {
    * @tparam S
    * @return
    */
-  def joinDataSets[T: ClassTag, S: ClassTag](rdd1: RDD[(ReferenceRegion, String, T)],
-                                             rdd2: RDD[(ReferenceRegion, String, S)]
-                                              , sd: SequenceDictionary): RDD[((ReferenceRegion, String), (Option[List[T]], Option[List[S]]))] = {
-    val windowed1 = window[T](rdd1, sd)
-    val windowed2 = window[S](rdd2, sd)
+  def joinDataSets[T: ClassTag, S: ClassTag](rdd1: RDD[(ReferenceRegion, CellTypes.Value, T)],
+                                             rdd2: RDD[(ReferenceRegion, CellTypes.Value, S)]
+                                              , sd: SequenceDictionary): RDD[((ReferenceRegion, CellTypes.Value), (Option[List[T]], Option[List[S]]))] = {
+    val windowed1 = window(rdd1, sd)
+    val windowed2 = window(rdd2, sd)
     windowed1.fullOuterJoin(windowed2)
   }
 
-  def window[T: ClassTag](rdd: RDD[(ReferenceRegion, String, T)], sd: SequenceDictionary): RDD[((ReferenceRegion, String), List[T])] = {
+  def window[S: ClassTag, T: ClassTag](rdd: RDD[(ReferenceRegion, S, T)], sd: SequenceDictionary): RDD[((ReferenceRegion, S), List[T])] = {
     val stride = 50
     val windowSize = 200
-    val windowed: RDD[((ReferenceRegion, String), List[T])]  = rdd.flatMap(d => {
+    val windowed: RDD[((ReferenceRegion, S), List[T])]  = rdd.flatMap(d => {
       val newStart = d._1.start / stride * stride
       val newEnd =  d._1.end / stride * stride + stride
       val region = ReferenceRegion(d._1.referenceName, newStart, newEnd)

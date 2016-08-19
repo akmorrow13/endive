@@ -93,7 +93,7 @@ object NoSeqBaseModel extends Serializable  {
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
     val folds = EndiveUtils.generateFoldsRDD(windowsRDD, conf.heldOutCells, conf.heldoutChr, conf.folds)
-    val chrCellTypes:Iterable[(String, String)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
+    val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
 
     println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
@@ -106,7 +106,7 @@ object NoSeqBaseModel extends Serializable  {
 
 
       // get testing cell types for this fold
-      val cellTypesTest: Iterable[String] = test.map(x => (x.labeledWindow.win.cellType)).countByValue().keys
+      val cellTypesTest: Iterable[CellTypes.Value] = test.map(x => (x.labeledWindow.win.cellType)).countByValue().keys
       println(s"Fold ${i}, testing cell types:")
       cellTypesTest.foreach(println)
 
