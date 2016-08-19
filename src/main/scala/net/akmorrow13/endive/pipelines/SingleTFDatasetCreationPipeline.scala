@@ -19,6 +19,8 @@ import java.io.File
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.processing.Sequence
 import net.akmorrow13.endive.utils._
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -71,11 +73,35 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     // create new sequence with reference path
     val referencePath = conf.reference
 
+    // load dnase path for all files
+    val dnasePath = conf.dnase
+
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
 
-    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelsPath)._1
+    // create sequence dictionary
+    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+
+    val fs: FileSystem = FileSystem.get(new Configuration())
+    val dnaseStatus = fs.listStatus(new Path(dnasePath))
+    println(s"first dnase file: ${dnaseStatus.head.getPath.getName.split('.')(1)}")
+
+    val (train: RDD[(String, String, ReferenceRegion, Int)], cellTypes: Array[String]) = Preprocess.loadLabels(sc, labelsPath)
     train.setName("Raw Train Data").cache()
+
+    val tf = train.first._1
+    println(s"celltypes for tf ${tf}:")
+    cellTypes.foreach(println)
+
+    // Load DNase data of (cell type, peak record)
+    val dnaseFiles = dnaseStatus.filter(r => {
+      cellTypes.contains(r.getPath.getName.split('.')(1))
+    })
+
+    // load peak data from dnase
+    val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
+      .map(r => (Dataset.filterCellTypeName(r._1), r._2))
+      .cache()
 
     println("First reading labels")
     train.count()
@@ -83,11 +109,15 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
 
+    val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
+
+    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
+
     println("Now matching labels with reference genome")
     sequences.count()
 
     println("Now saving to disk")
-    sequences.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput)
+    fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput)
   }
 
 

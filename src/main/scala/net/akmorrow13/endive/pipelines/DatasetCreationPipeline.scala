@@ -101,17 +101,17 @@ object DatasetCreationPipeline extends Serializable  {
           train.setName("train").cache()
           train.count
 
-	  val tf = train.first._1
+	        val tf = train.first._1
           println(s"celltypes for tf ${tf}:")
           cellTypes.foreach(println)
 
           // extract sequences from reference over training regions
           val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
           // val sequences: RDD[LabeledWindow] = sc.emptyRDD[LabeledWindow]
-	  println("extracted sequences", sequences.count)
+	        println("extracted sequences", sequences.count)
           // Load DNase data of (cell type, peak record)
-	  val dnaseFiles = dnaseStatus.filter(r => {
-		cellTypes.contains(r.getPath.getName.split('.')(1))
+	        val dnaseFiles = dnaseStatus.filter(r => {
+		        cellTypes.contains(r.getPath.getName.split('.')(1))
           })
 
           // loading peak files
