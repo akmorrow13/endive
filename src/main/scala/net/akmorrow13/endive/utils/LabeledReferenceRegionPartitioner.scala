@@ -13,23 +13,23 @@ import org.bdgenomics.adam.models.{ReferenceRegion, ReferencePosition, SequenceD
 case class LabeledReferenceRegionPartitioner(sd: SequenceDictionary, indexer: Enumeration = CellTypes) extends Partitioner {
 
   // extract all combinations of chromosome, celltype
-  private val reference: Vector[(String, indexer.Value)] = for (x <- sd.records.map(_.name); y <- indexer.values) yield (x,y)
+  private val reference: Vector[(String, String)] = for (x <- sd.records.map(_.name); y <- indexer.values.map(_.toString)) yield (x,y)
 
   override def numPartitions: Int = reference.length
 
-  private def partitionFromName(referenceName: String, idx: AnyRef): Int = {
+  private def partitionFromName(referenceName: String, idx: String): Int = {
     // which reference is this in?
     val pIdx = reference.indexOf((referenceName, idx))
 
     // provide debug info to user if key is bad
-    assert(pIdx != -1, "Reference not found in " + reference + " for key " + referenceName + " , " + idx)
+    assert(pIdx != -1, "Reference not found in " + reference + " for key" + referenceName + ", " + idx)
 
     pIdx
   }
 
   override def getPartition(key: Any): Int = key match {
     case rp: (ReferenceRegion, AnyRef) => {
-      partitionFromName(rp._1.referenceName, rp._2)
+      partitionFromName(rp._1.referenceName, rp._2.toString)
     }
     case _ => throw new IllegalArgumentException("Only labeled ReferenceRegions can be used as a key.")
   }
