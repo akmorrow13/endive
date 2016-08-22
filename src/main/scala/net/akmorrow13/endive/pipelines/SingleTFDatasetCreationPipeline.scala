@@ -86,10 +86,15 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     val dnaseStatus = fs.listStatus(new Path(dnasePath))
     println(s"first dnase file: ${dnaseStatus.head.getPath.getName.split('.')(1)}")
 
-    val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath)
-    train.setName("Raw Train Data").cache()
+    val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
+    
+    println(train.partitions.length)
+    train
+	.setName("Raw Train Data").cache()
 
+    println(train.count, train.partitions.length)
     val tf = train.first._1
+    println(tf)
     println(s"celltypes for tf ${tf}:")
     cellTypes.foreach(println)
 
@@ -103,20 +108,20 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
       .cache()
 
     println("First reading labels")
-    train.count()
 
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
+    println(sequences.count)
 
     val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
 
     val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
 
     println("Now matching labels with reference genome")
-    sequences.count()
+    println(fullMatrix.count)
 
     println("Now saving to disk")
-    fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput)
+    fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + tf)
   }
 
 
@@ -125,18 +130,20 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
      * but the correct thing to do is to use scp/nfs to distribute the sequence data
      * across the cluster
      */
-
-    regionsAndLabels.mapPartitions { part =>
-        val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-        part.map { r =>
+   	
+      regionsAndLabels.map( r => { 
+ //   regionsAndLabels.mapPartitions { part =>
+   //     val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+     //   part.map { r =>
           val startIdx = r._3.start
           val endIdx = r._3.end
-          val sequence = reference.extract(r._3)
-          val label = r._4
+   //       val sequence = reference.extract(r._3)
+          val sequence = "N" * 200
+	  val label = r._4
           val win = Window(r._1, r._2, r._3, sequence)
           LabeledWindow(win, label)
-        }
-      }
+   //     }
+      })
   }
 
 }

@@ -68,11 +68,14 @@ object ProcessDnaseBams extends Serializable with Logging {
     val output = conf.getFeaturizedOutput
     val referencePath = conf.reference
 
+    val fs: FileSystem = FileSystem.get(new Configuration())
     val positiveFolder = s"${output}/positive/"
+    val savedPositives = fs.listStatus(new Path(positiveFolder)).map(_.getPath.toString)
+    
     val negativeFolder = s"${output}/negative/"
+    val savedNegatives = fs.listStatus(new Path(negativeFolder)).map(_.getPath.toString)
 
     // read all bams in file and save positive coverage
-      val fs: FileSystem = FileSystem.get(new Configuration())
       val status = fs.listStatus(new Path(dnase)).filter(i => i.getPath.getName.endsWith(".bam"))
       for (i <- status) {
         val filePath: String = i.getPath.toString
@@ -82,11 +85,9 @@ object ProcessDnaseBams extends Serializable with Logging {
         val negativeFile = s"${negativeFolder}${fileName}.adam"
 
         println(s"processsing file ${filePath} for cell type ${cellType}")
-
         val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
-
         // check if positive alignments coverage already exists
-        if (!fs.listStatus(new Path(positiveFolder)).contains(positiveFile)) {
+        if (!savedPositives.contains(positiveFile)) {
           // get positive strand coverage and key by region, cellType
           var positiveAlignments = sc.loadAlignments(filePath).transform(_.filter(r => !r.getReadNegativeStrand))
           println("positiveCount: " + positiveAlignments.rdd.count)
@@ -110,7 +111,7 @@ object ProcessDnaseBams extends Serializable with Logging {
         }
 
         // check if negative alignments coverage already exists
-        if (!fs.listStatus(new Path(negativeFolder)).contains(negativeFile)) {
+        if (!savedNegatives.contains(negativeFile)) {
           var negativeAlignments = sc.loadAlignments(filePath).transform(_.filter(r => r.getReadNegativeStrand))
           log.info("repartitioning negative rdd")
           val negRdd: RDD[AlignmentRecord] = negativeAlignments.rdd

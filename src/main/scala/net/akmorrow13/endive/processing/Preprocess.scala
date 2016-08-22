@@ -65,8 +65,10 @@ object Preprocess {
     assert(filePath.endsWith("tsv") || filePath.endsWith("tsv.gz"))
     val headerTag = "start"
     // parse header for cell types
+    println(numPartitions)
     val tsvRDD = sc.textFile(filePath, numPartitions)
-    val cellTypes = tsvRDD.filter(r => r.contains(headerTag)).first().split("\t").drop(3).map(r => CellTypes.withName(r))
+    println("load label partitions", tsvRDD.partitions.length)
+    val cellTypes = tsvRDD.filter(r => r.contains(headerTag)).first().split("\t").drop(3).map(r => CellTypes.getEnumeration(r))
     val file = filePath.split("/").last
     // parse file name for tf
     val tf = TranscriptionFactors.withName(file.split('.')(0))

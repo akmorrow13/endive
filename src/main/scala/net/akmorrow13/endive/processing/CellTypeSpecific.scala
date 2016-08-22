@@ -16,6 +16,8 @@ class CellTypeSpecific(@transient windowSize: Int,
 
   def joinWithDNase(in: RDD[LabeledWindow]): RDD[LabeledWindow] = {
     val mappedDnase = CellTypeSpecific.window(dnase.map(r => (r._2.region, r._1, r._2)), sd)
+    mappedDnase.cache()
+    println("mapped dnase",mappedDnase.count)
 
     val str = this.stride
     val win = this.windowSize
@@ -92,13 +94,14 @@ object CellTypeSpecific {
   def window[S: ClassTag, T: ClassTag](rdd: RDD[(ReferenceRegion, S, T)], sd: SequenceDictionary): RDD[((ReferenceRegion, S), List[T])] = {
     val stride = 50
     val windowSize = 200
-    val windowed: RDD[((ReferenceRegion, S), List[T])]  = rdd.flatMap(d => {
+    val windowed: RDD[((ReferenceRegion, S), List[T])]  = rdd
+     .flatMap(d => {
       val newStart = d._1.start / stride * stride
       val newEnd =  d._1.end / stride * stride + stride
       val region = ReferenceRegion(d._1.referenceName, newStart, newEnd)
       unmergeRegions(region, windowSize, stride, sd).map(r => ((r, d._2), d._3))
     }).groupBy(_._1).mapValues(r => r.seq.map(_._2).toList)
-    windowed //.partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+    windowed.partitionBy(new LabeledReferenceRegionPartitioner(sd))
   }
 
   /**
