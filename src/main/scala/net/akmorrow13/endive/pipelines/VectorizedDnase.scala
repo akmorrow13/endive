@@ -79,8 +79,8 @@ object VectorizedDnase extends Serializable  {
     val dnasePath = conf.dnase
 
     // load in 1 transcription factor
-    val windowsRDD: RDD[LabeledWindow] = sc.textFile(labelsPath)
-      .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
+    val windowsRDD: RDD[LabeledWindow] = Preprocess.loadLabels(sc, labelsPath)
+      ._1.map(r => LabeledWindow(Window(r._1, r._2, r._3, "N" * 200), r._4))
       .cache()
 
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)

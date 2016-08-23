@@ -100,14 +100,18 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
 
     // Load DNase data of (cell type, peak record)
     val dnaseFiles = dnaseStatus.filter(r => {
-      cellTypes.contains(r.getPath.getName.split('.')(1))
+      val cellType = Dataset.filterCellTypeName(r.getPath.getName.split('.')(1))
+      cellTypes.contains(cellType)
     })
+
+    dnaseFiles.foreach(println)
 
     // load peak data from dnase
     val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
       .cache()
 
-    println("First reading labels")
+    println("Reading dnase peaks")
+    println(dnase.count)
 
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
