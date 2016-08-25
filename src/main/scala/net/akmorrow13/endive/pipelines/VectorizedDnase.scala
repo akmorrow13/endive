@@ -20,7 +20,7 @@ import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
-import net.akmorrow13.endive.processing.Dataset
+import net.akmorrow13.endive.processing.Dataset._
 import nodes.learning.LogisticRegressionEstimator
 
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
@@ -65,12 +65,11 @@ object VectorizedDnase extends Serializable  {
   }
 
   def run(sc: SparkContext, conf: EndiveConf) {
-    println("STARTING BASEMODEL PIPELINE")
+    println("STARTING VECTORIZED PIPELINE")
 
     // challenge parameters
     val windowSize = 200
     val stride = 50
-
 
     // create new sequence with reference path
     val referencePath = conf.reference
@@ -98,7 +97,7 @@ object VectorizedDnase extends Serializable  {
 
       val alignmentRdd: RDD[(CellTypes.Value, ReferenceRegion)] = sc.loadAlignments(f)
               .rdd
-              .filter(!_.getMateNegativeStrand)
+              .filter(r => !r.getMateNegativeStrand && r.getContigName != null)
               .map(r => (cellType, ReferenceRegion(r)))
 
       coverage = coverage.union(alignmentRdd)
@@ -120,43 +119,52 @@ object VectorizedDnase extends Serializable  {
       println(s"Fold ${i}, testing chromsomes:")
       chromosomesTest.foreach(println)
 
-      val train = featurize(sc, folds(i)._1, coverage, sd, true)
-      val test = featurize(sc, folds(i)._2, coverage, sd, false)
+      // calculate features for train and test sets
+      val train = featurize(sc, folds(i)._1, coverage, sd, true).cache()
+      val test = featurize(sc, folds(i)._2, coverage, sd, false).cache()
 
       println("TRAIN SIZE IS " + train.count())
       println("TEST SIZE IS " + test.count())
 
-      // training features
-      val XTrainPositives = train.filter(_.labeledWindow.win.getDnase.length > 0).map(_.features)
+      // training features: positive and negative
+      val xTrainPositives = train.map(_.features).filter(r => r.findAll(_ > 0).size > 0)
         .setName("XTrainPositives").cache()
-      val XTrainNegatives = train.filter(_.labeledWindow.win.getDnase.length == 0).map(_.features)
+      val xTrainNegatives = train.map(_.features).filter(r => r.findAll(_ > 0).size == 0)
+      	.setName("XTrainNegatives").cache()
+      println("training positives and negatives", xTrainPositives.count, xTrainNegatives.count)
 
       // testing features
-      val XTestPositives: RDD[DenseVector[Double]] = test.filter(_.labeledWindow.win.getDnase.length > 0).map(_.features)
-      val XTestNegatives: RDD[DenseVector[Double]] = test.filter(_.labeledWindow.win.getDnase.length == 0).map(_.features)
-
+      val xTestPositives: RDD[DenseVector[Double]] = test.map(_.features).filter(r => r.findAll(_ > 0).size > 0)
+	.setName("XTestPositives").cache()
+      val xTestNegatives: RDD[DenseVector[Double]] = test.map(_.features).filter(r => r.findAll(_ > 0).size == 0)
+	.setName("XTestNegatives").cache()
+      println("testing positives and negatives", xTestPositives.count, xTestNegatives.count)
+ 
       // training labels
-      val yTrainPositives = train.filter(_.labeledWindow.win.getDnase.length > 0).map(_.labeledWindow.label)
+      val yTrainPositives = train.filter(r => r.features.findAll(_ > 0).size > 0).map(_.labeledWindow.label)
         .setName("yTrainPositive").cache()
-      val yTrainNegatives = train.filter(_.labeledWindow.win.getDnase.length == 0).map(_.labeledWindow.label)
-        .setName("yTrainNegative").cache()
+      val yTrainNegatives = train.filter(r => r.features.findAll(_ > 0).size == 0).map(_.labeledWindow.label)
+	.setName("yTrainNegative").cache()
       val yTrain = yTrainPositives.union(yTrainNegatives).map(_.toDouble)
-
+      
       // testing labels
-      val yTestPositives = test.filter(_.labeledWindow.win.getDnase.length > 0).map(_.labeledWindow.label).cache()
-      val yTestNegatives = test.filter(_.labeledWindow.win.getDnase.length == 0).map(_.labeledWindow.label).cache()
+
+      val yTestPositives = test.filter(r => r.features.findAll(_ > 0).size > 0).map(_.labeledWindow.label)
+        .setName("yTestPositive").cache()
+      val yTestNegatives = test.filter(r => r.features.findAll(_ > 0).size == 0).map(_.labeledWindow.label)
+        .setName("yTestNegative").cache()
       val yTest = yTestPositives.union(yTestNegatives).map(_.toDouble)
 
       println("Training model")
-      val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 1).fit(XTrainPositives, yTrainPositives)
+      val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10).fit(xTrainPositives, yTrainPositives)
 
-      val yPredTrain = predictor(XTrainPositives).union(XTrainNegatives.map(r => 0.0))
-      val evalTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain))
+      val yPredTrain = predictor(xTrainPositives).union(xTrainNegatives.map(r => 0.0))
+      val evalTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
       println("Train Results: \n ")
       Metrics.printMetrics(evalTrain)
 
-      val yPredTest = predictor(XTestPositives).union(XTestNegatives.map(r => 0.0))
-      val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest))
+      val yPredTest = predictor(xTestPositives).union(xTestNegatives.map(r => 0.0))
+      val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
       println("Test Results: \n ")
       Metrics.printMetrics(evalTest)
 
@@ -175,17 +183,22 @@ object VectorizedDnase extends Serializable  {
    */
   def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], coverage: RDD[(CellTypes.Value, ReferenceRegion)], sd: SequenceDictionary, subselectNegatives: Boolean = true): RDD[BaseFeature] = {
 
-    val cellTypes = rdd.map(x => (x.win.cellType)).countByValue().keys.toList
+    val cellTypes = rdd.map(x => (x.win.cellType.toString)).countByValue().keys.toList
     println("cell types: ")
     cellTypes.foreach(println)
+    val chromosomes = Chromosomes.toVector
 
+    println(coverage.count)
     // filter coverage by relevent cellTypes and group by (ReferenceName, CellType)
-    val filteredCoverage: RDD[((CellTypes.Value, Chromosomes.Value), Iterator[ReferenceRegion])] =
+    val filteredCoverage: RDD[((String, String), Iterator[ReferenceRegion])] =
       coverage
-        .filter(r => cellTypes.contains(r._1.toString))
-        .groupBy(r => (r._1, Chromosomes.withName(r._2.referenceName)))
+        .filter(r => {
+		cellTypes.contains(r._1.toString) && chromosomes.contains(r._2.referenceName)
+	})
+        .groupBy(r => (r._1.toString, r._2.referenceName))
         .mapValues(_.map(_._2).toIterator)
 
+    filteredCoverage.map(_._1).collect.foreach(println)
     // perform negative sampling
     val filteredRDD =
       if (subselectNegatives)
@@ -198,8 +211,14 @@ object VectorizedDnase extends Serializable  {
     println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
       s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
 
-    val labeledGroupedWindows: RDD[((CellTypes.Value, Chromosomes.Value), Iterable[LabeledWindow])] = filteredRDD.groupBy(w => (w.win.getCellType, Chromosomes.withName(w.win.getRegion.referenceName)))
-    val coverageAndWindows: RDD[((CellTypes.Value, Chromosomes.Value), (Iterable[LabeledWindow], Option[Iterator[ReferenceRegion]]))] = labeledGroupedWindows.leftOuterJoin(filteredCoverage)
+    val labeledGroupedWindows: RDD[((String, String), Iterator[LabeledWindow])] = filteredRDD
+	.groupBy(w => (w.win.getCellType.toString, w.win.getRegion.referenceName))
+	.mapValues(_.toIterator)
+    println("labeledgroupwindows")
+    labeledGroupedWindows.map(_._1).collect.foreach(println)
+    val coverageAndWindows: RDD[((String, String), (Iterator[LabeledWindow], Option[Iterator[ReferenceRegion]]))] = labeledGroupedWindows.leftOuterJoin(filteredCoverage)
+
+    println(coverageAndWindows.count)
 
     coverageAndWindows.mapValues(iter => {
       val windows: List[LabeledWindow] = iter._1.toList
