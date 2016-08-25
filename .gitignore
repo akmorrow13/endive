@@ -27,3 +27,6 @@ deepbind/db/params
 # emacs files
 *~
 *#*
+
+# test files
+test/resources
