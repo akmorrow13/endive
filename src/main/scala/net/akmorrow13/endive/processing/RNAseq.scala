@@ -17,7 +17,6 @@ package net.akmorrow13.endive.processing
 
 import java.io.File
 
-import net.akmorrow13.endive.processing.Dataset.CellTypes
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.spark.SparkContext
@@ -39,7 +38,8 @@ class RNAseq(geneReference: String, @transient sc: SparkContext) {
       val (geneId, length, effective_length, expected_count, tpm,	fpkm)
         = (parts(0), parts(2).toDouble, parts(3).toDouble, parts(4).toDouble, parts(5).toDouble, parts(6).toDouble)
 
-      val filteredTranscripts: List[Transcript] = genesB.value.filter(p => p.geneId == geneId) // filter out relevent transcripts
+      val filteredTranscripts: List[Transcript] = genesB.value.filter(p => p.geneId == geneId) // filter out relevent genes
+
       filteredTranscripts.map(t => RNARecord(t.region, geneId, length, effective_length, expected_count, tpm, fpkm))
     })
     records.map(r => (cellType, r))
@@ -51,7 +51,7 @@ class RNAseq(geneReference: String, @transient sc: SparkContext) {
       val d = new File(folder)
       if (d.exists && d.isDirectory) {
         val files = d.listFiles.filter(_.isFile).toList
-        files.foreach(f => {
+        files.map(f => {
           data = data.union(loadRNA(sc, f.getPath))
         })
       } else {

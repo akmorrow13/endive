@@ -14,7 +14,9 @@ class MotifSuite extends EndiveFunSuite {
   var deepbindPath = "/Users/akmorrow/ADAM/endive/workfiles/deepbind"
   var motifPath = resourcePath("models.yaml")
 
+
   val sd = getSequenceDictionary
+
 
   test("should read pwms from yaml file") {
     val motifs = Motif.parseYamlMotifs(motifPath)
