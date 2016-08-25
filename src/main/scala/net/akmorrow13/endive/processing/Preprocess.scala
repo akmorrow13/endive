@@ -279,16 +279,15 @@ object Preprocess {
 /**
  *
  * @param geneId
- * @param transcriptId
  * @param length
  * @param effective_length
  * @param expected_count
  * @param TPM: transcripts per million
  * @param FPKM: fragments per kilobase of exon per million reads mapped
  */
-case class RNARecord(region: ReferenceRegion, geneId: String, transcriptId: String, length: Double, effective_length: Double,	expected_count: Double,	TPM: Double,	FPKM: Double) {
+case class RNARecord(region: ReferenceRegion, geneId: String, length: Double, effective_length: Double,	expected_count: Double,	TPM: Double,	FPKM: Double) {
   override def toString: String = {
-    s"${region.referenceName},${region.start},${region.end},${geneId};${transcriptId},${length},${effective_length},${expected_count},${TPM},${FPKM}"
+    s"${region.referenceName},${region.start},${region.end},${geneId},${length},${effective_length},${expected_count},${TPM},${FPKM}"
   }
 }
 
@@ -296,7 +295,7 @@ object RNARecord {
   def fromString(str: String): RNARecord = {
     val parts = str.split(",")
     val region = ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong)
-    RNARecord(region, parts(3), parts(4), parts(5).toDouble, parts(6).toDouble, parts(7).toDouble, parts(8).toDouble, parts(9).toDouble)
+    RNARecord(region, parts(3), parts(4).toDouble, parts(5).toDouble, parts(6).toDouble, parts(7).toDouble, parts(8).toDouble)
 
   }
 }

@@ -22,7 +22,9 @@ trait EndiveFunSuite extends SparkFunSuite {
   override val properties: Map[String, String] = Map(("spark.serializer", "org.apache.spark.serializer.KryoSerializer"),
     ("spark.kryo.registrator", "net.akmorrow13.endive.EndiveKryoRegistrator"),
     ("spark.kryoserializer.buffer.mb", "4"),
-    ("spark.kryo.referenceTracking", "true"))
+    ("spark.kryo.referenceTracking", "true"),
+    ("spark.executor.memory","32G"),
+    ("spark.master.memory", "32G"))
 
   // fetches resources
   def resourcePath(path: String) = ClassLoader.getSystemClassLoader.getResource(path).getFile
