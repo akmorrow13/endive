@@ -81,6 +81,8 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
 
     // create sequence dictionary
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+    println("sequence dictionary")
+    sd.records.foreach(r => println(r.name))
 
     val fs: FileSystem = FileSystem.get(new Configuration())
     val dnaseStatus = fs.listStatus(new Path(dnasePath))
