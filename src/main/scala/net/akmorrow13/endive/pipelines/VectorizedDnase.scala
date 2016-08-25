@@ -113,6 +113,7 @@ object VectorizedDnase extends Serializable  {
       println(s"Fold ${i}, testing cell types:")
       cellTypesTest.foreach(println)
 
+
       val cellTypesTrain = folds(i)._1.map(x => (x.win.cellType)).countByValue().keys.toList
 
       // get testing chrs for this fold
@@ -127,7 +128,7 @@ object VectorizedDnase extends Serializable  {
       println("TEST SIZE IS " + test.count())
 
       // training features
-      val XTrainPositives = train.filter(_.labeledWindow.win.getDnase.length > 0).map(_.features)
+      val XTrainPositives = train.filter(r => r.features.findAll(_ > 0).size > 0).map(_.features)
         .setName("XTrainPositives").cache()
       val XTrainNegatives = train.filter(_.labeledWindow.win.getDnase.length == 0).map(_.features)
 
@@ -184,7 +185,7 @@ object VectorizedDnase extends Serializable  {
       coverage
         .filter(r => cellTypes.contains(r._1.toString))
         .groupBy(r => (r._1, Chromosomes.withName(r._2.referenceName)))
-        .mapValues(_.map(_._2).toIterator)
+        .mapValues(r => r.map(_._2).toIterator)
 
     // perform negative sampling
     val filteredRDD =
@@ -199,7 +200,8 @@ object VectorizedDnase extends Serializable  {
       s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
 
     val labeledGroupedWindows: RDD[((CellTypes.Value, Chromosomes.Value), Iterable[LabeledWindow])] = filteredRDD.groupBy(w => (w.win.getCellType, Chromosomes.withName(w.win.getRegion.referenceName)))
-    val coverageAndWindows: RDD[((CellTypes.Value, Chromosomes.Value), (Iterable[LabeledWindow], Option[Iterator[ReferenceRegion]]))] = labeledGroupedWindows.leftOuterJoin(filteredCoverage)
+    val coverageAndWindows: RDD[((CellTypes.Value, Chromosomes.Value), (Iterable[LabeledWindow], Option[Iterator[ReferenceRegion]]))] =
+      labeledGroupedWindows.leftOuterJoin(filteredCoverage)
 
     coverageAndWindows.mapValues(iter => {
       val windows: List[LabeledWindow] = iter._1.toList

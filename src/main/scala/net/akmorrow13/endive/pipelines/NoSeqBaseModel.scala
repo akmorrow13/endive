@@ -132,7 +132,7 @@ object NoSeqBaseModel extends Serializable  {
       val yTrain = yTrainPositives.union(yTrainNegatives).map(_.toDouble)
 
       // testing labels
-      val yTestPositives = test.filter(_.labeledWindow.win.getDnase.length > 0).map(_.labeledWindow.label).cache()
+      val yTestPositives: RDD[Int] = test.filter(_.labeledWindow.win.getDnase.length > 0).map(_.labeledWindow.label).cache()
       val yTestNegatives = test.filter(_.labeledWindow.win.getDnase.length == 0).map(_.labeledWindow.label).cache()
       val yTest = yTestPositives.union(yTestNegatives).map(_.toDouble)
 
@@ -144,7 +144,7 @@ object NoSeqBaseModel extends Serializable  {
       println("Train Results: \n ")
       Metrics.printMetrics(evalTrain)
 
-      val yPredTest = predictor(XTestPositives).union(XTestNegatives.map(r => 0.0))
+      val yPredTest: RDD[Double] = predictor(XTestPositives).union(XTestNegatives.map(r => 0.0))
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest))
       println("Test Results: \n ")
       Metrics.printMetrics(evalTest)
