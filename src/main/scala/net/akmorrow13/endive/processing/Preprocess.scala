@@ -291,7 +291,8 @@ object Preprocess {
   def loadPeakFiles(sc: SparkContext, files: Array[String]): RDD[(CellTypes.Value, PeakRecord)] = {
     var data: RDD[(CellTypes.Value, PeakRecord)] = sc.emptyRDD[(CellTypes.Value, PeakRecord)]
     for (f <- files) {
-      data = data.union(loadPeaks(sc, f))
+      val temp = loadPeaks(sc, f)
+      data = data.union(temp)
     }
     data
   }

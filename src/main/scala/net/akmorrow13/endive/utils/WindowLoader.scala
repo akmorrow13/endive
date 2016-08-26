@@ -17,8 +17,9 @@ object LabeledWindowLoader {
     val rnaseq: Option[List[RNARecord]] = d.lift(2).map(_.split(Window.EPIDELIM).map(r => RNARecord.fromString(r)).toList)
     val motifs: Option[List[PeakRecord]] = d.lift(3).map(_.split(Window.EPIDELIM).map(r => PeakRecord.fromString(r)).toList)
 
-    val tf = TranscriptionFactors.apply(dataArray(1).toInt)
-    val cellType = CellTypes.apply(dataArray(2).toInt)
+    dataArray.foreach(println)
+    val tf = TranscriptionFactors.withName(dataArray(1))
+    val cellType = CellTypes.withName(dataArray(2))
     val region = ReferenceRegion(dataArray(3), dataArray(4).toLong,dataArray(5).toLong)
     val label = dataArray(0).trim.toInt
     LabeledWindow(Window(tf, cellType, region, dataArray(6), dnase = dnase, rnaseq = rnaseq, motifs = motifs), label)

@@ -81,30 +81,27 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
 
     // create sequence dictionary
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+    println("sequence dictionary")
+    sd.records.foreach(r => println(r.name))
 
     val fs: FileSystem = FileSystem.get(new Configuration())
     val dnaseStatus = fs.listStatus(new Path(dnasePath))
-    println(s"first dnase file: ${dnaseStatus.head.getPath.getName.split('.')(1)}")
 
     val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
     
-    println(train.partitions.length)
     train
 	.setName("Raw Train Data").cache()
 
     println(train.count, train.partitions.length)
     val tf = train.first._1
-    println(tf)
     println(s"celltypes for tf ${tf}:")
     cellTypes.foreach(println)
 
     // Load DNase data of (cell type, peak record)
     val dnaseFiles = dnaseStatus.filter(r => {
       val cellType = Dataset.filterCellTypeName(r.getPath.getName.split('.')(1))
-      cellTypes.contains(cellType)
+      cellTypes.map(_.toString).contains(cellType)
     })
-
-    dnaseFiles.foreach(println)
 
     // load peak data from dnase
     val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
@@ -115,7 +112,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
 
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
-    println(sequences.count)
+    println("labeled window count", sequences.count)
 
     val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
 

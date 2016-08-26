@@ -172,7 +172,7 @@ object NoSeqBaseModel extends Serializable  {
     println(s"filtered rdd ${filteredRDD.count}, original rdd ${rdd.count}")
     println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
       s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
-
+/*
     filteredRDD
       .map(r => {
         if (r.win.getDnase.length > 0) {
@@ -189,6 +189,16 @@ object NoSeqBaseModel extends Serializable  {
           BaseFeature(r, DenseVector(coverage, dnasefold))
         } else {
           BaseFeature(r, DenseVector(0.0,0.0))
+        }
+
+      })*/
+
+    filteredRDD
+      .map(r => {
+        if (r.win.getDnase.length > 0) {
+          BaseFeature(r, DenseVector(1.0))
+        } else {
+          BaseFeature(r, DenseVector(0.0))
         }
 
       })

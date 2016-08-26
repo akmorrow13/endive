@@ -94,6 +94,7 @@ object CellTypeSpecific {
   def window[S: ClassTag, T: ClassTag](rdd: RDD[(ReferenceRegion, S, T)], sd: SequenceDictionary): RDD[((ReferenceRegion, S), List[T])] = {
     val stride = 50
     val windowSize = 200
+    sd.records.foreach(r => println(r.name))
     val windowed: RDD[((ReferenceRegion, S), List[T])]  = rdd
      .flatMap(d => {
       val newStart = d._1.start / stride * stride
@@ -101,6 +102,7 @@ object CellTypeSpecific {
       val region = ReferenceRegion(d._1.referenceName, newStart, newEnd)
       unmergeRegions(region, windowSize, stride, sd).map(r => ((r, d._2), d._3))
     }).groupBy(_._1).mapValues(r => r.seq.map(_._2).toList)
+    println("in windowed", rdd.count, windowed.count)
     windowed.partitionBy(new LabeledReferenceRegionPartitioner(sd))
   }
 
@@ -111,6 +113,7 @@ object CellTypeSpecific {
    */
   def unmergeRegions(region: ReferenceRegion, win: Int, str: Int, sd: SequenceDictionary): List[ReferenceRegion] = {
     val start = Math.max(region.start - win, 0)
+    println(region.referenceName)
     val end = Math.min(region.end + win, sd.apply(region.referenceName).get.length)
     val startValues: List[Long] = List.range(start, end, str)
     val regions = startValues.map(st => ReferenceRegion(region.referenceName, st, st + win ))
