@@ -28,6 +28,7 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
       val rdd = labels.map(r => LabeledWindow(Window(r._1, r._2, r._3, "N" * 200), r._4))
       val sd = new SequenceDictionary(Vector(SequenceRecord("chr10", 100000)))
       val coverage = labels.map(r => (r._2, r._3))
+      println(coverage.first)
 
       val baseFeatures = VectorizedDnase.featurize(sc, rdd, coverage, sd, false)
       assert(baseFeatures.count == 30)

@@ -191,13 +191,11 @@ object VectorizedDnase extends Serializable  {
 
     println(coverage.count)
     // filter coverage by relevent cellTypes and group by (ReferenceName, CellType)
-    val filteredCoverage: RDD[((CellTypes.Value, Chromosomes.Value), Iterator[ReferenceRegion])] =
+    val filteredCoverage: RDD[((String, String), Iterable[ReferenceRegion])] =
       coverage
-        .filter(r => {
-		      cellTypes.contains(r._1.toString) && chromosomes.contains(r._2.referenceName)
-      	})
-        .groupBy(r => (r._1, Chromosomes.withName(r._2.referenceName)))
-        .mapValues(_.map(_._2).toIterator)
+        .filter(r => cellTypes.contains(r._1.toString) && chromosomes.contains(r._2.referenceName))
+        .groupBy(r => (r._1.toString, r._2.referenceName))
+        .mapValues(_.map(_._2).toIterable)
 
     filteredCoverage.map(_._1).collect.foreach(println)
     // perform negative sampling
@@ -212,11 +210,10 @@ object VectorizedDnase extends Serializable  {
     println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
       s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
 
-    val labeledGroupedWindows: RDD[((CellTypes.Value, Chromosomes.Value), Iterable[LabeledWindow])] = filteredRDD.groupBy(w => (w.win.getCellType, Chromosomes.withName(w.win.getRegion.referenceName)))
-    val coverageAndWindows: RDD[((CellTypes.Value, Chromosomes.Value), (Iterable[LabeledWindow], Option[Iterator[ReferenceRegion]]))] =
-      labeledGroupedWindows.leftOuterJoin(filteredCoverage)
+    val labeledGroupedWindows: RDD[((String, String), Iterable[LabeledWindow])] = filteredRDD
+	    .groupBy(w => (w.win.getCellType.toString, w.win.getRegion.referenceName))
 
-    println(coverageAndWindows)
+    val coverageAndWindows: RDD[((String, String), (Iterable[LabeledWindow], Option[Iterable[ReferenceRegion]]))] = labeledGroupedWindows.leftOuterJoin(filteredCoverage)
 
     coverageAndWindows.mapValues(iter => {
       val windows: List[LabeledWindow] = iter._1.toList
@@ -226,7 +223,7 @@ object VectorizedDnase extends Serializable  {
         // filter and flatmap coverage
         val dnase: List[Long] = cov.filter(c => labeledWindow.win.region.overlaps(c))
           .flatMap(r => {
-            List(r.start, r.end)
+            List(r.start, r.end) // determine cuts at start and end of strands for dnase
           })
 
         var positions: Map[Long, Double] = (labeledWindow.win.region.start until labeledWindow.win.region.end).map(r => (r, 0.0)).toMap
@@ -237,10 +234,9 @@ object VectorizedDnase extends Serializable  {
         dnase.foreach(r => {
           positions = positions + (r -> 1.0)
         })
-        positions = positions.filterKeys(r => r >= labeledWindow.win.region.start && r <= labeledWindow.win.region.end)
+        val posArray = positions.filterKeys(r => r >= labeledWindow.win.region.start && r < labeledWindow.win.region.end).toArray.sortBy(_._1)
         // positions should be size of window
-        assert(positions.size == 200)
-        BaseFeature(labeledWindow, DenseVector(positions.values.toArray))
+        BaseFeature(labeledWindow, DenseVector(posArray))
       }).toIterator
     }).flatMap(_._2)
 
