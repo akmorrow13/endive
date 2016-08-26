@@ -190,13 +190,13 @@ object VectorizedDnase extends Serializable  {
 
     println(coverage.count)
     // filter coverage by relevent cellTypes and group by (ReferenceName, CellType)
-    val filteredCoverage: RDD[((String, String), Iterator[ReferenceRegion])] =
+    val filteredCoverage: RDD[((String, String), Iterable[ReferenceRegion])] =
       coverage
         .filter(r => {
 		cellTypes.contains(r._1.toString) && chromosomes.contains(r._2.referenceName)
 	})
         .groupBy(r => (r._1.toString, r._2.referenceName))
-        .mapValues(_.map(_._2).toIterator)
+        .mapValues(_.map(_._2).toIterable)
 
     filteredCoverage.map(_._1).collect.foreach(println)
     // perform negative sampling
@@ -211,12 +211,13 @@ object VectorizedDnase extends Serializable  {
     println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
       s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
 
-    val labeledGroupedWindows: RDD[((String, String), Iterator[LabeledWindow])] = filteredRDD
+    val labeledGroupedWindows: RDD[((String, String), Iterable[LabeledWindow])] = filteredRDD
 	.groupBy(w => (w.win.getCellType.toString, w.win.getRegion.referenceName))
-	.mapValues(_.toIterator)
+
     println("labeledgroupwindows")
     labeledGroupedWindows.map(_._1).collect.foreach(println)
-    val coverageAndWindows: RDD[((String, String), (Iterator[LabeledWindow], Option[Iterator[ReferenceRegion]]))] = labeledGroupedWindows.leftOuterJoin(filteredCoverage)
+
+    val coverageAndWindows: RDD[((String, String), (Iterable[LabeledWindow], Option[Iterable[ReferenceRegion]]))] = labeledGroupedWindows.leftOuterJoin(filteredCoverage)
 
     println(coverageAndWindows.count)
 
@@ -241,6 +242,9 @@ object VectorizedDnase extends Serializable  {
         })
         positions = positions.filterKeys(r => r >= labeledWindow.win.region.start && r <= labeledWindow.win.region.end)
         // positions should be size of window
+	println("start and end", labeledWindow.win.region.start, labeledWindow.win.region.end)
+        println(positions.head)
+	println(positions.last)
         assert(positions.size == 200)
         BaseFeature(labeledWindow, DenseVector(positions.values.toArray))
       }).toIterator

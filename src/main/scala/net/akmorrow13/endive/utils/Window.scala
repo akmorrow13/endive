@@ -75,7 +75,7 @@ case class Window(tf: TranscriptionFactors.Value,
   }
 }
 
-case class LabeledWindow(win: Window, label: Int) {
+case class LabeledWindow(win: Window, label: Int) extends Serializable {
   override
   def toString:String = {
     s"${label},${win.toString}"
