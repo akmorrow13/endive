@@ -236,7 +236,7 @@ object VectorizedDnase extends Serializable  {
         })
         val posArray = positions.filterKeys(r => r >= labeledWindow.win.region.start && r < labeledWindow.win.region.end).toArray.sortBy(_._1)
         // positions should be size of window
-        BaseFeature(labeledWindow, DenseVector(posArray))
+        BaseFeature(labeledWindow, DenseVector(posArray.map(_._2)))
       }).toIterator
     }).flatMap(_._2)
 
