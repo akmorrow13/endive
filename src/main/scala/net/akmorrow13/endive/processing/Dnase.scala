@@ -48,4 +48,11 @@ class Dnase(@transient windowSize: Int,
 //  }
 }
 
+case class Cut(region: ReferenceRegion, experimentId: String, readId: String, negativeStrand: Boolean) {
+  override
+  def toString: String = {
+    s"${region.referenceName},${region.start},${region.end},${experimentId},${readId},${negativeStrand}"
+  }
+}
+
 case class DnaseWindow(region: ReferenceRegion, counts: Array[Int])

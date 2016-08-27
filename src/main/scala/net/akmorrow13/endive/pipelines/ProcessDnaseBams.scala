@@ -16,14 +16,14 @@
 package net.akmorrow13.endive.pipelines
 
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.processing.{CellTypes, Dataset}
+import net.akmorrow13.endive.processing.{Cut, CellTypes, Dataset}
 import net.akmorrow13.endive.utils.LabeledReferenceRegionPartitioner
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{Path, FileSystem}
+import org.apache.hadoop.fs.{FileStatus, Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.models.{Coverage, ReferenceRegion}
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.formats.avro.AlignmentRecord
 import org.kohsuke.args4j.{Option => Args4jOption}
@@ -69,72 +69,54 @@ object ProcessDnaseBams extends Serializable with Logging {
     val referencePath = conf.reference
 
     val fs: FileSystem = FileSystem.get(new Configuration())
-    val positiveFolder = s"${output}/positive/"
-    val savedPositives = fs.listStatus(new Path(positiveFolder)).map(_.getPath.toString)
-    
-    val negativeFolder = s"${output}/negative/"
-    val savedNegatives = fs.listStatus(new Path(negativeFolder)).map(_.getPath.toString)
+    val positiveFolder = s"${output}/"
+    val saved = fs.listStatus(new Path(positiveFolder)).map(_.getPath.toString)
 
     // read all bams in file and save positive coverage
-      val status = fs.listStatus(new Path(dnase)).filter(i => i.getPath.getName.endsWith(".bam"))
-      for (i <- status) {
-        val filePath: String = i.getPath.toString
-        val fileName = i.getPath.getName
-        val cellType = Dataset.filterCellTypeName(fileName.split('.')(1))
-        val positiveFile = s"${positiveFolder}${fileName}.adam"
-        val negativeFile = s"${negativeFolder}${fileName}.adam"
+    val status: Array[FileStatus] = fs.listStatus(new Path(dnase)).filter(i => i.getPath.getName.endsWith(".bam"))
+    val cellTypeFiles = status.map(f => (Dataset.filterCellTypeName(f.getPath.getName.split('.')(1)), f)).groupBy(_._1)
 
-        println(s"processsing file ${filePath} for cell type ${cellType}")
-        val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
-        // check if positive alignments coverage already exists
-        if (!savedPositives.contains(positiveFile)) {
+    // get sequence dicionary
+    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+
+    // TODO: check if group exists
+    for (grp <- cellTypeFiles) {
+      val cellType = grp._1
+      println(s"processing Dnase for celltype ${cellType}")
+
+      val totalCuts: RDD[Cut] = sc.emptyRDD[Cut]
+      val outputLocation = s"${output}/DNASE.${cellType}.adam"
+      totalCuts.cache()
+
+      if (!saved.contains(outputLocation)) {
+
+        for (i <- grp._2.map(_._2)) {
+          val filePath: String = i.getPath.toString
+          val fileName = i.getPath.getName
+          println(s"processing file ${filePath}")
+
           // get positive strand coverage and key by region, cellType
-          var positiveAlignments = sc.loadAlignments(filePath).transform(_.filter(r => !r.getReadNegativeStrand))
-          println("positiveCount: " + positiveAlignments.rdd.count)
-          positiveAlignments.rdd.cache
+          val alignments = sc.loadAlignments(filePath)
+          alignments.rdd.cache
 
-          log.info("repartitioning positive rdd")
-          val posRdd: RDD[AlignmentRecord] = positiveAlignments.rdd
+          val cuts: RDD[Cut] = alignments.rdd
             .filter(r => r.getContigName != null)
-            .keyBy(r => (ReferenceRegion(r), cellType))
-            .partitionBy(new LabeledReferenceRegionPartitioner(sd))
-            .map(r => r._2)
+            .map(r => Cut(ReferenceRegion(r), fileName, r.getReadName, r.getReadNegativeStrand))
 
-          positiveAlignments = positiveAlignments.transform(r => posRdd)
-          val positiveCoverage = positiveAlignments.toCoverage(true) // collapse coverage
-
-          log.info("Now saving positive coverage to disk")
-          positiveCoverage.save(positiveFile)
-          positiveAlignments.rdd.unpersist(false)
-        } else {
-          println(s"positive file ${positiveFile} exists. skipping")
+          totalCuts.union(cuts)
+          alignments.rdd.unpersist(false)
         }
 
-        // check if negative alignments coverage already exists
-        if (!savedNegatives.contains(negativeFile)) {
-          var negativeAlignments = sc.loadAlignments(filePath).transform(_.filter(r => r.getReadNegativeStrand))
-          log.info("repartitioning negative rdd")
-          val negRdd: RDD[AlignmentRecord] = negativeAlignments.rdd
-            .filter(r => r.getContigName != null)
-            .keyBy(r => (ReferenceRegion(r), cellType))
-            .partitionBy(new LabeledReferenceRegionPartitioner(sd))
-            .map(r => r._2)
-
-          println("negativeCount: " + negativeAlignments.rdd.count)
-          negativeAlignments.rdd.cache
-
-          negativeAlignments = negativeAlignments.transform(r => negRdd)
-          val negativeCoverage = negativeAlignments.toCoverage(true) // collapse coverage
-
-          log.info("Now saving negative coverage to disk")
-          negativeCoverage.save(negativeFile)
-          negativeAlignments.rdd.unpersist(false)
-        } else {
-          println(s"negative file ${negativeFile} exists. skipping")
-        }
-
-
+        log.info(s"Now saving dnase cuts for ${cellType} to disk")
+        // TODO: save cuts for celltype
+        totalCuts.map(_.toString).saveAsTextFile(output)
+        totalCuts.unpersist(true)
+      } else {
+        println(s"dnase for ${cellType} exists. skipping")
       }
+
+    }
+
 
 
   }

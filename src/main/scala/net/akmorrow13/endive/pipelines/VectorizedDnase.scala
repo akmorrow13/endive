@@ -184,21 +184,20 @@ object VectorizedDnase extends Serializable  {
    */
   def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], coverage: RDD[(CellTypes.Value, ReferenceRegion)], sd: SequenceDictionary, subselectNegatives: Boolean = true): RDD[BaseFeature] = {
 
+    // get cell types in the current dataset
     val cellTypes = rdd.map(x => (x.win.cellType.toString)).countByValue().keys.toList
-    println("cell types: ")
-    cellTypes.foreach(println)
     val chromosomes = Chromosomes.toVector
 
-    println(coverage.count)
     // filter coverage by relevent cellTypes and group by (ReferenceName, CellType)
-    val filteredCoverage: RDD[((String, String), Iterable[ReferenceRegion])] =
+    val filteredCoverage: RDD[((CellTypes.Value, String), Iterable[ReferenceRegion])] =
       coverage
         .filter(r => cellTypes.contains(r._1.toString) && chromosomes.contains(r._2.referenceName))
-        .groupBy(r => (r._1.toString, r._2.referenceName))
+        .groupBy(r => (r._1, r._2.referenceName))
         .mapValues(_.map(_._2).toIterable)
 
     filteredCoverage.map(_._1).collect.foreach(println)
-    // perform negative sampling
+
+    // perform optional negative sampling
     val filteredRDD =
       if (subselectNegatives)
         Sampling.subselectSamples(sc, rdd, sd, partition = false)
@@ -210,10 +209,10 @@ object VectorizedDnase extends Serializable  {
     println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
       s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
 
-    val labeledGroupedWindows: RDD[((String, String), Iterable[LabeledWindow])] = filteredRDD
-	    .groupBy(w => (w.win.getCellType.toString, w.win.getRegion.referenceName))
+    val labeledGroupedWindows: RDD[((CellTypes.Value, String), Iterable[LabeledWindow])] = filteredRDD
+	    .groupBy(w => (w.win.getCellType, w.win.getRegion.referenceName))
 
-    val coverageAndWindows: RDD[((String, String), (Iterable[LabeledWindow], Option[Iterable[ReferenceRegion]]))] = labeledGroupedWindows.leftOuterJoin(filteredCoverage)
+    val coverageAndWindows: RDD[((CellTypes.Value, String), (Iterable[LabeledWindow], Option[Iterable[ReferenceRegion]]))] = labeledGroupedWindows.leftOuterJoin(filteredCoverage)
 
     coverageAndWindows.mapValues(iter => {
       val windows: List[LabeledWindow] = iter._1.toList
