@@ -124,3 +124,4 @@ case class DnaseWindow(region: ReferenceRegion, counts: Array[Int])
  * @param countMap map of all celltypes and their corresponding counts at that siteG
  */
 case class CutMap(position: ReferencePosition, countMap: Map[CellTypes.Value, Int])
+
