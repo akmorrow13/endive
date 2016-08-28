@@ -5,6 +5,11 @@ import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ReferencePosition, SequenceDictionary, ReferenceRegion}
 import net.akmorrow13.endive.utils.Window
 import org.bdgenomics.formats.avro.Strand
+import net.akmorrow13.endive.utils.{LabeledWindow, Window }
+import scala.collection.mutable.ListBuffer
+import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.rdd.features.CoverageRDD
+import scala.reflect.ClassTag
 
 object Dnase {
 
@@ -44,7 +49,6 @@ class Dnase(@transient windowSize: Int,
                        @transient stride: Int,
                         @transient sc: SparkContext,
                        dnaseCuts: RDD[Cut]) extends Serializable {
-
 
   /**
    * Merges Cuts into an rdd that maps each point in the genome to a map of cuts, where the map specifies the cell type
@@ -124,4 +128,3 @@ case class DnaseWindow(region: ReferenceRegion, counts: Array[Int])
  * @param countMap map of all celltypes and their corresponding counts at that siteG
  */
 case class CutMap(position: ReferencePosition, countMap: Map[CellTypes.Value, Int])
-

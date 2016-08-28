@@ -111,7 +111,6 @@ object CellTypeSpecific {
    */
   def unmergeRegions(region: ReferenceRegion, win: Int, str: Int, sd: SequenceDictionary): List[ReferenceRegion] = {
     val start = Math.max(region.start - win, 0)
-    println(region.referenceName)
     val end = Math.min(region.end + win, sd.apply(region.referenceName).get.length)
     val startValues: List[Long] = List.range(start, end, str)
     val regions = startValues.map(st => ReferenceRegion(region.referenceName, st, st + win ))
