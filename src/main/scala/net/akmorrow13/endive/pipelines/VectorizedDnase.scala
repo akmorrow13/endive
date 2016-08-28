@@ -138,7 +138,7 @@ object VectorizedDnase extends Serializable  {
       val yTrainPositives = train.filter(r => r.features.findAll(_ > 0).size > 0).map(_.labeledWindow.label)
         .setName("yTrainPositive").cache()
       val yTrainNegatives = train.filter(r => r.features.findAll(_ > 0).size == 0).map(_.labeledWindow.label)
-	.setName("yTrainNegative").cache()
+	      .setName("yTrainNegative").cache()
       val yTrain = yTrainPositives.union(yTrainNegatives).map(_.toDouble)
       
       // testing labels

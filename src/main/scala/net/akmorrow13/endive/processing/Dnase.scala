@@ -1,5 +1,6 @@
 package net.akmorrow13.endive.processing
 
+import breeze.linalg.DenseVector
 import net.akmorrow13.endive.processing.PeakRecord
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
@@ -10,42 +11,45 @@ import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.features.CoverageRDD
 import scala.reflect.ClassTag
 
+object Dnase {
+
+  def msCentipede(r: Array[Int], scale: Option[Int] = None): Array[Double] = {
+
+    val lnOf2 = scala.math.log(2) // natural log of 2
+    def log2(x: Double): Int = Math.floor(scala.math.log(x) / lnOf2).toInt
+
+    val j =
+      if (scale.isDefined) scale.get + 1
+      else log2(r.length) + 1
+
+      // iterate through all scales s
+      (0 until j).flatMap(s => {
+        // create ith scale for parameter vector (see mscentipede to calculate model at bound motifs
+        if (s == 0) Array(r.sum.toDouble)
+        else {
+          val numeratorLength = Math.round(r.length/(Math.pow(2,s))).toInt
+          val denominatorLength =  Math.round(r.length/(Math.pow(2,s)) * 2).toInt
+          val x: Array[Double] = (0 until Math.pow(2, s-1).toInt).map(i => {
+            val numeratorSum = r.slice(i * denominatorLength, i * denominatorLength + numeratorLength).sum
+            val denominatorSum = r.slice(i * denominatorLength, i * denominatorLength + denominatorLength).sum
+            numeratorSum.toDouble/denominatorSum
+          }).toArray
+          x
+        }
+      }).toArray
+  }
+
+  def msCentipede(windows: RDD[Array[Int]], scale: Option[Int] = None): RDD[Array[Double]] = {
+    windows.map(r => msCentipede(r, scale))
+  }
+
+}
 
 class Dnase(@transient windowSize: Int,
                        @transient stride: Int,
                         @transient sc: SparkContext,
                        dnaseCuts: RDD[Cut]) extends Serializable {
 
-//  def joinWithDNase(in: RDD[LabeledWindow]): RDD[LabeledWindow] = {
-
-//    val flattened = dnaseCoverage.flatten
-//
-//    val str = this.stride
-//    val win = this.windowSize
-//
-//    println("cell type specific partition count", in.partitions.length)
-//    val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.getRegion, r.win.getCellType))
-//      .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
-//      .leftOuterJoin(mappedDnase)
-//      .map(r => {
-//        val dnase = r._2._2.getOrElse(List())
-//        LabeledWindow(Window(r._2._1.win.getTf, r._2._1.win.getCellType,
-//          r._2._1.win.getRegion, r._2._1.win.getSequence, dnase = Some(dnase)), r._2._1.label)
-//      })
-//    x
-//  }
-//
-//  def coverage2Window(bamFile: String, sd: SequenceDictionary) {
-//    val alignments = sc.loadAlignments(bamFile)
-//
-//    val coverage: CoverageRDD = alignments.toCoverage(false)
-//
-//    val wholeGenome: RDD[(String, Long)] =
-//      sc.parallelize(sd.records.flatMap(r => (0 until r.length).map(i => (r.name, i))).toSeq)
-//
-//    coverage.rdd.keyBy(r => (r.contigName, r.start))
-//
-//  }
 
   /**
    * Merges Cuts into an rdd that maps each point in the genome to a map of cuts, where the map specifies the cell type
@@ -57,7 +61,7 @@ class Dnase(@transient windowSize: Int,
   def merge(sd: SequenceDictionary, filterNegatives: Boolean = false): RDD[CutMap] = {
     val chrs = dnaseCuts.map(_.region.referenceName).distinct().collect
     val reducedRecords = sd.records.filter(r => chrs.contains(r.name))  // filter out data in dnase
-    val seq: Seq[ReferencePosition] = reducedRecords.flatMap(r => (0L until r.length).map(n => ReferencePosition(r.name, n)) )
+    val seq: Seq[ReferencePosition] = reducedRecords.flatMap(r => (0L until r.length).map(n => ReferencePosition(r.name, n)))
 
     val aggregated: RDD[(ReferencePosition, Map[CellTypes.Value, Int])] = processCuts(filterNegatives)
         .groupBy(r => r.position)
@@ -92,6 +96,7 @@ class Dnase(@transient windowSize: Int,
           val endCut = ReferencePosition(r.region.referenceName, r.region.end)
           Iterable(((r.getCellType, startCut), 1), ((r.getCellType, endCut), 1))
         })
+
     counts.reduceByKey(_ + _).map(r => AggregatedCut(r._1._1, r._1._2, r._2))
   }
 }

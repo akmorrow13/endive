@@ -16,8 +16,9 @@
 package net.akmorrow13.endive.pipelines
 
 import net.akmorrow13.endive.EndiveFunSuite
-import net.akmorrow13.endive.processing.{CutMap, Cut, Preprocess}
+import net.akmorrow13.endive.processing.{Dnase, CutMap, Cut, Preprocess}
 import net.akmorrow13.endive.utils.{Window, LabeledWindow}
+import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ReferencePosition, SequenceRecord, SequenceDictionary}
 
 class VectorizedDnaseSuite extends EndiveFunSuite {
@@ -34,5 +35,27 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
 
       val baseFeatures = VectorizedDnase.featurize(sc, rdd, coverage, sd, false)
       assert(baseFeatures.count == 29)
+  }
+
+
+  sparkTest("msCentipede scale 0") {
+    val scale = Some(0)
+  //    def msCentipede(windows: RDD[Array[Int]], scale: Option[Int])  = {
+    val window = sc.parallelize(Seq(Array(1,1,1,1,1,1,1,1)))
+    val result = Dnase.msCentipede(window, scale)
+    val first = result.first
+    assert(first.length == 1)
+    assert(first.head == 8.0)
+  }
+
+  sparkTest("msCentipede scale 3") {
+    //    def msCentipede(windows: RDD[Array[Int]], scale: Option[Int])  = {
+    val window = sc.parallelize(Seq(Array(1,2,3,4,3,2,1,1)))
+    val result = Dnase.msCentipede(window)
+    val first = result.first
+    assert(first.length == 8)
+    assert(first.head == 17.0)
+    assert(first(1) == 10.0/17)
+    assert(first(2) == 3.0/10)
   }
 }
