@@ -20,7 +20,6 @@ import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
-import net.akmorrow13.endive.processing.Dataset._
 import nodes.learning.LogisticRegressionEstimator
 
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
@@ -86,22 +85,19 @@ object VectorizedDnase extends Serializable  {
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
     val folds = EndiveUtils.generateFoldsRDD(windowsRDD, conf.heldOutCells, conf.heldoutChr, conf.folds)
-    val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
+    val chrCellTypes: Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
+    val cellTypes = chrCellTypes.map(_._2)
 
-    // load coverage for all cell types
-    val coverageFiles = conf.dnase.split(",")
 
-    var coverage: RDD[(CellTypes.Value, ReferenceRegion)] = sc.emptyRDD[(CellTypes.Value, ReferenceRegion)]
-    coverageFiles.map(f => {
-      val cellType = CellTypes.getEnumeration(f.split("/").last.split('.')(1))
+    /************************************
+      *  Prepare dnase data
+    **********************************/
+    val cuts: RDD[Cut] = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
 
-      val alignmentRdd: RDD[(CellTypes.Value, ReferenceRegion)] = sc.loadAlignments(f)
-              .rdd
-              .filter(r => !r.getMateNegativeStrand && r.getContigName != null)
-              .map(r => (cellType, ReferenceRegion(r)))
+    val dnase = new Dnase(windowSize, stride, sc, cuts)
+    val aggregatedCuts = dnase.merge(sd, true).cache()
+    aggregatedCuts.count
 
-      coverage = coverage.union(alignmentRdd)
-    })
 
     println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
@@ -112,17 +108,14 @@ object VectorizedDnase extends Serializable  {
       println(s"Fold ${i}, testing cell types:")
       cellTypesTest.foreach(println)
 
-
-      val cellTypesTrain = folds(i)._1.map(x => (x.win.cellType)).countByValue().keys.toList
-
       // get testing chrs for this fold
       val chromosomesTest:Iterable[String] = folds(i)._2.map(x => (x.win.getRegion.referenceName)).countByValue().keys
       println(s"Fold ${i}, testing chromsomes:")
       chromosomesTest.foreach(println)
 
       // calculate features for train and test sets
-      val train = featurize(sc, folds(i)._1, coverage, sd, true).cache()
-      val test = featurize(sc, folds(i)._2, coverage, sd, false).cache()
+      val train = featurize(sc, folds(i)._1, aggregatedCuts, sd, true).cache()
+      val test = featurize(sc, folds(i)._2, aggregatedCuts, sd, false).cache()
 
       println("TRAIN SIZE IS " + train.count())
       println("TEST SIZE IS " + test.count())
@@ -182,20 +175,10 @@ object VectorizedDnase extends Serializable  {
    * @param subselectNegatives whether or not to subselect the dataset
    * @return
    */
-  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], coverage: RDD[(CellTypes.Value, ReferenceRegion)], sd: SequenceDictionary, subselectNegatives: Boolean = true): RDD[BaseFeature] = {
+  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], coverage: RDD[CutMap], sd: SequenceDictionary, subselectNegatives: Boolean = true): RDD[BaseFeature] = {
 
     // get cell types in the current dataset
-    val cellTypes = rdd.map(x => (x.win.cellType.toString)).countByValue().keys.toList
     val chromosomes = Chromosomes.toVector
-
-    // filter coverage by relevent cellTypes and group by (ReferenceName, CellType)
-    val filteredCoverage: RDD[((CellTypes.Value, String), Iterable[ReferenceRegion])] =
-      coverage
-        .filter(r => cellTypes.contains(r._1.toString) && chromosomes.contains(r._2.referenceName))
-        .groupBy(r => (r._1, r._2.referenceName))
-        .mapValues(_.map(_._2).toIterable)
-
-    filteredCoverage.map(_._1).collect.foreach(println)
 
     // perform optional negative sampling
     val filteredRDD =
@@ -204,38 +187,31 @@ object VectorizedDnase extends Serializable  {
       else
         rdd
 
-    // print sampling statistics
-    println(s"filtered rdd ${filteredRDD.count}, original rdd ${rdd.count}")
-    println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
-      s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
+    val labeledGroupedWindows: RDD[(String, Iterable[LabeledWindow])] = filteredRDD
+	    .groupBy(w => w.win.getRegion.referenceName)
 
-    val labeledGroupedWindows: RDD[((CellTypes.Value, String), Iterable[LabeledWindow])] = filteredRDD
-	    .groupBy(w => (w.win.getCellType, w.win.getRegion.referenceName))
+    val groupedCoverage: RDD[(String, Iterable[CutMap])] = coverage
+      .groupBy(r => r.position.referenceName)
 
-    val coverageAndWindows: RDD[((CellTypes.Value, String), (Iterable[LabeledWindow], Option[Iterable[ReferenceRegion]]))] = labeledGroupedWindows.leftOuterJoin(filteredCoverage)
+    val coverageAndWindows: RDD[(String, (Iterable[LabeledWindow], Option[Iterable[CutMap]]))] = labeledGroupedWindows.leftOuterJoin(groupedCoverage)
 
     coverageAndWindows.mapValues(iter => {
       val windows: List[LabeledWindow] = iter._1.toList
-      val cov: List[ReferenceRegion] = iter._2.getOrElse(Iterator()).toList
+      val cov: Map[Long, CutMap] = iter._2.getOrElse(Iterator()).map(r => (r.position.pos, r)).toMap
 
       windows.map(labeledWindow => {
-        // filter and flatmap coverage
-        val dnase: List[Long] = cov.filter(c => labeledWindow.win.region.overlaps(c))
-          .flatMap(r => {
-            List(r.start, r.end) // determine cuts at start and end of strands for dnase
-          })
 
-        var positions: Map[Long, Double] = (labeledWindow.win.region.start until labeledWindow.win.region.end).map(r => (r, 0.0)).toMap
-        // generate map starting at window.start to window.end
+        val cellType = labeledWindow.win.cellType
 
+        val positions: Array[Int] = (labeledWindow.win.region.start until labeledWindow.win.region.end)
+          .map(r => {
+            val m = cov.get(r)
+            if (m.isDefined) m.get.countMap.get(cellType).getOrElse(0)
+            else 0
+          }).toArray
 
-        // intersect with coverage
-        dnase.foreach(r => {
-          positions = positions + (r -> 1.0)
-        })
-        val posArray = positions.filterKeys(r => r >= labeledWindow.win.region.start && r < labeledWindow.win.region.end).toArray.sortBy(_._1)
         // positions should be size of window
-        BaseFeature(labeledWindow, DenseVector(posArray.map(_._2)))
+        BaseFeature(labeledWindow, DenseVector(positions.map(_.toDouble)))
       }).toIterator
     }).flatMap(_._2)
 

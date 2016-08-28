@@ -17,12 +17,10 @@ class CellTypeSpecific(@transient windowSize: Int,
   def joinWithDNase(in: RDD[LabeledWindow]): RDD[LabeledWindow] = {
     val mappedDnase = CellTypeSpecific.window(dnase.map(r => (r._2.region, r._1, r._2)), sd)
     mappedDnase.cache()
-    println("mapped dnase",mappedDnase.count)
 
     val str = this.stride
     val win = this.windowSize
 
-    println("cell type specific partition count", in.partitions.length)
     val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.getRegion, r.win.getCellType))
       .partitionBy(new LabeledReferenceRegionPartitioner(sd))
       .leftOuterJoin(mappedDnase)
@@ -102,7 +100,6 @@ object CellTypeSpecific {
       val region = ReferenceRegion(d._1.referenceName, newStart, newEnd)
       unmergeRegions(region, windowSize, stride, sd).map(r => ((r, d._2), d._3))
     }).groupBy(_._1).mapValues(r => r.seq.map(_._2).toList)
-    println("in windowed", rdd.count, windowed.count)
     windowed.partitionBy(new LabeledReferenceRegionPartitioner(sd))
   }
 
@@ -113,7 +110,6 @@ object CellTypeSpecific {
    */
   def unmergeRegions(region: ReferenceRegion, win: Int, str: Int, sd: SequenceDictionary): List[ReferenceRegion] = {
     val start = Math.max(region.start - win, 0)
-    println(region.referenceName)
     val end = Math.min(region.end + win, sd.apply(region.referenceName).get.length)
     val startValues: List[Long] = List.range(start, end, str)
     val regions = startValues.map(st => ReferenceRegion(region.referenceName, st, st + win ))

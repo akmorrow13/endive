@@ -65,15 +65,12 @@ object Preprocess {
     assert(filePath.endsWith("tsv") || filePath.endsWith("tsv.gz"))
     val headerTag = "start"
     // parse header for cell types
-    println(numPartitions)
     val tsvRDD = sc.textFile(filePath, numPartitions)
-    println("load label partitions", tsvRDD.partitions.length)
     val cellTypes = tsvRDD.filter(r => r.contains(headerTag)).first().split("\t").drop(3).map(r => CellTypes.getEnumeration(r))
     val file = filePath.split("/").last
     // parse file name for tf
     val tf = TranscriptionFactors.withName(file.split('.')(0))
     println(s"loading  labels for cell type ${cellTypes.mkString} from file ${file}")
-
     val tsvRDDSplit = tsvRDD.filter(r => !r.contains(headerTag)).map(_.split("\t"))
 
     val result = tsvRDDSplit.flatMap(parts => {
@@ -293,6 +290,18 @@ object Preprocess {
     for (f <- files) {
       val temp = loadPeaks(sc, f)
       data = data.union(temp)
+    }
+    data
+  }
+
+  def loadCuts(sc: SparkContext, folder: String, cellTypes: Array[CellTypes.Value]): RDD[Cut] = {
+    var data: RDD[Cut] = sc.emptyRDD[Cut]
+    val fileNames = getFileNamesFromDirectory(sc, folder)
+            .filter(r => cellTypes.map(_.toString).contains(r.split('.')(1)))
+
+    println(s"loading dnase cuts for ${fileNames}")
+    for (file <- fileNames) {
+      data = data.union(CutLoader(file, sc))
     }
     data
   }

@@ -38,7 +38,7 @@ object Window {
   val OUTERDELIM = "!"
 
   /* Delimiter inside Sequence and label*/
-  val CHIPSEQDELIM = ","
+  val STDDELIM = ","
 
   /* Delimiter to split RNASE AND DNASE windows */
   val EPIDELIM= ";"
@@ -71,7 +71,7 @@ case class Window(tf: TranscriptionFactors.Value,
     val stringifiedDnase = dnase.map(_.toString).mkString(Window.EPIDELIM)
     val stringifiedMotifs = motifs.map(_.toString).mkString(Window.EPIDELIM)
     val stringifiedRNAseq = rnaseq.map(_.toString).mkString(Window.EPIDELIM)
-    s"${tf.id},${cellType.id},${region.referenceName},${region.start},${region.end},${sequence}${Window.OUTERDELIM}${stringifiedDnase}${Window.OUTERDELIM}${stringifiedRNAseq}${Window.OUTERDELIM}${stringifiedMotifs}"
+    s"${tf.toString},${cellType.toString},${region.referenceName},${region.start},${region.end},${sequence}${Window.OUTERDELIM}${stringifiedDnase}${Window.OUTERDELIM}${stringifiedRNAseq}${Window.OUTERDELIM}${stringifiedMotifs}"
   }
 }
 

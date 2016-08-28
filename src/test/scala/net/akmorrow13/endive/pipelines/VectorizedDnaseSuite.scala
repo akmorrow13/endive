@@ -16,9 +16,9 @@
 package net.akmorrow13.endive.pipelines
 
 import net.akmorrow13.endive.EndiveFunSuite
-import net.akmorrow13.endive.processing.Preprocess
+import net.akmorrow13.endive.processing.{CutMap, Cut, Preprocess}
 import net.akmorrow13.endive.utils.{Window, LabeledWindow}
-import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary}
+import org.bdgenomics.adam.models.{ReferencePosition, SequenceRecord, SequenceDictionary}
 
 class VectorizedDnaseSuite extends EndiveFunSuite {
   var labelPath = resourcePath("ARID3A.train.labels.head30.tsv")
@@ -27,10 +27,12 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
       val (labels, cellType) = Preprocess.loadLabels(sc, labelPath)
       val rdd = labels.map(r => LabeledWindow(Window(r._1, r._2, r._3, "N" * 200), r._4))
       val sd = new SequenceDictionary(Vector(SequenceRecord("chr10", 100000)))
-      val coverage = labels.map(r => (r._2, r._3))
-      println(coverage.first)
+      val coverage = rdd.map(r => {
+        val countMap = Map(r.win.cellType -> 1)
+        CutMap(ReferencePosition(r.win.region.referenceName, r.win.region.start), countMap)
+      })
 
       val baseFeatures = VectorizedDnase.featurize(sc, rdd, coverage, sd, false)
-      assert(baseFeatures.count == 30)
+      assert(baseFeatures.count == 29)
   }
 }
