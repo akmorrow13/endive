@@ -92,6 +92,7 @@ object VectorizedDnase extends Serializable  {
       *  Prepare dnase data
     **********************************/
     val cuts: RDD[Cut] = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
+    println("cuts count", cuts.count)
 
     val dnase = new Dnase(windowSize, stride, sc, cuts)
     val aggregatedCuts = dnase.merge(sd).cache()

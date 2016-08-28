@@ -66,7 +66,8 @@ object ProcessDnaseBams extends Serializable with Logging {
     val dnase = conf.dnase
     val output = conf.getFeaturizedOutput
     val referencePath = conf.reference
-
+    val chromosomes = Chromosomes.toVector
+    
     val fs: FileSystem = FileSystem.get(new Configuration())
     val positiveFolder = s"${output}/"
     val saved = fs.listStatus(new Path(positiveFolder)).map(_.getPath.toString)
@@ -83,7 +84,7 @@ object ProcessDnaseBams extends Serializable with Logging {
       val cellType = grp._1
       println(s"processing Dnase for celltype ${cellType}")
 
-      val totalCuts: RDD[Cut] = sc.emptyRDD[Cut]
+      var totalCuts: RDD[Cut] = sc.emptyRDD[Cut]
       val outputLocation = s"${output}/DNASE.${cellType}.adam"
       totalCuts.cache()
 
@@ -99,10 +100,10 @@ object ProcessDnaseBams extends Serializable with Logging {
           alignments.rdd.cache
 
           val cuts: RDD[Cut] = alignments.rdd
-            .filter(r => r.getContigName != null)
+            .filter(r => r.getContigName != null && chromosomes.contains(r.getContigName))
             .map(r => Cut(ReferenceRegion(r), fileName, r.getReadName, r.getReadNegativeStrand))
 
-          totalCuts.union(cuts)
+          totalCuts = totalCuts.union(cuts)
           alignments.rdd.unpersist(false)
         }
 

@@ -76,7 +76,8 @@ class Dnase(@transient windowSize: Int,
           val endCut = ReferencePosition(r.region.referenceName, r.region.end, if (r.negativeStrand) Strand.REVERSE else Strand.FORWARD)
           Iterable(((r.getCellType, startCut), 1), ((r.getCellType, endCut), 1))
         })
-
+    val pos = counts.filter(_._2 > 0)
+    println("positives in processCuts", pos.count)
     counts.reduceByKey(_ + _).map(r => AggregatedCut(r._1._1, r._1._2, r._2))
   }
 }
@@ -88,7 +89,7 @@ case class Cut(region: ReferenceRegion, experimentId: String, readId: String, ne
   }
 
   def getCellType: CellTypes.Value = {
-    CellTypes.withName(experimentId.split(Window.STDDELIM)(1))
+    CellTypes.getEnumeration(experimentId.split("/").last.split('.')(1))
   }
 }
 
@@ -111,6 +112,7 @@ object CutLoader {
 
   def apply(path: String, sc: SparkContext): RDD[Cut] = {
     val dataTxtRDD:RDD[String] = sc.textFile(path)
+    println(" in cutloader", dataTxtRDD.first)
     dataTxtRDD.map(stringToCut(_))
   }
 }
