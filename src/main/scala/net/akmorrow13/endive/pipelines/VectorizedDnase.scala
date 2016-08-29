@@ -96,7 +96,10 @@ object VectorizedDnase extends Serializable  {
 
 
     println("TOTAL FOLDS " + folds.size)
-    for (i <- (0 until folds.size)) {
+    val scales = Array(Some(0), Some(1), Some(2), None)
+    for (scale <- scales) {
+      val i = 0
+//    for (i <- (0 until folds.size)) {
       println("FOLD " + i)
 
       // get testing cell types for this fold
@@ -110,8 +113,8 @@ object VectorizedDnase extends Serializable  {
       chromosomesTest.foreach(println)
 
       // calculate features for train and test sets
-      val train = featurize(sc, folds(i)._1, aggregatedCuts, sd, true).cache()
-      val test = featurize(sc, folds(i)._2, aggregatedCuts, sd, false).cache()
+      val train = featurize(sc, folds(i)._1, aggregatedCuts, sd, scale, true).cache()
+      val test = featurize(sc, folds(i)._2, aggregatedCuts, sd, scale, false).cache()
 
       println("TRAIN SIZE IS " + train.count())
       println("TEST SIZE IS " + test.count())
@@ -171,7 +174,7 @@ object VectorizedDnase extends Serializable  {
    * @param subselectNegatives whether or not to subselect the dataset
    * @return
    */
-  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], coverage: RDD[CutMap], sd: SequenceDictionary, subselectNegatives: Boolean = true): RDD[BaseFeature] = {
+  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], coverage: RDD[CutMap], sd: SequenceDictionary, scale: Option[Int] = None, subselectNegatives: Boolean = true): RDD[BaseFeature] = {
 
     // get cell types in the current dataset
     val chromosomes = Chromosomes.toVector
@@ -205,6 +208,8 @@ object VectorizedDnase extends Serializable  {
             if (m.isDefined) m.get.countMap.get(cellType).getOrElse(0)
             else 0
           }).toArray
+
+        Dnase.msCentipede(positions, scale)
 
         // positions should be size of window
         BaseFeature(labeledWindow, DenseVector(positions.map(_.toDouble)))
