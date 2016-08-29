@@ -1,15 +1,9 @@
 package net.akmorrow13.endive.processing
 
-import breeze.linalg.DenseVector
-import net.akmorrow13.endive.processing.PeakRecord
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ReferencePosition, SequenceDictionary, ReferenceRegion}
-import net.akmorrow13.endive.utils.{LabeledWindow, Window, LabeledReferenceRegionPartitioner}
-import scala.collection.mutable.ListBuffer
-import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.rdd.features.CoverageRDD
-import scala.reflect.ClassTag
+import net.akmorrow13.endive.utils.Window
 
 object Dnase {
 
@@ -39,7 +33,7 @@ object Dnase {
       }).toArray
   }
 
-  def msCentipede(windows: RDD[Array[Int]], scale: Option[Int] = None): RDD[Array[Double]] = {
+  def centipedeRDD(windows: RDD[Array[Int]], scale: Option[Int] = None): RDD[Array[Double]] = {
     windows.map(r => msCentipede(r, scale))
   }
 
@@ -60,19 +54,13 @@ class Dnase(@transient windowSize: Int,
    */
   def merge(sd: SequenceDictionary, filterNegatives: Boolean = false): RDD[CutMap] = {
     val chrs = dnaseCuts.map(_.region.referenceName).distinct().collect
-    val reducedRecords = sd.records.filter(r => chrs.contains(r.name))  // filter out data in dnase
-    val seq: Seq[ReferencePosition] = reducedRecords.flatMap(r => (0L until r.length).map(n => ReferencePosition(r.name, n)))
+    val reducedRecords = sc.parallelize(sd.records.filter(r => chrs.contains(r.name)), chrs.length)  // filter out data in dnase
 
-    val aggregated: RDD[(ReferencePosition, Map[CellTypes.Value, Int])] = processCuts(filterNegatives)
+    processCuts(filterNegatives)
         .groupBy(r => r.position)
-        .mapValues(iter => {
-          iter.map(r => (r.cellType, r.count)).toMap
+        .map(r => {
+          CutMap(r._1, r._2.map(r => (r.cellType, r.count)).toMap)
         })
-
-    val allPositions = sc.parallelize(seq)
-    allPositions.keyBy(identity(_))
-      .leftOuterJoin(aggregated)
-        .map(r => CutMap(r._1, r._2._2.getOrElse(Map[CellTypes.Value, Int]())))
   }
 
   /**

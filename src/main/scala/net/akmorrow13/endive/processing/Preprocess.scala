@@ -19,7 +19,7 @@ import java.io.{InputStreamReader, BufferedReader, File}
 
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.{ Coverage, ReferenceRegion }
+import org.bdgenomics.adam.models.ReferenceRegion
 import org.apache.hadoop.fs._
 import org.apache.hadoop.conf._
 
@@ -354,16 +354,6 @@ case class PeakRecord(region: ReferenceRegion, score: Int, signalValue: Double, 
   override
   def toString: String = {
     s"${region.referenceName},${region.start},${region.end},${score},${signalValue},${pValue},${qValue},${peak}"
-  }
-
-  /**
-   * Convert Coverage to PeakRecord. Counts are stored in signalValue
-   * @param coverage
-   * @return PeakRecord
-   */
-  def fromCoverage(coverage: Coverage): PeakRecord = {
-    val region = ReferenceRegion(coverage.contigName, coverage.start, coverage.end)
-    PeakRecord(region, -1, coverage.count, -1, -1, -1)
   }
 }
 

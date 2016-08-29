@@ -15,7 +15,6 @@
  */
 package net.akmorrow13.endive.pipelines
 
-import java.io.File
 import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.metrics.Metrics
@@ -23,16 +22,13 @@ import net.akmorrow13.endive.utils._
 import nodes.learning.LogisticRegressionEstimator
 
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
-import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{ SequenceDictionary, ReferenceRegion }
-import org.bdgenomics.adam.models.Coverage
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
-import org.bdgenomics.adam.rdd.ADAMContext._
 
 
 object VectorizedDnase extends Serializable  {

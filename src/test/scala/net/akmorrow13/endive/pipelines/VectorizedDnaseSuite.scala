@@ -42,7 +42,7 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
     val scale = Some(0)
   //    def msCentipede(windows: RDD[Array[Int]], scale: Option[Int])  = {
     val window = sc.parallelize(Seq(Array(1,1,1,1,1,1,1,1)))
-    val result = Dnase.msCentipede(window, scale)
+    val result = Dnase.centipedeRDD(window, scale)
     val first = result.first
     assert(first.length == 1)
     assert(first.head == 8.0)
@@ -51,7 +51,7 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
   sparkTest("msCentipede scale 3") {
     //    def msCentipede(windows: RDD[Array[Int]], scale: Option[Int])  = {
     val window = sc.parallelize(Seq(Array(1,2,3,4,3,2,1,1)))
-    val result = Dnase.msCentipede(window)
+    val result = Dnase.centipedeRDD(window)
     val first = result.first
     assert(first.length == 8)
     assert(first.head == 17.0)
