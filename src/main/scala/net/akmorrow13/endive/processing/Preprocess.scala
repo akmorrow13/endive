@@ -295,6 +295,8 @@ object Preprocess {
   }
 
   def loadCuts(sc: SparkContext, folder: String, cellTypes: Array[CellTypes.Value]): RDD[Cut] = {
+    println("load cuts")
+    cellTypes.foreach(println)
     var data: RDD[Cut] = sc.emptyRDD[Cut]
     val fileNames = getFileNamesFromDirectory(sc, folder)
 		.filter(_.endsWith("adam"))
