@@ -23,7 +23,7 @@ import org.apache.hadoop.fs.{FileStatus, Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.{Coverage, ReferenceRegion}
+import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.ReferencePartitioner
 import org.yaml.snakeyaml.constructor.Constructor

@@ -27,7 +27,7 @@ import org.bdgenomics.adam.rdd._
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.{ReferencePosition, SequenceDictionary, ReferenceRegion}
+import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
 import org.bdgenomics.formats.avro.Strand
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
