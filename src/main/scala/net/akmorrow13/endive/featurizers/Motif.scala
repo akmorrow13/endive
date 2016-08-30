@@ -12,6 +12,17 @@ import org.bdgenomics.utils.io.LocalFileByteAccess
 import scala.collection.mutable.ArrayBuffer
 import scala.sys.process._
 import scala.util.Random
+import java.io.{File, FileInputStream}
+import org.yaml.snakeyaml.Yaml
+
+object Motif {
+  def parseYamlMotifs(filePath: String): Unit = {
+    assert(filePath.endsWith("yaml"))
+    val ios = new FileInputStream(new File(filePath))
+    val yaml = new Yaml()
+    val obj = yaml.load(ios).asInstanceOf[java.util.Map[String, Any]]
+  }
+}
 
 class Motif(@transient sc: SparkContext,
             sd: SequenceDictionary) extends Serializable {

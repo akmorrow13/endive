@@ -183,7 +183,7 @@ object VectorizedDnase extends Serializable  {
     // perform optional negative sampling
     val filteredRDD =
       if (subselectNegatives)
-        Sampling.subselectSamples(sc, rdd, sd, partition = false)
+        EndiveUtils.subselectSamples(sc, rdd, sd, partition = false)
       else
         rdd
 

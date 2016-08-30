@@ -155,7 +155,7 @@ object NoSeqBaseModel extends Serializable  {
 
     val filteredRDD =
       if (filter)
-        Sampling.subselectSamples(sc, rdd, sd, partition = false)
+        EndiveUtils.subselectSamples(sc, rdd, sd, partition = false)
       else
         rdd
 

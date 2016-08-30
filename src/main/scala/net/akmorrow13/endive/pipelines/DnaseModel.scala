@@ -17,6 +17,7 @@ package net.akmorrow13.endive.pipelines
 
 import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
 import nodes.learning.LogisticRegressionEstimator
@@ -71,18 +72,32 @@ object DnaseModel extends Serializable  {
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
     val dnasePath = conf.dnase
+    val motifPath = conf.motifDBPath
 
-    val windowsRDD: RDD[LabeledWindow] = sc.textFile(labelsPath)
-      .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
-      .cache()
-
-    val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
-    val cellTypes = chrCellTypes.map(_._2)
-
+    /** ***************************************
+      * Read in reference dictionary
+      *****************************************/
     val records = DatasetCreationPipeline.getSequenceDictionary(referencePath)
       .records.filter(r => Chromosomes.toVector.contains(r.name))
 
     val sd = new SequenceDictionary(records)
+
+    if (false) {
+      val motifs = Motif.parseYamlMotifs(motifPath)
+      // want this to be
+    }
+
+    val data: RDD[LabeledWindow] = sc.textFile(labelsPath)
+      .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
+
+    val windowsRDD = EndiveUtils.subselectRandomSamples(sc, data, sd)
+      .setName("windowsRDD")
+      .cache()
+
+    // filter data
+
+    val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
+    val cellTypes = chrCellTypes.map(_._2)
 
     /************************************
       *  Prepare dnase data
@@ -94,9 +109,10 @@ object DnaseModel extends Serializable  {
     aggregatedCuts.count
 
     val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false)
+    println(featurized.first)
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
-    val folds = EndiveUtils.generateFoldsRDD(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds)
+    val folds = EndiveUtils.generateFoldsRDD(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds, sampleFreq = None)
 
     println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {

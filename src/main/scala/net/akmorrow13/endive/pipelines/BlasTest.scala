@@ -28,7 +28,6 @@ import utils.{Image, MatrixUtils, Stats, ImageMetadata, LabeledImage, RowMajorAr
 
 import com.github.fommil.netlib.BLAS
 import evaluation.BinaryClassifierEvaluator
-import net.akmorrow13.endive.processing.Sampling
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint

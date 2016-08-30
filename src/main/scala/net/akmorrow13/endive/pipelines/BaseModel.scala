@@ -172,7 +172,7 @@ object BaseModel extends Serializable  {
                 sd:SequenceDictionary): RDD[BaseFeature] = {
     val motif = new Motif(sc, sd)
 
-    val filteredRDD = Sampling.subselectSamples(sc, rdd, sd, partition = false)
+    val filteredRDD = EndiveUtils.subselectSamples(sc, rdd, sd, partition = false)
     println(s"filtered rdd ${filteredRDD.count}, original rdd ${rdd.count}")
     println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
       s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")

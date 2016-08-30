@@ -17,7 +17,7 @@ package net.akmorrow13.endive.pipelines
 
 import breeze.linalg._
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.processing.{CellTypes, Sequence, Sampling}
+import net.akmorrow13.endive.processing.CellTypes
 import net.akmorrow13.endive.utils._
 import nodes.learning._
 import nodes.nlp._
