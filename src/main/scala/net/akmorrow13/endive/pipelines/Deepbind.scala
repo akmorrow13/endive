@@ -19,7 +19,7 @@ import java.io.File
 import breeze.linalg.DenseVector
 import evaluation.BinaryClassifierEvaluator
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.featurizers.Motif
+import net.akmorrow13.endive.featurizers.{MotifScorer, Motif}
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
 import net.akmorrow13.endive.processing.Dataset
@@ -97,7 +97,7 @@ object Deepbind extends Serializable {
     tfs.foreach(println)
     assert(tfs.length == 1)
 
-    val motifFinder = new Motif(sc, sd)
+    val motifFinder = new MotifScorer(sc, sd)
     val scores: RDD[Double] = motifFinder.getDeepBindScoresPerPartition(fullMatrix.map(_.win.sequence), tfs.toList, deepbindPath).cache().map(_.head)
     println("completed deepbind scoring:", scores.count)
 

@@ -19,7 +19,7 @@ import java.io.File
 import breeze.linalg.DenseVector
 import evaluation.BinaryClassifierEvaluator
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.featurizers.Motif
+import net.akmorrow13.endive.featurizers.{MotifScorer, Motif}
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
 import net.akmorrow13.endive.processing.Dataset
@@ -170,7 +170,7 @@ object BaseModel extends Serializable  {
                 motifDB: String,
                 deepbindPath: Option[String] = None,
                 sd:SequenceDictionary): RDD[BaseFeature] = {
-    val motif = new Motif(sc, sd)
+    val motif = new MotifScorer(sc, sd)
 
     val filteredRDD = EndiveUtils.subselectSamples(sc, rdd, sd, partition = false)
     println(s"filtered rdd ${filteredRDD.count}, original rdd ${rdd.count}")

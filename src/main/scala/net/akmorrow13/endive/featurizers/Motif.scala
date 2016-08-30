@@ -1,30 +1,103 @@
 package net.akmorrow13.endive.featurizers
 
 import java.io.{PrintWriter, File}
+import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.utils.{Window, LabeledReferenceRegionPartitioner, LabeledWindow}
-import org.apache.hadoop.mapred.FileAlreadyExistsException
-
 import net.akmorrow13.endive.processing._
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
 import org.bdgenomics.utils.io.LocalFileByteAccess
+import org.bdgenomics.utils.misc.MathUtils
+import scala.annotation.tailrec
+import scala.beans.BeanProperty
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.sys.process._
 import scala.util.Random
 import java.io.{File, FileInputStream}
+import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 
+import scala.collection.JavaConversions._
+
+class test extends Serializable {
+  @BeanProperty var values: java.util.LinkedHashSet[ModelConf] = null
+}
+
+class ModelConf extends Serializable {
+  @BeanProperty var encoding_type: String = null
+  @BeanProperty var model_type: String = null
+  @BeanProperty var motif_id: String = null
+
+  @BeanProperty var pwm: Array[Array[Double]] = null
+
+  @BeanProperty var tf_id: String = null
+  @BeanProperty var tf_name: String = null
+  @BeanProperty var tf_species: String = null
+}
+
+
 object Motif {
-  def parseYamlMotifs(filePath: String): Unit = {
+  def parseYamlMotifs(filePath: String):  List[Motif] = {
     assert(filePath.endsWith("yaml"))
-    val ios = new FileInputStream(new File(filePath))
-    val yaml = new Yaml()
-    val obj = yaml.load(ios).asInstanceOf[java.util.Map[String, Any]]
+
+    val configfile = scala.io.Source.fromFile(filePath)
+    val configtext = try configfile.mkString finally configfile.close()
+    val yaml = new Yaml(new Constructor(classOf[test]))
+    val pwms = yaml.load(configtext).asInstanceOf[test]
+    pwms.values.toList.map(p => Motif(p.getTf_name, p.getPwm.flatten))
   }
 }
 
-class Motif(@transient sc: SparkContext,
+case class PWM(encoding_type: String, model_type: String, motif_id: String, pwm:Array[Array[Double]], tf_id: String, tf_name: String, tf_species: String)
+
+// Note: this code was copied from net.fnothaft.fig. Move back when fig is not broken
+case class Motif(label: String,
+                 pwm: Array[Double]) {
+  require(pwm.length % 4 == 0, "Position weight matrix length must be a multiple of 4.")
+  val length = pwm.length / 4
+
+  // each value must be between 0 and 1
+  pwm.foreach(p => require(p >= 0.0 && p <= 1.0, "P = %f must be between [0, 1].".format(p)))
+
+  // check that each row sums to 1.0
+  (0 until length).foreach(i => {
+    val idx = i * 4
+    val p = pwm(idx) + pwm(idx + 1) + pwm(idx + 2) + pwm(idx + 3)
+    require(MathUtils.fpEquals(p, 1.0),
+      "Probability (p = %f) of row %d was not equal to 1 for length %d motif for %s.".format(p,
+        i,
+        length,
+        label))
+  })
+
+  private def baseToIdx(c: Char): Int = c match {
+    case 'A' => 0
+    case 'C' => 1
+    case 'G' => 2
+    case 'T' => 3
+    case _ => throw new IllegalStateException("Invalid character %s.".format(c))
+  }
+
+  def sequenceProbability(sequence: String): Double = {
+    @tailrec def score(seq: Iterator[Char],
+                       pos: Int,
+                       p: Double): Double = {
+      // continue until we run out of bases
+      // if p = 0, we can terminate early
+      if (!seq.hasNext || p == 0.0) {
+        p
+      } else {
+        score(seq, pos + 1, p * pwm(pos * 4 + baseToIdx(seq.next)))
+      }
+    }
+
+    score(sequence.toIterator, 0, 1.0)
+  }
+}
+
+class MotifScorer(@transient sc: SparkContext,
             sd: SequenceDictionary) extends Serializable {
 
 

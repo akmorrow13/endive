@@ -17,21 +17,15 @@ package net.akmorrow13.endive.pipelines
 
 import java.io.File
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.processing.Sequence
 import net.akmorrow13.endive.utils._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
-import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceDictionary, SequenceRecord, ReferenceRegion}
-import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.rdd.GenomicPositionPartitioner
 import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
-import org.bdgenomics.formats.avro._
-import org.bdgenomics.formats.avro.NucleotideContigFragment
 import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.constructor.Constructor
