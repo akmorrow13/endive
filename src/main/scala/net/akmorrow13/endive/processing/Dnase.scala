@@ -3,8 +3,8 @@ package net.akmorrow13.endive.processing
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ReferencePosition, SequenceDictionary, ReferenceRegion}
+import net.akmorrow13.endive.utils.Window
 import org.bdgenomics.formats.avro.Strand
-import net.akmorrow13.endive.utils.{LabeledWindow, Window }
 
 object Dnase {
 

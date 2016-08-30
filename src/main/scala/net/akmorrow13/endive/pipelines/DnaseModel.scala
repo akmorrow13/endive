@@ -83,9 +83,7 @@ object DnaseModel extends Serializable  {
 
     val sd = new SequenceDictionary(records)
 
-    if (false) {
-      val motifs: List[Motif] = Motif.parseYamlMotifs(motifPath)
-    }
+    val motifs: List[Motif] = Motif.parseYamlMotifs(motifPath)
 
     val data: RDD[LabeledWindow] = sc.textFile(labelsPath)
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
