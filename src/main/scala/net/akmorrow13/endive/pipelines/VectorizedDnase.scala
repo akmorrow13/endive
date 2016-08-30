@@ -100,12 +100,12 @@ object VectorizedDnase extends Serializable  {
 
 
     println("TOTAL FOLDS " + folds.size)
-    val scales = Array(Some(0), Some(1), Some(2), None)
+    val scales = Array(None)
     for (scale <- scales) {
       val i = 0
 //    for (i <- (0 until folds.size)) {
       println("FOLD " + i)
-
+      println("scale", scale)
       // get testing cell types for this fold
       val cellTypesTest = folds(i)._2.map(x => (x._2.win.cellType)).countByValue().keys.toList
       println(s"Fold ${i}, testing cell types:")

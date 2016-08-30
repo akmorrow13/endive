@@ -103,7 +103,8 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
 
     // load peak data from dnase
     val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
-      .cache()
+     .filter(r => Chromosomes.toVector.contains(r._2.region.referenceName)) 
+     .cache()
 
     println("Reading dnase peaks")
     println(dnase.count)
