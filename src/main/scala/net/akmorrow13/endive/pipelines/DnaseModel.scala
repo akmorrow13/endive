@@ -76,24 +76,39 @@ object DnaseModel extends Serializable  {
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
       .cache()
 
+    val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
+    val cellTypes = chrCellTypes.map(_._2)
+
     val records = DatasetCreationPipeline.getSequenceDictionary(referencePath)
       .records.filter(r => Chromosomes.toVector.contains(r.name))
 
     val sd = new SequenceDictionary(records)
 
+    /************************************
+      *  Prepare dnase data
+      **********************************/
+    val cuts: RDD[Cut] = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
+
+    val dnase = new Dnase(windowSize, stride, sc, cuts)
+    val aggregatedCuts = dnase.merge(sd).cache()
+    aggregatedCuts.count
+
+    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false)
+
     /* First one chromesome and one celltype per fold (leave 1 out) */
-    val folds = EndiveUtils.generateFoldsRDD(windowsRDD, conf.heldOutCells, conf.heldoutChr, conf.folds)
-    val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
+    val folds = EndiveUtils.generateFoldsRDD(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds)
 
     println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
       println("FOLD " + i)
       val r = new java.util.Random()
-      val train = NoSeqBaseModel.featurize(sc, folds(i)._1, sd, false)
+      val train = folds(i)._1.map(_._2)
         .filter(x => x.labeledWindow.label == 1 || (x.labeledWindow.label == 0 && r.nextFloat < 0.001))
         .setName("train").cache()
 
-      val test = NoSeqBaseModel.featurize(sc, folds(i)._2, sd, false).cache()
+      val test = folds(i)._2.map(_._2)
+        .setName("test").cache()
+
 
       val xTrain = train.map(_.features)
       val xTest = test.map(_.features)
@@ -116,7 +131,7 @@ object DnaseModel extends Serializable  {
       chromosomesTest.foreach(println)
 
       println("Training model")
-      val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.1)
+      val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.01)
         .fit(xTrain, yTrain)
 
       val yPredTrain = predictor(xTrain)

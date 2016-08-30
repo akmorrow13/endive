@@ -4,14 +4,14 @@ import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ReferencePosition, SequenceDictionary, ReferenceRegion}
 import net.akmorrow13.endive.utils.Window
+import org.bdgenomics.formats.avro.Strand
 
 object Dnase {
 
+  val lnOf2 = scala.math.log(2) // natural log of 2
+  def log2(x: Double): Int = Math.floor(scala.math.log(x) / lnOf2).toInt
+
   def msCentipede(r: Array[Int], scale: Option[Int] = None): Array[Double] = {
-
-    val lnOf2 = scala.math.log(2) // natural log of 2
-    def log2(x: Double): Int = Math.floor(scala.math.log(x) / lnOf2).toInt
-
     val j =
       if (scale.isDefined) scale.get + 1
       else log2(r.length) + 1
@@ -49,14 +49,13 @@ class Dnase(@transient windowSize: Int,
    * Merges Cuts into an rdd that maps each point in the genome to a map of cuts, where the map specifies the cell type
    * If the cell Type has no cuts in a region, that cell type is excluded from the map
    * @param sd
-   * @param filterNegatives
    * @return
    */
-  def merge(sd: SequenceDictionary, filterNegatives: Boolean = false): RDD[CutMap] = {
+  def merge(sd: SequenceDictionary): RDD[CutMap] = {
     val chrs = dnaseCuts.map(_.region.referenceName).distinct().collect
     val reducedRecords = sc.parallelize(sd.records.filter(r => chrs.contains(r.name)), chrs.length)  // filter out data in dnase
 
-    processCuts(filterNegatives)
+    processCuts()
         .groupBy(r => r.position)
         .map(r => {
           CutMap(r._1, r._2.map(r => (r.cellType, r.count)).toMap)
@@ -67,21 +66,14 @@ class Dnase(@transient windowSize: Int,
    * reduces all cuts processed from AlignmentRecords to all cuts aggregated at a base pair
    * granularity. This function treats negative and positives strands the same. Note that
    * CutLoader accounts for base shifting for dnase datasets.
-   * @param filterNegatives Option to filter out negative strands from./sb  sb   dataset
    * @return Aggregated cuts summing counts at every region
    */
-  def processCuts(filterNegatives: Boolean): RDD[AggregatedCut] = {
-
-    val cuts =
-      if (filterNegatives)
-        dnaseCuts.filter(!_.negativeStrand)
-      else dnaseCuts
-
+  def processCuts(): RDD[AggregatedCut] = {
     val counts:RDD[((CellTypes.Value, ReferencePosition), Int)] =
-      cuts
+      dnaseCuts
         .flatMap(r => {
-          val startCut = ReferencePosition(r.region.referenceName, r.region.start)
-          val endCut = ReferencePosition(r.region.referenceName, r.region.end)
+          val startCut = ReferencePosition(r.region.referenceName, r.region.start, if (r.negativeStrand) Strand.REVERSE else Strand.FORWARD)
+          val endCut = ReferencePosition(r.region.referenceName, r.region.end, if (r.negativeStrand) Strand.REVERSE else Strand.FORWARD)
           Iterable(((r.getCellType, startCut), 1), ((r.getCellType, endCut), 1))
         })
 

@@ -83,14 +83,14 @@ object NoSeqBaseModel extends Serializable  {
     val sd = new SequenceDictionary(records)
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
-    val folds = EndiveUtils.generateFoldsRDD(windowsRDD, conf.heldOutCells, conf.heldoutChr, conf.folds)
+    val folds = EndiveUtils.generateFoldsRDD(windowsRDD.keyBy(r => (r.win.region.referenceName, r.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds)
     val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
 
     println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
       println("FOLD " + i)
-      val train = featurize(sc, folds(i)._1, sd)
-      val test = featurize(sc, folds(i)._2, sd, false)
+      val train = featurize(sc, folds(i)._1.map(_._2), sd)
+      val test = featurize(sc, folds(i)._2.map(_._2), sd, false)
 
       println("TRAIN SIZE IS " + train.count())
       println("TEST SIZE IS " + test.count())

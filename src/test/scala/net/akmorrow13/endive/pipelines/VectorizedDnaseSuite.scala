@@ -33,7 +33,7 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
         CutMap(ReferencePosition(r.win.region.referenceName, r.win.region.start), countMap)
       })
 
-      val baseFeatures = VectorizedDnase.featurize(sc, rdd, coverage, sd, false)
+      val baseFeatures = VectorizedDnase.featurize(sc, rdd, coverage, sd,  None, false)
       assert(baseFeatures.count == 29)
   }
 

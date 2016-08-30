@@ -30,14 +30,14 @@ class FoldsSuite extends EndiveFunSuite {
     val windowsRDD = sc.parallelize(windows)
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
-    val folds = EndiveUtils.generateFoldsRDD(windowsRDD, CELL_TYPES_PER_FOLD, CHROMOSOMES_PER_FOLD, 1)
+    val folds = EndiveUtils.generateFoldsRDD(windowsRDD.keyBy(r => (r.win.region.referenceName, r.win.cellType)), CELL_TYPES_PER_FOLD, CHROMOSOMES_PER_FOLD, 1)
     val cellTypesChromosomes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
 
     println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
       println("FOLD " + i)
-      val train = folds(i)._1
-      val test = folds(i)._2
+      val train = folds(i)._1.map(_._2)
+      val test = folds(i)._2.map(_._2)
 
       println("TRAIN SIZE IS " + train.count())
       println("TEST SIZE IS " + test.count())
@@ -75,14 +75,14 @@ class FoldsSuite extends EndiveFunSuite {
     val windowsRDD = sc.parallelize(windows)
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
-    val folds = EndiveUtils.generateFoldsRDD(windowsRDD, CELL_TYPES_PER_FOLD, CHROMOSOMES_PER_FOLD, 1)
+    val folds = EndiveUtils.generateFoldsRDD(windowsRDD.keyBy(r => (r.win.region.referenceName, r.win.cellType)), CELL_TYPES_PER_FOLD, CHROMOSOMES_PER_FOLD, 1)
     val cellTypesChromosomes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
 
     println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
       println("FOLD " + i)
-      val train = folds(i)._1
-      val test = folds(i)._2
+      val train = folds(i)._1.map(_._2)
+      val test = folds(i)._2.map(_._2)
 
       println("TRAIN SIZE IS " + train.count())
       println("TEST SIZE IS " + test.count())

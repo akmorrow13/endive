@@ -26,6 +26,7 @@ import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{ SequenceDictionary, ReferenceRegion }
+import org.bdgenomics.formats.avro.Strand
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
@@ -80,7 +81,7 @@ object VectorizedDnase extends Serializable  {
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
-    val folds = EndiveUtils.generateFoldsRDD(windowsRDD, conf.heldOutCells, conf.heldoutChr, conf.folds)
+    val folds = EndiveUtils.generateFoldsRDD(windowsRDD.keyBy(r => (r.win.region.referenceName, r.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds)
     val chrCellTypes: Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
     val cellTypes = chrCellTypes.map(_._2)
 
@@ -91,7 +92,7 @@ object VectorizedDnase extends Serializable  {
     val cuts: RDD[Cut] = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
 
     val dnase = new Dnase(windowSize, stride, sc, cuts)
-    val aggregatedCuts = dnase.merge(sd, true).cache()
+    val aggregatedCuts = dnase.merge(sd).cache()
     aggregatedCuts.count
 
 
@@ -103,18 +104,18 @@ object VectorizedDnase extends Serializable  {
       println("FOLD " + i)
 
       // get testing cell types for this fold
-      val cellTypesTest = folds(i)._2.map(x => (x.win.cellType)).countByValue().keys.toList
+      val cellTypesTest = folds(i)._2.map(x => (x._2.win.cellType)).countByValue().keys.toList
       println(s"Fold ${i}, testing cell types:")
       cellTypesTest.foreach(println)
 
       // get testing chrs for this fold
-      val chromosomesTest:Iterable[String] = folds(i)._2.map(x => (x.win.getRegion.referenceName)).countByValue().keys
+      val chromosomesTest:Iterable[String] = folds(i)._2.map(x => (x._2.win.getRegion.referenceName)).countByValue().keys
       println(s"Fold ${i}, testing chromsomes:")
       chromosomesTest.foreach(println)
 
       // calculate features for train and test sets
-      val train = featurize(sc, folds(i)._1, aggregatedCuts, sd, scale, true).cache()
-      val test = featurize(sc, folds(i)._2, aggregatedCuts, sd, scale, false).cache()
+      val train = featurize(sc, folds(i)._1.map(_._2), aggregatedCuts, sd, scale, true).cache()
+      val test = featurize(sc, folds(i)._2.map(_._2), aggregatedCuts, sd, scale, false).cache()
 
       println("TRAIN SIZE IS " + train.count())
       println("TEST SIZE IS " + test.count())
@@ -196,23 +197,36 @@ object VectorizedDnase extends Serializable  {
 
     coverageAndWindows.mapValues(iter => {
       val windows: List[LabeledWindow] = iter._1.toList
-      val cov: Map[Long, CutMap] = iter._2.getOrElse(Iterator()).map(r => (r.position.pos, r)).toMap
+      val cov: Map[(Strand, Long), CutMap] = iter._2.getOrElse(Iterator()).map(r => ((r.position.orientation, r.position.pos), r)).toMap
 
       windows.map(labeledWindow => {
 
         val cellType = labeledWindow.win.cellType
 
-        val positions: Array[Int] = (labeledWindow.win.region.start until labeledWindow.win.region.end)
+
+        val positivePositions: Array[Int] = (labeledWindow.win.region.start until labeledWindow.win.region.end)
           .map(r => {
-            val m = cov.get(r)
+            val m = cov.get((Strand.FORWARD,r))
             if (m.isDefined) m.get.countMap.get(cellType).getOrElse(0)
             else 0
           }).toArray
 
-        Dnase.msCentipede(positions, scale)
+        val negativePositions: Array[Int] = (labeledWindow.win.region.start until labeledWindow.win.region.end)
+          .map(r => {
+            val m = cov.get((Strand.REVERSE,r))
+            if (m.isDefined) m.get.countMap.get(cellType).getOrElse(0)
+            else 0
+          }).toArray
+
+        val positions =
+          if (labeledWindow.win.dnase.size == 0)
+            (Dnase.msCentipede(positivePositions, scale) ++ Dnase.msCentipede(negativePositions, scale)).map(r => 0.0)
+          else {
+            Dnase.msCentipede(positivePositions, scale) ++ Dnase.msCentipede(negativePositions, scale)
+          }
 
         // positions should be size of window
-        BaseFeature(labeledWindow, DenseVector(positions.map(_.toDouble)))
+        BaseFeature(labeledWindow, DenseVector(positions))
       }).toIterator
     }).flatMap(_._2)
 

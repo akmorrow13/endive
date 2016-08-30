@@ -159,12 +159,12 @@ object Preprocess {
     val rdd = loadTsv(sc, filePath, "any")
     rdd.map(parts => {
       val region = ReferenceRegion(parts(0), parts(1).toLong, parts(2).toLong)
-      val l = parts.drop(3).toList.filter(r => r != ".")
-      val score = l(0).toInt
-      val signalValue = l(1).toDouble
-      val pValue = l(2).toDouble
-      val qValue = l(3).toDouble
-      val peak = l(4).toDouble
+      val l = parts.drop(3)
+      val score = l(1).toInt
+      val signalValue = l(3).toDouble
+      val pValue = l(4).toDouble
+      val qValue = l(5).toDouble
+      val peak = l(6).toDouble
       (cellType, PeakRecord(region, score, signalValue, pValue, qValue, peak))
     })
   }
