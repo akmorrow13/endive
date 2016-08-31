@@ -191,17 +191,17 @@ object BaseModel extends Serializable  {
     val results = motifScores
         .map(r => {
           // known motif score
-	  val dnasefold = 
-		if (r.win.getDnase.length > 0) {
-          		// max DNASE fold change across each bin
-          		val maxScore = r.win.getDnase.map(_.peak).max
-          		val minScore = r.win.getDnase.map(_.peak).min
-          		(maxScore - minScore) / minScore
-		} else 0.0
-          val motifs = r.win.motifs
-          val (min: Double, max: Double, mean: Double) =
-            if (motifs.length > 0) (motifs.map(_.peak).min, motifs.map(_.peak).max, r.win.motifs.map(_.peak).sum/motifs.length)
-	    else (0.0, 0.0, 0.0)
+          val dnasefold =
+          if (r.win.getDnase.length > 0) {
+            // max DNASE fold change across each bin
+            val maxScore = r.win.getDnase.map(_.peak).max
+            val minScore = r.win.getDnase.map(_.peak).min
+            (maxScore - minScore) / minScore
+          } else 0.0
+            val motifs = r.win.motifs
+            val (min: Double, max: Double, mean: Double) =
+              if (motifs.length > 0) (motifs.map(_.peak).min, motifs.map(_.peak).max, r.win.motifs.map(_.peak).sum/motifs.length)
+              else (0.0, 0.0, 0.0)
           BaseFeature(r, DenseVector(min, max, mean, dnasefold))
         })
     println("after motifs and featurizing",results.count)

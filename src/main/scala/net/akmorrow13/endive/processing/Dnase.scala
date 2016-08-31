@@ -25,7 +25,8 @@ object Dnase {
           val denominatorLength =  Math.round(r.length/(Math.pow(2,s)) * 2).toInt
           val x: Array[Double] = (0 until Math.pow(2, s-1).toInt).map(i => {
             val numeratorSum = r.slice(i * denominatorLength, i * denominatorLength + numeratorLength).sum
-            val denominatorSum = r.slice(i * denominatorLength, i * denominatorLength + denominatorLength).sum
+            val denominator = r.slice(i * denominatorLength, i * denominatorLength + denominatorLength).sum
+            val denominatorSum = if (denominator == 0) 1 else denominator
             numeratorSum.toDouble/denominatorSum
           }).toArray
           x

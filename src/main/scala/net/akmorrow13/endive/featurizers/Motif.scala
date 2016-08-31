@@ -21,11 +21,11 @@ import org.yaml.snakeyaml.Yaml
 
 import scala.collection.JavaConversions._
 
-class test extends Serializable {
-  @BeanProperty var values: java.util.LinkedHashSet[ModelConf] = null
+class ModelConf extends Serializable {
+  @BeanProperty var values: java.util.LinkedHashSet[ModelPWM] = null
 }
 
-class ModelConf extends Serializable {
+class ModelPWM extends Serializable {
   @BeanProperty var encoding_type: String = null
   @BeanProperty var model_type: String = null
   @BeanProperty var motif_id: String = null
@@ -44,13 +44,11 @@ object Motif {
 
     val configfile = scala.io.Source.fromFile(filePath)
     val configtext = try configfile.mkString finally configfile.close()
-    val yaml = new Yaml(new Constructor(classOf[test]))
-    val pwms = yaml.load(configtext).asInstanceOf[test]
+    val yaml = new Yaml(new Constructor(classOf[ModelConf]))
+    val pwms = yaml.load(configtext).asInstanceOf[ModelConf]
     pwms.values.toList.map(p => Motif(p.getTf_name, p.getPwm.flatten))
   }
 }
-
-case class PWM(encoding_type: String, model_type: String, motif_id: String, pwm:Array[Array[Double]], tf_id: String, tf_name: String, tf_species: String)
 
 // Note: this code was copied from net.fnothaft.fig. Move back when fig is not broken
 case class Motif(label: String,

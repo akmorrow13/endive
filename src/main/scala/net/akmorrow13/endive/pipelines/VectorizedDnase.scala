@@ -17,6 +17,7 @@ package net.akmorrow13.endive.pipelines
 
 import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
 import nodes.learning.LogisticRegressionEstimator
@@ -175,7 +176,13 @@ object VectorizedDnase extends Serializable  {
    * @param subselectNegatives whether or not to subselect the dataset
    * @return
    */
-  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], coverage: RDD[CutMap], sd: SequenceDictionary, scale: Option[Int] = None, subselectNegatives: Boolean = true): RDD[BaseFeature] = {
+  def featurize(sc: SparkContext,
+                rdd: RDD[LabeledWindow],
+                coverage: RDD[CutMap],
+                sd: SequenceDictionary,
+                scale: Option[Int] = None,
+                subselectNegatives: Boolean = true,
+                 motifs: Option[List[Motif]] = None): RDD[BaseFeature] = {
 
     // get cell types in the current dataset
     val chromosomes = Chromosomes.toVector
@@ -203,15 +210,36 @@ object VectorizedDnase extends Serializable  {
 
         val cellType = labeledWindow.win.cellType
 
+        // where to center motif?
+        val (start, end) =
+          if (motifs.isDefined) { // if motif is defined center at most probable motif
+            // format motifs to map on tf
+            val tfmotifs = motifs.get.filter(_.label == labeledWindow.win.tf.toString)
+            // get max motif location
+            val center =
+              tfmotifs.map(motif => {
+                val motifLength = motif.length
+                // slide length, take index of max probabilitiy
+                labeledWindow.win.sequence
+                  .sliding(motifLength)
+                  .map(r => motif.sequenceProbability(r))
+                  .zipWithIndex.maxBy(_._1)
+              }).maxBy(_._1)._2
 
-        val positivePositions: Array[Int] = (labeledWindow.win.region.start until labeledWindow.win.region.end)
+            (labeledWindow.win.region.start + center  - Dataset.windowSize/2,
+              labeledWindow.win.region.start + center + Dataset.windowSize/2) //TODO: verify
+          } else
+            (labeledWindow.win.region.start, labeledWindow.win.region.end)
+
+
+        val positivePositions: Array[Int] = (start until end)
           .map(r => {
             val m = cov.get((Strand.FORWARD,r))
             if (m.isDefined) m.get.countMap.get(cellType).getOrElse(0)
             else 0
           }).toArray
 
-        val negativePositions: Array[Int] = (labeledWindow.win.region.start until labeledWindow.win.region.end)
+        val negativePositions: Array[Int] = (start until end)
           .map(r => {
             val m = cov.get((Strand.REVERSE,r))
             if (m.isDefined) m.get.countMap.get(cellType).getOrElse(0)
@@ -219,7 +247,7 @@ object VectorizedDnase extends Serializable  {
           }).toArray
 
         val positions =
-          if (labeledWindow.win.dnase.size == 0)
+          if (labeledWindow.win.dnase.size == 0) //mask areas with no preprocessed open chromatin
             (Dnase.msCentipede(positivePositions, scale) ++ Dnase.msCentipede(negativePositions, scale)).map(r => 0.0)
           else {
             Dnase.msCentipede(positivePositions, scale) ++ Dnase.msCentipede(negativePositions, scale)
