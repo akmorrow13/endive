@@ -19,11 +19,12 @@ import breeze.linalg._
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.processing.Sequence
 import net.akmorrow13.endive.utils._
+
 import nodes.learning._
+import nodes.stats._
+import nodes.util._
 import nodes.nlp._
-import nodes.stats.TermFrequency
-import nodes.util.CommonSparseFeatures
-import nodes.util.{Identity, Cacher, ClassLabelIndicatorsFromIntLabels, TopKClassifier, MaxClassifier, VectorCombiner}
+
 import utils.{Image, MatrixUtils, Stats, ImageMetadata, LabeledImage, RowMajorArrayVectorizedImage, ChannelMajorArrayVectorizedImage}
 import workflow.{Pipeline, Transformer}
 import com.github.fommil.netlib.BLAS
@@ -44,7 +45,7 @@ import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import scala.util.Random
 
-object TinmanPipeline extends Serializable with Logging {
+object GlassmanPipeline  extends Serializable with Logging {
 
   /**
    * A very basic pipeline that *doesn't* featurize the data
@@ -124,6 +125,7 @@ object TinmanPipeline extends Serializable with Logging {
 
       val yTrain = train.map(_.label).setName("yTrain").cache()
       val yTest = test.map(_.label).setName("yTest").cache()
+      val NUM_FEATURES = 4096
 
       println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
 
@@ -135,25 +137,47 @@ object TinmanPipeline extends Serializable with Logging {
       Tokenizer("|") andThen
       NGramsFeaturizer(4 to 7) andThen
       TermFrequency(x => 1.0) andThen
-      (CommonSparseFeatures[Seq[String]](4096), train) andThen
-      Transformer.apply[SparseVector[Double], DenseVector[Double]](x => x.toDenseVector) andThen Cacher[DenseVector[Double]]()
-
-
-      val predictor = Pipeline.gather[LabeledWindow, DenseVector[Double]] {
+      (CommonSparseFeatures[Seq[String]](NUM_FEATURES), train) andThen
+      Transformer.apply[SparseVector[Double], DenseVector[Double]](x => x.toDenseVector)
+      val featurizer = Pipeline.gather[LabeledWindow, DenseVector[Double]] {
         sequenceFeaturizer :: (cellTypeFeaturizer) :: Nil
-       } andThen Transformer.apply[Seq[DenseVector[Double]], DenseVector[Double]](x => x.reduce(DenseVector.vertcat(_,_))) andThen (LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.1), train, yTrain)
+       } andThen VectorCombiner() andThen new Cacher
+
+     val labelGrabber = ClassLabelIndicatorsFromIntLabels(2) andThen new Cacher[DenseVector[Double]]
+
+      val trainFeaturized = featurizer(train).get()
+      val testFeaturized = featurizer(test).get()
+
+      val values = testFeaturized.mapPartitions(rows => {
+          if (!rows.isEmpty) {
+            val rowsArr = rows.toArray
+            val nRows = rowsArr.length
+            val nCols = rowsArr(0).length
+            val outArr = new Array[Double](nRows * nCols)
+            Iterator.single((nRows, nCols))
+          } else {
+            Iterator.empty
+          }
+      }).countByValue()
+
+      println("COUNT " + values.mkString(","))
 
 
-      val yPredTrain = predictor(train).get()
-      val evalTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
-      println("Train Results: \n ")
-      printMetrics(evalTrain)
+
+      /*
+     val model = new BlockWeightedLeastSquaresEstimator(4096, 1, 0.1, 0.0, Some(NUM_FEATURES)).fit(trainFeaturized, labelGrabber(yTrain).get()) andThen TopKClassifier(1)
 
 
-      val yPredTest = predictor(test).get()
+      val yPredTrain = model(trainFeaturized).get().map(x => x(0).toDouble)
+      val yPredTest = model(testFeaturized).get().map(x => x(0).toDouble)
+
+      println("TRAIN PREDICTIONS " + yPredTrain.count())
+      println("TEST PREDICTIONS " + yPredTest.count())
+
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
       println("Test Results: \n ")
       printMetrics(evalTest)
+      */
     }
   }
 
