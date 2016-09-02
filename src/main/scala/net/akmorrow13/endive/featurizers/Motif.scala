@@ -2,7 +2,7 @@ package net.akmorrow13.endive.featurizers
 
 import java.io.{PrintWriter, File}
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.utils.{Window, LabeledReferenceRegionPartitioner, LabeledWindow}
+import net.akmorrow13.endive.utils.{GenomicRegionPartitioner, Window, LabeledWindow}
 import net.akmorrow13.endive.processing._
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
@@ -116,7 +116,7 @@ class MotifScorer(@transient sc: SparkContext,
 
     val x: RDD[LabeledWindow] = in.filter(r => tfs.contains(r.win.getTf))
       .keyBy(r => (r.win.getRegion, r.win.getTf))
-      .partitionBy(new LabeledReferenceRegionPartitioner(sd))
+      .partitionBy(GenomicRegionPartitioner(Dataset.partitions, sd))
       .leftOuterJoin(windowedMotifs)
       .map(r => {
         val motifs = r._2._2

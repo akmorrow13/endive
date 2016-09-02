@@ -65,7 +65,7 @@ def generateTrainTestSplit[T: ClassTag](allData: RDD[((String, CellTypes.Value),
                        partition: Boolean = true): RDD[LabeledWindow] = {
     val partitionedRDD: RDD[((ReferenceRegion, TranscriptionFactors.Value), LabeledWindow)] =
       if (partition)
-        rdd.keyBy(r => (r.win.getRegion, r.win.getTf)).partitionBy(new LabeledReferenceRegionPartitioner(sd, TranscriptionFactors))
+        rdd.keyBy(r => (r.win.getRegion, r.win.getTf)).partitionBy(GenomicRegionPartitioner(Dataset.partitions, sd))
       else rdd.keyBy(r => (r.win.getRegion, r.win.getTf))
 
     partitionedRDD.mapPartitions(iter => {

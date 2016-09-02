@@ -18,6 +18,8 @@ object Dataset extends Logging {
   val windowSize = 200
   val stride = 20
 
+  val partitions = 60
+
   // held out values for final round
   val heldOutChrs = List(Chromosomes.chr1, Chromosomes.chr8, Chromosomes.chr21)
   val heldOutTypes = List(CellTypes.PC3, CellTypes.liver, CellTypes.inducedpluripotentstemcell)

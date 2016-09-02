@@ -3,7 +3,7 @@ package net.akmorrow13.endive.processing
 import net.akmorrow13.endive.processing.PeakRecord
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
-import net.akmorrow13.endive.utils.{LabeledWindow, Window, LabeledReferenceRegionPartitioner}
+import net.akmorrow13.endive.utils.{GenomicRegionPartitioner, LabeledWindow, Window}
 import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
 
@@ -22,7 +22,7 @@ class CellTypeSpecific(@transient windowSize: Int,
     val win = this.windowSize
 
     val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.getRegion, r.win.getCellType))
-      .partitionBy(new LabeledReferenceRegionPartitioner(sd))
+      .partitionBy(GenomicRegionPartitioner(Dataset.partitions, sd))
       .leftOuterJoin(mappedDnase)
       .map(r => {
         val dnase = r._2._2.getOrElse(List())
@@ -92,7 +92,6 @@ object CellTypeSpecific {
   def window[S: ClassTag, T: ClassTag](rdd: RDD[(ReferenceRegion, S, T)], sd: SequenceDictionary): RDD[((ReferenceRegion, S), List[T])] = {
     val stride = 50
     val windowSize = 200
-    sd.records.foreach(r => println(r.name))
     val windowed: RDD[((ReferenceRegion, S), List[T])]  = rdd
      .flatMap(d => {
       val newStart = d._1.start / stride * stride
@@ -100,7 +99,7 @@ object CellTypeSpecific {
       val region = ReferenceRegion(d._1.referenceName, newStart, newEnd)
       unmergeRegions(region, windowSize, stride, sd).map(r => ((r, d._2), d._3))
     }).groupBy(_._1).mapValues(r => r.seq.map(_._2).toList)
-    windowed.partitionBy(new LabeledReferenceRegionPartitioner(sd))
+    windowed.partitionBy(GenomicRegionPartitioner(Dataset.partitions, sd))
   }
 
   /**
