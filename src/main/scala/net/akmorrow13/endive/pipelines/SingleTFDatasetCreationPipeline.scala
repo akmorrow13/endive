@@ -131,18 +131,16 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
      * across the cluster
      */
    	
-      regionsAndLabels.map( r => { 
- //   regionsAndLabels.mapPartitions { part =>
-   //     val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-     //   part.map { r =>
+    regionsAndLabels.mapPartitions( part => {
+        val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+        part.map { r =>
           val startIdx = r._3.start
           val endIdx = r._3.end
-   //       val sequence = reference.extract(r._3)
-          val sequence = "N" * 200
+          val sequence = reference.extract(r._3)
 	  val label = r._4
           val win = Window(r._1, r._2, r._3, sequence)
           LabeledWindow(win, label)
-   //     }
+       }
       })
   }
 

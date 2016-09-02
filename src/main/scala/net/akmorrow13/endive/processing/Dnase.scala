@@ -77,7 +77,7 @@ class Dnase(@transient windowSize: Int,
           Iterable(((r.getCellType, startCut), 1), ((r.getCellType, endCut), 1))
         })
     val pos = counts.filter(_._2 > 0)
-    println("positives in processCuts", pos.count)
+    println("positives in processCuts", counts.count, pos.count)
     counts.reduceByKey(_ + _).map(r => AggregatedCut(r._1._1, r._1._2, r._2))
   }
 }

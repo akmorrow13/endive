@@ -84,10 +84,10 @@ object DnaseModel extends Serializable  {
     val sd = new SequenceDictionary(records)
 
     val motifs: List[Motif] = Motif.parseYamlMotifs(motifPath)
-
     val data: RDD[LabeledWindow] = sc.textFile(labelsPath)
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
 
+    println("dnase areas", data.count,  data.filter(r => r.win.dnase.size > 0).count)
     val windowsRDD = EndiveUtils.subselectRandomSamples(sc, data, sd)
       .setName("windowsRDD")
       .cache()
@@ -108,18 +108,18 @@ object DnaseModel extends Serializable  {
     val cuts = keyedCuts.map(_._2).cache()
     cuts.count
     val dnase = new Dnase(windowSize, stride, sc, cuts)
-    val aggregatedCuts: RDD[CutMap] = dnase.merge(sd).cache()
-    aggregatedCuts.count
+    val aggregatedCuts = dnase.merge(sd).cache()
+    println("aggregated cuts", aggregatedCuts.count)
 
-    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false)
-    println(featurized.first)
+    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false, Some(motifs))
+    println("generated features", featurized.first)
 
     cuts.unpersist(true)
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
     val folds = EndiveUtils.generateFoldsRDD(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds, sampleFreq = None)
 
-    println("TOTAL FOLDS " + folds.size)
+    println("computed folds:TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
       println("FOLD " + i)
       val r = new java.util.Random()
