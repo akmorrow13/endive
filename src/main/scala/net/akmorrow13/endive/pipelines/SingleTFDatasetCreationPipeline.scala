@@ -79,7 +79,8 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
 
-    // create sequence dictionaryEEn(referencePath)
+    // create sequence dictionary
+    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
     val fs: FileSystem = FileSystem.get(new Configuration())
     val dnaseStatus = fs.listStatus(new Path(dnasePath))
