@@ -101,14 +101,21 @@ object DnaseModel extends Serializable  {
     /************************************
       *  Prepare dnase data
       **********************************/
-    val cuts: RDD[Cut] = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
+    val keyedCuts = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
+        .keyBy(r => (r.region, r.getCellType))
+        .partitionBy(GenomicRegionPartitioner(1000, sd))
 
+    keyedCuts.count
+    val cuts = keyedCuts.map(_._2).cache()
+    cuts.count
     val dnase = new Dnase(windowSize, stride, sc, cuts)
-    val aggregatedCuts = dnase.merge(sd).cache()
+    val aggregatedCuts: RDD[CutMap] = dnase.merge(sd).cache()
     aggregatedCuts.count
 
     val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false)
     println(featurized.first)
+
+    cuts.unpersist(true)
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
     val folds = EndiveUtils.generateFoldsRDD(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds, sampleFreq = None)

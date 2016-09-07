@@ -194,17 +194,31 @@ object VectorizedDnase extends Serializable  {
       else
         rdd
 
-    val labeledGroupedWindows: RDD[(String, Iterable[LabeledWindow])] = filteredRDD
-	    .groupBy(w => w.win.getRegion.referenceName)
+    /** *********
+      * Assumes both windows and coverage are partititioned with the genomic partitioner
+      */
 
-    val groupedCoverage: RDD[(String, Iterable[CutMap])] = coverage
-      .groupBy(r => r.position.referenceName)
+    val partitioner = rdd.partitioner.get
 
-    val coverageAndWindows: RDD[(String, (Iterable[LabeledWindow], Option[Iterable[CutMap]]))] = labeledGroupedWindows.leftOuterJoin(groupedCoverage)
+    val partitionedWindows = filteredRDD.keyBy(r => (r.win.region))
+      .groupBy(r => partitioner.getPartition(r._1))
+
+
+    val partitionedCuts = coverage.keyBy(r => (ReferenceRegion(r.position)))
+      .partitionBy(partitioner)
+      .groupBy(r => partitioner.getPartition(r._1))
+
+
+    println("partitioned windows and dnase in featurize", partitionedWindows.count, partitionedCuts.count)
+
+    // join by partition then map partitions
+
+    val coverageAndWindows= partitionedWindows.leftOuterJoin(partitionedCuts)
+    println("partitions after joining", coverageAndWindows.partitions)
 
     coverageAndWindows.mapValues(iter => {
-      val windows: List[LabeledWindow] = iter._1.toList
-      val cov: Map[(Strand, Long), CutMap] = iter._2.getOrElse(Iterator()).map(r => ((r.position.orientation, r.position.pos), r)).toMap
+      val windows: List[LabeledWindow] = iter._1.toList.map(_._2)
+      val cov: Map[(Strand, Long), CutMap] = iter._2.getOrElse(Iterator()).map(r => ((r._2.position.orientation, r._2.position.pos), r)).toMap
 
       windows.map(labeledWindow => {
 
