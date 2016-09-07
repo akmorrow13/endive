@@ -3,7 +3,8 @@ package net.akmorrow13.endive.processing
 import net.akmorrow13.endive.processing.PeakRecord
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
-import net.akmorrow13.endive.utils.{GenomicRegionPartitioner, LabeledWindow, Window}
+import net.akmorrow13.endive.utils.{LabeledWindow, Window}
+import org.bdgenomics.adam.rdd.GenomicRegionPartitioner
 import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
 

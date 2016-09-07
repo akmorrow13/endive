@@ -33,6 +33,7 @@ import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary, ReferenceRegion}
+import org.bdgenomics.adam.rdd.GenomicRegionPartitioner
 import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.yaml.snakeyaml.constructor.Constructor

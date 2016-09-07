@@ -4,6 +4,7 @@ import net.akmorrow13.endive.processing.{Dataset, TranscriptionFactors, CellType
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
+import org.bdgenomics.adam.rdd.GenomicRegionPartitioner
 import scala.reflect.ClassTag
 import scala.util.Random
 
