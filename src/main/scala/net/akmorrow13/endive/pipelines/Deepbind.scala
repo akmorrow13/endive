@@ -19,7 +19,7 @@ import java.io.File
 import breeze.linalg.DenseVector
 import evaluation.BinaryClassifierEvaluator
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.featurizers.Motif
+import net.akmorrow13.endive.featurizers.{MotifScorer, Motif}
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
 import net.akmorrow13.endive.processing.Dataset
@@ -33,6 +33,7 @@ import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary, ReferenceRegion}
+import org.bdgenomics.adam.rdd.GenomicRegionPartitioner
 import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.yaml.snakeyaml.constructor.Constructor
@@ -97,7 +98,7 @@ object Deepbind extends Serializable {
     tfs.foreach(println)
     assert(tfs.length == 1)
 
-    val motifFinder = new Motif(sc, sd)
+    val motifFinder = new MotifScorer(sc, sd)
     val scores: RDD[Double] = motifFinder.getDeepBindScoresPerPartition(fullMatrix.map(_.win.sequence), tfs.toList, deepbindPath).cache().map(_.head)
     println("completed deepbind scoring:", scores.count)
 
@@ -112,7 +113,7 @@ object Deepbind extends Serializable {
     println(s"saving to file location:${fileLocation}")
     finalResults
       .map(r => ((r.win.region, r.win.cellType), r))
-      .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
+      .partitionBy(GenomicRegionPartitioner(Dataset.partitions, sd))
       .map(r => r._2.toString)
       .saveAsTextFile(fileLocation)
   }

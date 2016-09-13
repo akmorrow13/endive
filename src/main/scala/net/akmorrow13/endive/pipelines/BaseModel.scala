@@ -19,7 +19,7 @@ import java.io.File
 import breeze.linalg.DenseVector
 import evaluation.BinaryClassifierEvaluator
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.featurizers.Motif
+import net.akmorrow13.endive.featurizers.{MotifScorer, Motif}
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
 import net.akmorrow13.endive.processing.Dataset
@@ -89,16 +89,15 @@ object BaseModel extends Serializable  {
     tfs.foreach(println)
 
     val records = DatasetCreationPipeline.getSequenceDictionary(conf.reference)
-      .records.filter(r => Dataset.chrs.contains(r.name))
+      .records.filter(r => Chromosomes.toVector.contains(r.name))
 
     val sd = new SequenceDictionary(records)
 
-
-    val cellTypes: Array[String] = fullMatrix.map(x => (x.win.cellType)).countByValue().keys.toArray
+    val cellTypes: Array[CellTypes.Value] = fullMatrix.map(x => (x.win.cellType)).countByValue().keys.toArray
     val folds = cellTypes.size
 
     // deepbind does not have creb1 scores so we will hold out for now
-    val foldsData: RDD[BaseFeature] = featurize(sc, fullMatrix,tfs, conf.motifDBPath, None, sd)
+    val foldsData: RDD[BaseFeature] = featurize(sc, fullMatrix, tfs, conf.motifDBPath, None, sd)
           .setName("foldsData")
           .cache()
     println(s"joined with motifs ${foldsData.count}")
@@ -155,7 +154,6 @@ object BaseModel extends Serializable  {
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest))
       println("Test Results: \n ")
       Metrics.printMetrics(evalTest)
-
     }
   }
 
@@ -168,17 +166,16 @@ object BaseModel extends Serializable  {
           - max DNASE fold change across each bin
     *************************************/
   def featurize(sc: SparkContext, rdd: RDD[LabeledWindow],
-                tfs: Array[String],
+                tfs: Array[TranscriptionFactors.Value],
                 motifDB: String,
                 deepbindPath: Option[String] = None,
                 sd:SequenceDictionary): RDD[BaseFeature] = {
-    val motif = new Motif(sc, sd)
+    val motif = new MotifScorer(sc, sd)
 
-    val filteredRDD = Sampling.subselectSamples(sc, rdd, sd, partition = false)
+    val filteredRDD = EndiveUtils.subselectSamples(sc, rdd, sd, partition = false)
     println(s"filtered rdd ${filteredRDD.count}, original rdd ${rdd.count}")
     println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
       s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
-
 
     val filteredPositives = filteredRDD.filter(_.win.getDnase.length > 0)
     val filteredNegatives = filteredRDD.filter(_.win.getDnase.length == 0)
@@ -194,17 +191,17 @@ object BaseModel extends Serializable  {
     val results = motifScores
         .map(r => {
           // known motif score
-	  val dnasefold = 
-		if (r.win.getDnase.length > 0) {
-          		// max DNASE fold change across each bin
-          		val maxScore = r.win.getDnase.map(_.peak).max
-          		val minScore = r.win.getDnase.map(_.peak).min
-          		(maxScore - minScore) / minScore
-		} else 0.0
-          val motifs = r.win.motifs
-          val (min: Double, max: Double, mean: Double) =
-            if (motifs.length > 0) (motifs.map(_.peak).min, motifs.map(_.peak).max, r.win.motifs.map(_.peak).sum/motifs.length)
-	    else (0.0, 0.0, 0.0)
+          val dnasefold =
+          if (r.win.getDnase.length > 0) {
+            // max DNASE fold change across each bin
+            val maxScore = r.win.getDnase.map(_.peak).max
+            val minScore = r.win.getDnase.map(_.peak).min
+            (maxScore - minScore) / minScore
+          } else 0.0
+            val motifs = r.win.motifs
+            val (min: Double, max: Double, mean: Double) =
+              if (motifs.length > 0) (motifs.map(_.peak).min, motifs.map(_.peak).max, r.win.motifs.map(_.peak).sum/motifs.length)
+              else (0.0, 0.0, 0.0)
           BaseFeature(r, DenseVector(min, max, mean, dnasefold))
         })
     println("after motifs and featurizing",results.count)
