@@ -17,6 +17,7 @@ package net.akmorrow13.endive.pipelines
 
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.processing.{Cut, Dataset}
+import net.akmorrow13.endive.processing.{Cut, CellTypes, Dataset}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileStatus, Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
@@ -107,11 +108,7 @@ object ProcessDnaseBams extends Serializable with Logging {
 
         log.info(s"Now saving dnase cuts for ${cellType} to disk")
         // TODO: save cuts for celltype
-        totalCuts
-          .keyBy(_.region)
-          .partitionBy(ReferencePartitioner(sd))
-          .map(_._2.toString).saveAsTextFile(outputLocation)
-
+        totalCuts.map(_.toString).saveAsTextFile(output)
         totalCuts.unpersist(true)
       } else {
         println(s"dnase for ${cellType} exists. skipping")

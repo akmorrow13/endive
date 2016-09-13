@@ -83,9 +83,7 @@ object DnaseModel extends Serializable  {
 
     val sd = new SequenceDictionary(records)
 
-    if (false) {
-      val motifs: List[Motif] = Motif.parseYamlMotifs(motifPath)
-    }
+    val motifs: List[Motif] = Motif.parseYamlMotifs(motifPath)
 
     val data: RDD[LabeledWindow] = sc.textFile(labelsPath)
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
@@ -125,6 +123,7 @@ object DnaseModel extends Serializable  {
     for (i <- (0 until folds.size)) {
       println("FOLD " + i)
       val r = new java.util.Random()
+
       val train = folds(i)._1.map(_._2)
         .filter(x => x.labeledWindow.label == 1 || (x.labeledWindow.label == 0 && r.nextFloat < 0.001))
         .setName("train").cache()

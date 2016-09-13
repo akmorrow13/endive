@@ -45,7 +45,6 @@ class Dnase(@transient windowSize: Int,
                         @transient sc: SparkContext,
                        dnaseCuts: RDD[Cut]) extends Serializable {
 
-
   /**
    * Merges Cuts into an rdd that maps each point in the genome to a map of cuts, where the map specifies the cell type
    * If the cell Type has no cuts in a region, that cell type is excluded from the map

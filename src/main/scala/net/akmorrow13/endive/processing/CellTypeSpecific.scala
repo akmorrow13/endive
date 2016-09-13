@@ -93,6 +93,7 @@ object CellTypeSpecific {
   def window[S: ClassTag, T: ClassTag](rdd: RDD[(ReferenceRegion, S, T)], sd: SequenceDictionary): RDD[((ReferenceRegion, S), List[T])] = {
     val stride = 50
     val windowSize = 200
+    sd.records.foreach(r => println(r.name))
     val windowed: RDD[((ReferenceRegion, S), List[T])]  = rdd
      .flatMap(d => {
       val newStart = d._1.start / stride * stride
