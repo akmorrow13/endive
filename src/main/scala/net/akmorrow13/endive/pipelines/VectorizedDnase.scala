@@ -217,9 +217,10 @@ object VectorizedDnase extends Serializable  {
         .groupByKey()
 
 
-    // join chunked dnase and windws
-    val cutsAndWindows: RDD[(LabeledWindow, Iterable[Iterable[CutMap]])] =
-      InnerShuffleRegionJoinAndGroupByLeft[LabeledWindow, Iterable[CutMap]](sd, dnaseSelectionSize, sc).partitionAndJoin(windowsWithDnase, partitionedCuts)
+    // join chunked dnase and windows
+    // to make this work you need to set ADAM version to https://github.com/bigdatagenomics/adam/pull/1109
+    val cutsAndWindows: RDD[(LabeledWindow, Iterable[Iterable[CutMap]])] = null
+//      InnerShuffleRegionJoinAndGroupByLeft[LabeledWindow, Iterable[CutMap]](sd, dnaseSelectionSize, sc).partitionAndJoin(windowsWithDnase, partitionedCuts)
 
 
     val centipedeWindows: RDD[BaseFeature] =
