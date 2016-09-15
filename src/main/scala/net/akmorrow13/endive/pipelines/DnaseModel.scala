@@ -25,12 +25,14 @@ import nodes.learning.LogisticRegressionEstimator
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.SequenceDictionary
+import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
+
 import org.bdgenomics.adam.rdd.GenomicRegionPartitioner
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
 
+import org.bdgenomics.adam.rdd._
 
 object DnaseModel extends Serializable  {
 
@@ -74,6 +76,7 @@ object DnaseModel extends Serializable  {
     val labelsPath = conf.labels
     val dnasePath = conf.dnase
     val motifPath = conf.motifDBPath
+    val tempOutput = conf.aggregatedSequenceOutput
 
     /** ***************************************
       * Read in reference dictionary
@@ -111,8 +114,8 @@ object DnaseModel extends Serializable  {
     val aggregatedCuts: RDD[CutMap] = dnase.merge(sd).cache()
     aggregatedCuts.count
 
-    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false)
-    println(featurized.first)
+    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false, Some(motifs),Some(tempOutput))
+    println("generated features", featurized.first)
 
     cuts.unpersist(true)
 
