@@ -21,7 +21,7 @@ import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
 import nodes.learning.LogisticRegressionEstimator
-
+import org.bdgenomics.adam.rdd._
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.bdgenomics.adam.rdd._
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
@@ -213,14 +213,14 @@ object VectorizedDnase extends Serializable  {
 
     // chunk dnase into regions that can be joined
     val partitionedCuts: RDD[(ReferenceRegion, Iterable[CutMap])] = coverage
-        .keyBy(r => ReferenceRegion(r.position.referenceName, r.position.pos % dnaseSelectionSize, r.position.pos % dnaseSelectionSize + dnaseSelectionSize - 1 ))
+        .keyBy(r => ReferenceRegion(r.position.referenceName, r.position.pos % dnaseSelectionSize, r.position.pos +1))
         .groupByKey()
 
 
     // join chunked dnase and windows
     // to make this work you need to set ADAM version to https://github.com/bigdatagenomics/adam/pull/1109
-    val cutsAndWindows: RDD[(LabeledWindow, Iterable[Iterable[CutMap]])] = null
-//      InnerShuffleRegionJoinAndGroupByLeft[LabeledWindow, Iterable[CutMap]](sd, dnaseSelectionSize, sc).partitionAndJoin(windowsWithDnase, partitionedCuts)
+    val cutsAndWindows: RDD[(LabeledWindow, Iterable[Iterable[CutMap]])] =
+      InnerShuffleRegionJoinAndGroupByLeft[LabeledWindow, Iterable[CutMap]](sd, dnaseSelectionSize, sc).partitionAndJoin(windowsWithDnase, partitionedCuts)
 
 
     val centipedeWindows: RDD[BaseFeature] =

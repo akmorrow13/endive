@@ -108,7 +108,7 @@ object ProcessDnaseBams extends Serializable with Logging {
 
         log.info(s"Now saving dnase cuts for ${cellType} to disk")
         // TODO: save cuts for celltype
-        totalCuts.map(_.toString).saveAsTextFile(output)
+        totalCuts.map(_.toString).saveAsTextFile(outputLocation)
         totalCuts.unpersist(true)
       } else {
         println(s"dnase for ${cellType} exists. skipping")
