@@ -48,7 +48,7 @@ def generateTrainTestSplit[T: ClassTag](allData: RDD[((String, CellTypes.Value),
           .setName("train").cache()
         val test = allData.filter { window => holdOutChromosomes.contains(window._1._1) && holdOutCellTypes.contains(window._1._2) }
           .setName("test").cache()
-        (train, test)
+        (train, test, holdOutCellTypes, holdOutChromosomes)
  }
 
 
