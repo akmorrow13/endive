@@ -212,40 +212,63 @@ object VectorizedDnase extends Serializable  {
 
     println("windows with dnase filtered", windowsWithDnase.count, windowsWithoutDnase.count)
 
-    // chunk dnase into regions that can be joined
-    val partitionedCuts: RDD[(ReferenceRegion, Iterable[CutMap])] = coverage
+    val partitionedCuts: RDD[(ReferenceRegion, CutMap)] = coverage
         .keyBy(r => ReferenceRegion(r.position.referenceName, r.position.pos % dnaseSelectionSize, r.position.pos +1))
-        .groupByKey()
-
 
     // join chunked dnase and windows
     // to make this work you need to set ADAM version to https://github.com/bigdatagenomics/adam/pull/1109
-    val cutsAndWindows: RDD[(LabeledWindow, Iterable[Iterable[CutMap]])] =
-      InnerShuffleRegionJoinAndGroupByLeft[LabeledWindow, Iterable[CutMap]](sd, dnaseSelectionSize, sc).partitionAndJoin(windowsWithDnase, partitionedCuts)
+    val cutsAndWindows: RDD[(LabeledWindow, Iterable[CutMap])] =
+      InnerShuffleRegionJoinAndGroupByLeft[LabeledWindow, CutMap](sd, dnaseSelectionSize, sc).partitionAndJoin(windowsWithDnase, partitionedCuts)
 
+//    cutsAndWindows.map(r => (r._1.toString + "/" + r._2.map(_.toString).mkString(":")))
+//      .saveAsTextFile("path")
+
+    featurizePreloaded(cutsAndWindows, scale, motifs)
+  }
+
+
+  def featurizePreloaded(cutsAndWindows: RDD[(LabeledWindow, Iterable[CutMap])],
+                scale: Option[Int] = None,
+                motifs: Option[List[Motif]] = None): RDD[BaseFeature] = {
+
+    // filter windows into regions with and without relaxed dnase peaks
+    val windowsWithoutDnase = cutsAndWindows.filter(_._1.win.dnase.size == 0)
+
+    val windowsWithDnase = cutsAndWindows.filter(_._1.win.dnase.size > 0)
+
+
+    // set size of dnase region to featurize
+    val dnaseFeatureCount = 300
+    val flanking = dnaseFeatureCount/2
 
     val centipedeWindows: RDD[BaseFeature] =
-      cutsAndWindows.map(windowed => {
-      val window: LabeledWindow = windowed._1
-      val cellType = window.win.cellType
-      val dnase: Map[(Strand, Long), CutMap] = windowed._2.flatten.map(r => ((r.position.orientation, r.position.pos), r)).toMap
+      windowsWithDnase.map(windowed => {
+        val window: LabeledWindow = windowed._1
+        val cellType = window.win.cellType
+        val dnase: Map[(Strand, Long), CutMap] = windowed._2.map(r => ((r.position.orientation, r.position.pos), r)).toMap
 
         // where to center motif?
         val (start, end) =
           if (motifs.isDefined) { // if motif is defined center at most probable motif
-            // format motifs to map on tf
-            val tfmotifs = motifs.get.filter(_.label == window.win.tf.toString)
-            // get max motif location
-            val center =
-              tfmotifs.map(motif => {
-                val motifLength = motif.length
-                // slide length, take index of max probabilitiy
-                window.win.sequence
-                  .sliding(motifLength)
-                  .map(r => motif.sequenceProbability(r))
-                  .zipWithIndex
-                  .maxBy(_._1)
-              }).maxBy(_._1)._2
+          // format motifs to map on tf
+          val tfmotifs = motifs.get.filter(_.label == window.win.tf.toString)
+          println("tfmotifs length", tfmotifs.length)
+          val center =
+            if (tfmotifs.length == 0) {
+              println(s"no motifs for tf ${window.win.tf.toString}. Parsing from center")
+              window.win.sequence.length/2
+            } else {
+              // get max motif location
+                tfmotifs.map(motif => {
+                  val motifLength = motif.length
+                  // slide length, take index of max probabilitiy
+                  window.win.sequence
+                    .sliding(motifLength)
+                    .map(r => motif.sequenceProbability(r))
+                    .zipWithIndex
+                    .maxBy(_._1)
+                }).maxBy(_._1)._2
+            }
 
             (window.win.region.start + center  - flanking,
               window.win.region.start + center + flanking) //determines size of dnase footprint region
@@ -268,7 +291,7 @@ object VectorizedDnase extends Serializable  {
           }).toArray
 
         val positions =
-            Dnase.msCentipede(positivePositions, scale) ++ Dnase.msCentipede(negativePositions, scale)
+          Dnase.msCentipede(positivePositions, scale) ++ Dnase.msCentipede(negativePositions, scale)
 
         // positions should be size of window
         BaseFeature(window, DenseVector(positions))
@@ -278,8 +301,8 @@ object VectorizedDnase extends Serializable  {
     println("centipede feature length", featureLength)
 
     // put back in windows without relaxed dnase
-    windowsWithoutDnase.map(r => BaseFeature(r, DenseVector.ones(featureLength)))
-        .union(centipedeWindows)
+    windowsWithoutDnase.map(r => BaseFeature(r._1, DenseVector.ones(featureLength)))
+      .union(centipedeWindows)
   }
 
 

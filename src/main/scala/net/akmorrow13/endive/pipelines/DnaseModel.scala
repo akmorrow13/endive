@@ -25,14 +25,12 @@ import nodes.learning.LogisticRegressionEstimator
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
-
+import org.bdgenomics.adam.models.SequenceDictionary
 import org.bdgenomics.adam.rdd.GenomicRegionPartitioner
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
 
-import org.bdgenomics.adam.rdd._
 
 object DnaseModel extends Serializable  {
 
@@ -76,7 +74,6 @@ object DnaseModel extends Serializable  {
     val labelsPath = conf.labels
     val dnasePath = conf.dnase
     val motifPath = conf.motifDBPath
-    val tempOutput = conf.aggregatedSequenceOutput
 
     /** ***************************************
       * Read in reference dictionary
@@ -87,10 +84,10 @@ object DnaseModel extends Serializable  {
     val sd = new SequenceDictionary(records)
 
     val motifs: List[Motif] = Motif.parseYamlMotifs(motifPath)
+
     val data: RDD[LabeledWindow] = sc.textFile(labelsPath)
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
 
-    println("dnase areas", data.count,  data.filter(r => r.win.dnase.size > 0).count)
     val windowsRDD = EndiveUtils.subselectRandomSamples(sc, data, sd)
       .setName("windowsRDD")
       .cache()
@@ -105,24 +102,24 @@ object DnaseModel extends Serializable  {
       **********************************/
     val keyedCuts = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
         .keyBy(r => (r.region, r.getCellType))
-        .partitionBy(GenomicRegionPartitioner(1000, sd))
+        .partitionBy(GenomicRegionPartitioner(10, sd))
 
     keyedCuts.count
     val cuts = keyedCuts.map(_._2).cache()
     cuts.count
     val dnase = new Dnase(windowSize, stride, sc, cuts)
-    val aggregatedCuts = dnase.merge(sd).cache()
-    println("aggregated cuts", aggregatedCuts.count)
+    val aggregatedCuts: RDD[CutMap] = dnase.merge(sd).cache()
+    aggregatedCuts.count
 
-    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false, Some(motifs),Some(tempOutput))
-    println("generated features", featurized.first)
+    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false)
+    println(featurized.first)
 
     cuts.unpersist(true)
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
     val folds = EndiveUtils.generateFoldsRDD(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds, sampleFreq = None)
 
-    println("computed folds:TOTAL FOLDS " + folds.size)
+    println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
       println("FOLD " + i)
       val r = new java.util.Random()
@@ -170,5 +167,6 @@ object DnaseModel extends Serializable  {
       Metrics.printMetrics(evalTest)
     }
   }
+
 
 }
