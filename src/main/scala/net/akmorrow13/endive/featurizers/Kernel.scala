@@ -9,7 +9,7 @@ import workflow.Transformer
 
 
 /* This only works for small alphabet size, use sparse matrix later */
-class KernelApproximator(filters: DenseMatrix[Double], nonlin: Double => Double, ngramSize: Int = 8, alphabetSize: Int = 4, seqSize: Int = 200)
+class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double = (x: Double) => x , ngramSize: Int = 8, alphabetSize: Int = 4, seqSize: Int = 200)
   extends Transformer[DenseVector[Double], DenseVector[Double]] {
 
 
@@ -17,17 +17,18 @@ class KernelApproximator(filters: DenseMatrix[Double], nonlin: Double => Double,
   val outSize = seqSize - ngramSize + 1
 
   override def apply(in: RDD[DenseVector[Double]]): RDD[DenseVector[Double]] = {
-    in.mapPartitions(convolvePartitions(_, filters,ngramSize, outSize, alphabetSize))
+    in.mapPartitions(convolvePartitions(_, filters, nonLin, ngramSize, outSize, alphabetSize))
   }
 
   def apply(in: DenseVector[Double]): DenseVector[Double]= {
     var ngramMat = new DenseMatrix[Double](outSize*alphabetSize, ngramSize)
-    convolve(in, ngramMat, filters)
+    convolve(in, ngramMat, filters, nonLin)
   }
 
   def convolve(seq: DenseVector[Double],
       ngramMat: DenseMatrix[Double],
       filters: DenseMatrix[Double],
+      nonLin: Double => Double,
       alphabetSize: Int = 4): DenseVector[Double] = {
 
     /* Make the ngram */
@@ -38,9 +39,19 @@ class KernelApproximator(filters: DenseMatrix[Double], nonlin: Double => Double,
 
     val convRes: DenseMatrix[Double] = seq * filters
 
+    val convResArray = convRes.data
+
+    /* Apply non linearity element wise */
+    var i = 0
+    while (i < convResArray.size) {
+      convResArray(i) = nonLin(convResArray(i))
+      i += 1
+    }
+
     /* sum across spatial dimension */
     sum(convRes, Axis._1).toDenseVector
   }
+
 
   def makeNgrams(seq: DenseVector[Double],
       ngramMat: DenseMatrix[Double],
@@ -63,11 +74,12 @@ class KernelApproximator(filters: DenseMatrix[Double], nonlin: Double => Double,
 
   def convolvePartitions(seq: Iterator[DenseVector[Double]],
                          filters: DenseMatrix[Double],
+                         nonLin: Double => Double,
                          ngramSize: Int,
                          outSize: Int,
                          alphabetSize: Int = 4): Iterator[DenseVector[Double]] =
   {
     var ngramMat = new DenseMatrix[Double](outSize*alphabetSize, ngramSize)
-    seq.map(convolve(_, ngramMat, filters, alphabetSize))
+    seq.map(convolve(_, ngramMat, filters, nonLin, alphabetSize))
   }
 }
