@@ -12,6 +12,7 @@ import org.bdgenomics.formats.avro.{Contig, NucleotideContigFragment}
 import org.apache.commons.math3.random.MersenneTwister
 
 import nodes.akmorrow13.endive.featurizers.KernelApproximator
+import utils.Stats
 
 class KernelApproximatorSuite extends EndiveFunSuite {
 
@@ -155,8 +156,8 @@ class KernelApproximatorSuite extends EndiveFunSuite {
 
     /* Linear kernel is just the dot product */
     var kxy = 0.0
-    var kxx1 = 0.0
-    var kxx2 = 0.0
+    var kxx = 0.0
+    var kyy = 0.0
 
     var i = 0
     while (i < outSize) {
@@ -178,7 +179,7 @@ class KernelApproximatorSuite extends EndiveFunSuite {
         val ngram1:DenseVector[Double] = ngrams1(i,::).t
         val ngram2:DenseVector[Double] = ngrams1(j,::).t
         val k = (ngram1.t * ngram2)
-        kxx1 += k
+        kxx += k
         j += 1
       }
       i += 1
@@ -191,23 +192,26 @@ class KernelApproximatorSuite extends EndiveFunSuite {
         val ngram1:DenseVector[Double] = ngrams2(i,::).t
         val ngram2:DenseVector[Double] = ngrams2(j,::).t
         val k = (ngram1.t * ngram2)
-        kxx2 += k
+        kyy += k
         j += 1
       }
       i += 1
     }
-    println("KXY " + kxy)
-    println("KXX1 " + kxx1)
-    println("KXX2 " + kxx2)
+
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
     val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
-    val kApprox = new KernelApproximator(W)
-    val phi1 = kApprox(sequenceVector)
-    val phi2 = kApprox(sequenceVector2)
-    println("KXX1_hat = " +  phi1.t * phi1)
-    println("KXX2_hat = " +  phi2.t * phi2)
-    println("KXY_hat = " +   phi1.t * phi2)
+    val kernelApprox = new KernelApproximator(W)
+    val Wx = kernelApprox(sequenceVector)
+    val Wy = kernelApprox(sequenceVector2)
+
+    val kxyhat = (Wx.t * Wy)
+    val kxxhat = (Wx.t * Wx)
+    val kyyhat = (Wy.t * Wy)
+
+    assert(Stats.aboutEq(kxyhat, kxy, 0.01))
+    assert(Stats.aboutEq(kxxhat, kxx, 0.01))
+    assert(Stats.aboutEq(kyyhat, kyy, 0.01))
 
 
   }

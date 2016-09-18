@@ -37,9 +37,6 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
       /* Make the ngram */
      var ngrams: DenseMatrix[Double] = KernelApproximator.makeNgrams(seq, ngramMat, ngramSize)
 
-    println("Filter size " +  filters.rows + "x" + filters.cols)
-    println("Ngrams size " +  ngrams.rows + "x" + ngrams.cols)
-
     /* Actually do the convolution */
     val convRes: DenseMatrix[Double] = ngrams * filters.t
 
@@ -55,7 +52,7 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
    }
 
    /* sum across spatial dimension */
-  val outV = 1.0/sqrt(filters.rows) * sum(convRes, Axis._1).toDenseVector
+  val outV = 1.0/sqrt(filters.rows) * sum(convRes, Axis._0).toDenseVector
 
   /* Normalize */
   outV :/= norm(outV)
