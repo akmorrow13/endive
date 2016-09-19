@@ -52,8 +52,6 @@ class Dnase(@transient windowSize: Int,
    * @return
    */
   def merge(sd: SequenceDictionary): RDD[CutMap] = {
-    val chrs = dnaseCuts.map(_.region.referenceName).distinct().collect
-    val reducedRecords = sc.parallelize(sd.records.filter(r => chrs.contains(r.name)), chrs.length)  // filter out data in dnase
 
     processCuts()
         .groupBy(r => r.position)

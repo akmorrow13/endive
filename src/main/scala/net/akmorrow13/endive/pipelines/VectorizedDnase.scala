@@ -184,7 +184,7 @@ object VectorizedDnase extends Serializable  {
     val chromosomes = Chromosomes.toVector
 
     // value to select dnase regions by
-    val dnaseSelectionSize = 1000
+    val dnaseSelectionSize = 2000000
 
     // set size of dnase region to featurize
     val dnaseFeatureCount = 500
@@ -214,8 +214,8 @@ object VectorizedDnase extends Serializable  {
     val cutsAndWindows: RDD[(LabeledWindow, Iterable[CutMap])] = null
 //      InnerShuffleRegionJoinAndGroupByLeft[LabeledWindow, CutMap](sd, dnaseSelectionSize, sc).partitionAndJoin(windowsWithDnase, partitionedCuts)
 
-//    cutsAndWindows.map(r => (r._1.toString + "/" + r._2.map(_.toString).mkString(":")))
-//      .saveAsTextFile("path")
+    cutsAndWindows.map(r => (r._1.toString + "/" + r._2.map(_.toString).mkString(":")))
+      .saveAsTextFile("DREAMDATA/aggregated/vectorizedOutput")
 
     featurizePreloaded(cutsAndWindows, scale, motifs)
   }

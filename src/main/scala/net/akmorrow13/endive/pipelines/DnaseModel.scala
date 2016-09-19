@@ -107,9 +107,8 @@ object DnaseModel extends Serializable  {
         .keyBy(r => (r.region, r.getCellType))
         .partitionBy(GenomicRegionPartitioner(1000, sd))
 
-    keyedCuts.count
     val cuts = keyedCuts.map(_._2).cache()
-    cuts.count
+    println("cuts partitions", cuts.partitions.length)
     val dnase = new Dnase(windowSize, stride, sc, cuts)
     val aggregatedCuts: RDD[CutMap] = dnase.merge(sd).cache()
     aggregatedCuts.count

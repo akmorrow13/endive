@@ -54,10 +54,10 @@ export CPATH=/home/eecs/vaishaal/gcc-build/include
 "$SPARK_SUBMIT" \
   --master $MASTER \
   --class $CLASS \
-  --num-executors  16 \
+  --num-executors  32 \
   --driver-memory 60g \
-  --executor-memory 20g \
-  --executor-cores 8 \
+  --executor-memory 60g \
+  --executor-cores 12 \
   --driver-class-path $JARFILE:$ASSEMBLYJAR:$HOME/hadoop/conf \
   --driver-library-path /opt/amp/gcc/lib64:/opt/amp/openblas/lib:$FWDIR/lib \
   --conf spark.executor.extraLibraryPath=/opt/amp/openblas/lib:$FWDIR/lib \
@@ -75,7 +75,7 @@ export CPATH=/home/eecs/vaishaal/gcc-build/include
   --conf spark.yarn.appMasterEnv.OMP_NUM_THREADS=1 \
   --conf spark.network.timeout=600 \
   --conf spark.executorEnv.OMP_NUM_THREADS=1 \
-  --conf spark.storage.memoryFraction=0.6 \
+  --conf spark.storage.memoryFraction=0.3 \
   --conf spark.network.timeout=300s \
   --jars $ASSEMBLYJAR \
   $JARFILE \
