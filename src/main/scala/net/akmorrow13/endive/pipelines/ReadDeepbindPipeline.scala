@@ -16,9 +16,8 @@
 package net.akmorrow13.endive.pipelines
 
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.utils.{DeepbindRecord, DeepbindRecordLoader}
+import net.akmorrow13.endive.utils.DeepbindRecordLoader
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
@@ -61,12 +60,8 @@ object ReadDeepbindPipeline extends Serializable with Logging {
 
     val (train, test) = DeepbindRecordLoader.load(sc, dir)
 
-    println("train negatives", train.filter(_.label == 0).count)
-    println("train positives", train.filter(_.label == 1).count)
-
     println(train.count)
     println(test.count)
-    test.filter(_.label == 0).take(10).foreach(r => println(r.id, r.sequence))
 
   }
 
