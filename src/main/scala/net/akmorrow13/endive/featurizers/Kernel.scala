@@ -12,7 +12,7 @@ import net.jafama.FastMath
 
 
 /* This only works for small alphabet size, use sparse matrix later */
-class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double = (x: Double) => x , ngramSize: Int = 8, alphabetSize: Int = 4, seqSize: Int = 200)
+class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double = (x: Double) => x , offset:Option[DenseVector[Double]] = None, ngramSize: Int = 8, alphabetSize: Int = 4, seqSize: Int = 200)
   extends Transformer[DenseVector[Double], DenseVector[Double]] {
 
 
@@ -20,18 +20,19 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
   val outSize = seqSize - ngramSize + 1
 
   override def apply(in: RDD[DenseVector[Double]]): RDD[DenseVector[Double]] = {
-    in.mapPartitions(convolvePartitions(_, filters, nonLin, ngramSize, outSize, alphabetSize))
+    in.mapPartitions(convolvePartitions(_, filters, nonLin, offset, ngramSize, outSize, alphabetSize))
   }
 
   def apply(in: DenseVector[Double]): DenseVector[Double]= {
     var ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
-    convolve(in, ngramMat, filters, nonLin)
+    convolve(in, ngramMat, filters, nonLin, offset)
   }
 
   def convolve(seq: DenseVector[Double],
     ngramMat: DenseMatrix[Double],
     filters: DenseMatrix[Double],
     nonLin: Double => Double,
+    offset: Option[DenseVector[Double]],
     alphabetSize: Int = 4): DenseVector[Double] = {
 
       /* Make the ngram */
@@ -40,14 +41,15 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
     /* Actually do the convolution */
     val convRes: DenseMatrix[Double] = ngrams * filters.t
 
-    /* TODO: Do we want to normalize here?*/
-
-    val convResArray = convRes.data
-
     /* Apply non linearity element wise */
    var i = 0
-   while (i < convResArray.size) {
-     convResArray(i) = nonLin(convResArray(i))
+   while (i < convRes.rows) {
+      var j = 0
+      while (j < convRes.cols) {
+        val phase = offset.map(x => x(i)).getOrElse(0.0)
+        convRes(i,j) = nonLin(convRes(i,j) + phase)
+        j += 1
+      }
      i += 1
    }
 
@@ -63,12 +65,13 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
   def convolvePartitions(seq: Iterator[DenseVector[Double]],
     filters: DenseMatrix[Double],
     nonLin: Double => Double,
+    offset:Option[DenseVector[Double]],
     ngramSize: Int,
     outSize: Int,
     alphabetSize: Int = 4): Iterator[DenseVector[Double]] =
     {
       var ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
-      seq.map(convolve(_, ngramMat, filters, nonLin, alphabetSize))
+      seq.map(convolve(_, ngramMat, filters, nonLin, offset, alphabetSize))
     }
   }
 
