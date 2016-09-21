@@ -16,8 +16,6 @@ object EndiveUtils {
 /* Generate folds RDD */
 def generateFoldsRDD[T: ClassTag](allData:RDD[((String, CellTypes.Value), T)], numHeldOutCellTypes: Int = 1, numHeldOutChromosomes: Int = 3, numFolds: Int = 10, sampleFreq: Option[Double] = Some(DEFAULTSAMPLING), randomSeed:Int = DEFAULTSEED) = {
 
-    @transient
-    val r = new Random(randomSeed)
 
     val sampledData =
       if (sampleFreq.isDefined)
@@ -29,13 +27,19 @@ def generateFoldsRDD[T: ClassTag](allData:RDD[((String, CellTypes.Value), T)], n
     val cellTypesChromosomes:Set[(String, CellTypes.Value)] = sampledData.map(x => x._1).distinct().collect.toSet
 
     /* this will work with exponentially high probability */
-    val cellTypes:Iterable[CellTypes.Value] = cellTypesChromosomes.map(_._2)
+    val cellTypes:Iterable[CellTypes.Value] = cellTypesChromosomes.map(_._2).toList
 
     /* this will work with exponentially high probability */
-    val chromosomes:Iterable[String] = cellTypesChromosomes.map(_._1)
+    val chromosomes:Iterable[String] = cellTypesChromosomes.map(_._1).toList
+
+    println("ALL CHROMOSOMES " + chromosomes.mkString(","))
+    println("ALL CELLTYPES " + cellTypes.mkString(","))
 
     for (i <- (0 until numFolds)) yield
         {
+        @transient
+        val r = new Random(randomSeed + i)
+
         val holdOutCellTypes = r.shuffle(cellTypes).take(numHeldOutCellTypes).toSet
         val holdOutChromosomes = r.shuffle(chromosomes).take(numHeldOutChromosomes).toSet
         generateTrainTestSplit(allData, holdOutCellTypes, Some(holdOutChromosomes))
@@ -46,7 +50,6 @@ def generateTrainTestSplit[T: ClassTag](allData: RDD[((String, CellTypes.Value),
         val train = allData.filter { window => !holdOutCellTypes.contains(window._1._2) && !holdOutChromosomes.getOrElse(Set()).contains(window._1._1) }
         val test = allData.filter { window => holdOutCellTypes.contains(window._1._2) && holdOutChromosomes.getOrElse(Set(window._1._1)).contains(window._1._1) } 
         (train, test)
-
  }
 
 
