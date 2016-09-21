@@ -3,7 +3,7 @@ package net.akmorrow13.endive.processing
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ReferencePosition, SequenceDictionary, ReferenceRegion}
-import net.akmorrow13.endive.utils.Window
+import net.akmorrow13.endive.utils.{LabeledWindowLoader, LabeledWindow, Window}
 import org.bdgenomics.formats.avro.Strand
 
 object Dnase {
@@ -76,7 +76,8 @@ class Dnase(@transient windowSize: Int,
           val endCut = ReferencePosition(r.region.referenceName, r.region.end, if (r.negativeStrand) Strand.REVERSE else Strand.FORWARD)
           Iterable(((r.getCellType, startCut), 1), ((r.getCellType, endCut), 1))
         })
-
+    val pos = counts.filter(_._2 > 0)
+    println("positives in processCuts", counts.count, pos.count)
     counts.reduceByKey(_ + _).map(r => AggregatedCut(r._1._1, r._1._2, r._2))
   }
 }
@@ -88,7 +89,7 @@ case class Cut(region: ReferenceRegion, experimentId: String, readId: String, ne
   }
 
   def getCellType: CellTypes.Value = {
-    CellTypes.withName(experimentId.split(Window.STDDELIM)(1))
+    CellTypes.getEnumeration(experimentId.split("/").last.split('.')(1))
   }
 }
 
@@ -122,4 +123,54 @@ case class DnaseWindow(region: ReferenceRegion, counts: Array[Int])
  * @param position 1 bp position in the genome
  * @param countMap map of all celltypes and their corresponding counts at that siteG
  */
-case class CutMap(position: ReferencePosition, countMap: Map[CellTypes.Value, Int])
+case class CutMap(position: ReferencePosition, countMap: Map[CellTypes.Value, Int]) {
+
+
+  override def toString: String = {
+    val x: String = countMap.toList.map(r => (r._1 + CutMapLoader.mapSplit + r._2)).mkString(",")
+    s"${position.referenceName},${position.start},${position.orientation}${Window.OUTERDELIM}${x}"
+  }
+
+}
+
+object CutMapLoader {
+  val mapSplit = "->"
+
+  def fromString(str: String): CutMap = {
+    val parts = str.split(Window.OUTERDELIM)
+    val rParts = parts(0).split(",")
+    val mParts = parts(1).split(",")
+    val strand =
+      try {
+        Strand.valueOf(parts(2))
+      } catch {
+        case e: ArrayIndexOutOfBoundsException => Strand.INDEPENDENT
+      }
+    val region = ReferencePosition(rParts(0), rParts(1).toLong, strand)
+    val map = mParts.map(r => {
+      val (cellType, count) = (r.split(mapSplit)(0), r.split(mapSplit)(1))
+      (CellTypes.getEnumeration(cellType), count.toInt)
+    }).toMap
+    CutMap(region, map)
+  }
+}
+
+object LabeledCutMapLoader {
+
+  def stringToLabeledCuts(str: String): (LabeledWindow, Iterable[CutMap]) = {
+    val elementDelim = "/"
+    val cutDelim = ":"
+    val d = str.split(elementDelim)
+    val window = LabeledWindowLoader.stringToLabeledWindow(d(0))
+
+//    val dnase: Option[List[PeakRecord]] = d.lift(1).map(_.split(Window.EPIDELIM).map(r => PeakRecord.fromString(r)).toList)
+    val cuts= d.lift(1).map(_.split(cutDelim).map(r => CutMapLoader.fromString(r)).toIterable)
+    (window, cuts.getOrElse(Iterable()))
+  }
+
+  def apply(path: String, sc: SparkContext): RDD[(LabeledWindow, Iterable[CutMap])] = {
+    val dataTxtRDD:RDD[String] = sc.textFile(path)
+    dataTxtRDD.map(stringToLabeledCuts(_))
+  }
+}
+

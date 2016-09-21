@@ -1,7 +1,7 @@
 package net.akmorrow13.endive.utils
 
 import java.io.ByteArrayInputStream
-import net.akmorrow13.endive.processing.{CellTypes, TranscriptionFactors, RNARecord, PeakRecord}
+import net.akmorrow13.endive.processing._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
