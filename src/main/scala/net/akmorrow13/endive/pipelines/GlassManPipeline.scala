@@ -126,7 +126,7 @@ object GlassmanPipeline  extends Serializable with Logging {
     val dataTxtRDD:RDD[String] = sc.textFile(conf.aggregatedSequenceOutput, minPartitions=600)
 
     val _allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.aggregatedSequenceOutput, sc).setName("_All data").cache()
-    val allData = _allData.repartition(6400).setName("All Data").cache()
+    val allData = _allData.repartition(1000).setName("All Data").cache()
     allData.count()
     println("DATA LOADED AND REPARTIONED")
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
@@ -145,7 +145,7 @@ object GlassmanPipeline  extends Serializable with Logging {
     val uniform = new Uniform(0, 1)
     val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
     val b = DenseVector.rand(approxDim, uniform)
-    for (i <- (0 until conf.folds)) {
+    for (i <- (0 until 1)) {
 
       println("Fold " + i)
       println("HELD OUT CELL TYPES " + foldsData(i)._3.mkString(","))
@@ -182,10 +182,11 @@ object GlassmanPipeline  extends Serializable with Logging {
       println(s"Fold ${i}, training points ${trainCount}, testing points ${testCount}")
 
       println("Fitting model now...")
-      val model = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.1).fit(XTrainLift, yTrain)
+      val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
+      val model  = new PerClassWeightedLeastSquaresEstimator(4096, 1, 0.1, 0.0, Some(4096)).fit(XTrainLift, labelVectorizer(yTrain))
 
-      val yPredTrain = model(XTrainLift)
-      val yPredTest = model(XTestLift)
+      val yPredTrain = model(XTrainLift).map(x => x(1))
+      val yPredTest = model(XTestLift).map(x => x(1))
 
       val evalTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
@@ -195,6 +196,8 @@ object GlassmanPipeline  extends Serializable with Logging {
       println("Test Results (lifted): \n ")
       printMetrics(evalTest)
 
+
+      /*
       println("Training Baseline model")
       val modelBaseLine = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.1).fit(XTrain, yTrain)
 
@@ -210,6 +213,7 @@ object GlassmanPipeline  extends Serializable with Logging {
 
       println("Test Results (baseLine): \n ")
       printMetrics(evalTestBaseLine)
+      */
 
     }
   }
