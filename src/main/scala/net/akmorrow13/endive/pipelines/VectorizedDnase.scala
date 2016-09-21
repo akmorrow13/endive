@@ -21,9 +21,7 @@ import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
 import nodes.learning.LogisticRegressionEstimator
-import org.bdgenomics.adam.rdd._
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
-import org.bdgenomics.adam.rdd._
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
@@ -92,7 +90,6 @@ object VectorizedDnase extends Serializable  {
       *  Prepare dnase data
     **********************************/
     val cuts: RDD[Cut] = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
-    println("cuts count", cuts.count)
 
     val dnase = new Dnase(windowSize, stride, sc, cuts)
     val aggregatedCuts = dnase.merge(sd).cache()
@@ -100,12 +97,8 @@ object VectorizedDnase extends Serializable  {
 
 
     println("TOTAL FOLDS " + folds.size)
-    val scales = Array(None)
-    for (scale <- scales) {
-      val i = 0
-//    for (i <- (0 until folds.size)) {
+    for (i <- (0 until folds.size)) {
       println("FOLD " + i)
-      println("scale", scale)
       // get testing cell types for this fold
       val cellTypesTest = folds(i)._2.map(x => (x._2.win.cellType)).countByValue().keys.toList
       println(s"Fold ${i}, testing cell types:")
@@ -217,8 +210,8 @@ object VectorizedDnase extends Serializable  {
 
     // join chunked dnase and windows
     // to make this work you need to set ADAM version to https://github.com/bigdatagenomics/adam/pull/1109
-    val cutsAndWindows: RDD[(LabeledWindow, Iterable[CutMap])] =
-      InnerShuffleRegionJoinAndGroupByLeft[LabeledWindow, CutMap](sd, dnaseSelectionSize, sc).partitionAndJoin(windowsWithDnase, partitionedCuts)
+    val cutsAndWindows: RDD[(LabeledWindow, Iterable[CutMap])] = null
+//      InnerShuffleRegionJoinAndGroupByLeft[LabeledWindow, CutMap](sd, dnaseSelectionSize, sc).partitionAndJoin(windowsWithDnase, partitionedCuts)
 
 //    cutsAndWindows.map(r => (r._1.toString + "/" + r._2.map(_.toString).mkString(":")))
 //      .saveAsTextFile("path")

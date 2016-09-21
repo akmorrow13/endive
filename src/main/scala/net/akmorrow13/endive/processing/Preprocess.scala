@@ -295,15 +295,12 @@ object Preprocess {
   }
 
   def loadCuts(sc: SparkContext, folder: String, cellTypes: Array[CellTypes.Value]): RDD[Cut] = {
-    println("load cuts")
-    cellTypes.foreach(println)
     var data: RDD[Cut] = sc.emptyRDD[Cut]
     val fileNames = getFileNamesFromDirectory(sc, folder)
 		.filter(_.endsWith("adam"))
     		.filter(r => cellTypes.map(_.toString).contains(r.split("/").last.split('.')(1)))
 
     println(s"loading dnase cuts for: ")
-    fileNames.foreach(println)
     for (file <- fileNames) {
       data = data.union(CutLoader(file, sc))
     }

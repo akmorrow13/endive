@@ -112,7 +112,6 @@ object CutLoader {
 
   def apply(path: String, sc: SparkContext): RDD[Cut] = {
     val dataTxtRDD:RDD[String] = sc.textFile(path)
-    println(" in cutloader", dataTxtRDD.first)
     dataTxtRDD.map(stringToCut(_))
   }
 }

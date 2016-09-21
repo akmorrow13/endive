@@ -58,7 +58,3 @@ object Chromosomes extends Enumeration with Serializable{
   def toVector: Vector[String] = this.values.map(_.toString).toVector
 
 }
-
-
-
-

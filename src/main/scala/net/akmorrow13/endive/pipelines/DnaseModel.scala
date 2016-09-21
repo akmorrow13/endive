@@ -102,7 +102,7 @@ object DnaseModel extends Serializable  {
       **********************************/
     val keyedCuts = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
         .keyBy(r => (r.region, r.getCellType))
-        .partitionBy(GenomicRegionPartitioner(10, sd))
+        .partitionBy(GenomicRegionPartitioner(1000, sd))
 
     keyedCuts.count
     val cuts = keyedCuts.map(_._2).cache()
@@ -167,6 +167,5 @@ object DnaseModel extends Serializable  {
       Metrics.printMetrics(evalTest)
     }
   }
-
 
 }
