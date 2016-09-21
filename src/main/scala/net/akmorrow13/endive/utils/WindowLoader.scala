@@ -49,8 +49,16 @@ object DeepbindRecordLoader {
         .map(r => stringToDeepbindRecord(r, tf, cellType))
       trainRDD = trainRDD.union(rdd)
     }
-    trainRDD
 
+    trainRDD.cache()
+      .setName("trainRDD")
+
+    val negatives = DinucleotideShuffle.getShuffledDinucletides(trainRDD.sample(true, 1))
+
+    val res = trainRDD.union(negatives)
+
+    trainRDD.unpersist()
+    res
   }
 
   private def loadTest(sc: SparkContext,
@@ -72,10 +80,20 @@ object DeepbindRecordLoader {
         .filter(_._2 < testPoints)
         .map(r => stringToDeepbindRecord(r._1, tf, cellType))
 
-      println(rdd.count)
       testRDD = testRDD.union(rdd)
     }
     testRDD
+  }
+
+  def getNegatives(positives: RDD[DeepbindRecord]): RDD[DeepbindRecord] = {
+
+    val positiveCount = positives.count
+
+    positives.sample(true, 0.5).map(r => dinucleotideShuffle(r))
+  }
+
+  def dinucleotideShuffle(positive: DeepbindRecord): DeepbindRecord = {
+    positive
   }
 
 
