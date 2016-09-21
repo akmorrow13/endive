@@ -54,12 +54,14 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
    }
 
    /* sum across spatial dimension */
-  val outV = 1.0/sqrt(filters.rows) * sum(convRes, Axis._0).toDenseVector
+  val outV =  sum(convRes, Axis._0).toDenseVector
+  outV *= 1.0/sqrt(filters.rows)
 
   /* Normalize */
   outV :/= norm(outV)
   outV
   }
+
 
 
   def convolvePartitions(seq: Iterator[DenseVector[Double]],

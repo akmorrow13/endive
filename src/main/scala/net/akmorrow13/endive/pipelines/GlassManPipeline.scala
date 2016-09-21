@@ -16,24 +16,24 @@
 package net.akmorrow13.endive.pipelines
 
 import breeze.linalg._
+import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.processing.Sequence
-import net.akmorrow13.endive.utils._
 import net.akmorrow13.endive.processing.{Dataset, TranscriptionFactors, CellTypes}
-
+import net.akmorrow13.endive.utils._
+import net.jafama.FastMath
 import nodes.learning._
+import nodes.nlp._
 import nodes.stats._
 import nodes.util._
-import nodes.nlp._
 
-import utils.{Image, MatrixUtils, Stats, ImageMetadata, LabeledImage, RowMajorArrayVectorizedImage, ChannelMajorArrayVectorizedImage}
-import workflow.{Pipeline, Transformer}
 import com.github.fommil.netlib.BLAS
 import evaluation.BinaryClassifierEvaluator
+import nodes.akmorrow13.endive.featurizers.KernelApproximator
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
-import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
@@ -44,6 +44,9 @@ import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import scala.util.Random
+import utils.{Image, MatrixUtils, Stats, ImageMetadata, LabeledImage, RowMajorArrayVectorizedImage, ChannelMajorArrayVectorizedImage}
+import workflow.{Pipeline, Transformer}
+import org.apache.commons.math3.random.MersenneTwister
 
 object GlassmanPipeline  extends Serializable with Logging {
 
@@ -87,14 +90,34 @@ object GlassmanPipeline  extends Serializable with Logging {
 
     val intString:Seq[Int] = in.map(BASEPAIRMAP(_))
     val seqString = intString.map { bp =>
-      if (bp == -1) {
-        DenseVector.zeros[Double](4)
-      } else {
-        sequenceVectorizer(bp)
+      val out = DenseVector.zeros[Double](4)
+      if (bp != -1) {
+        out(bp) = 1
       }
+      out
     }
     DenseVector.vertcat(seqString:_*)
   }
+
+  def vectorToString(in: DenseVector[Double], alphabetSize: Int): String = {
+
+   val BASEPAIRREVMAP = Array('A', 'T', 'C', 'G')
+   var i = 0
+   var str = ""
+   while (i < in.size) {
+    val charVector = in(i until i+alphabetSize)
+    if (charVector == DenseVector.zeros[Double](alphabetSize)) {
+      str += "N"
+    } else {
+      val bp = BASEPAIRREVMAP(argmax(charVector))
+      str += bp
+    }
+    i += alphabetSize
+   }
+   str
+  }
+
+
 
 
 
@@ -102,80 +125,92 @@ object GlassmanPipeline  extends Serializable with Logging {
   def run(sc: SparkContext, conf: EndiveConf) {
     val dataTxtRDD:RDD[String] = sc.textFile(conf.aggregatedSequenceOutput, minPartitions=600)
 
-    val allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.aggregatedSequenceOutput, sc).setName("All Data").cache()
+    val _allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.aggregatedSequenceOutput, sc).setName("_All data").cache()
+    val allData = _allData.repartition(6400).setName("All Data").cache()
     allData.count()
-
+    println("DATA LOADED AND REPARTIONED")
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
-    val foldsData = EndiveUtils.generateFoldsRDD(allData.keyBy(r => (r.win.region.referenceName, r.win.cellType)), numFolds = 2)
-      /* Make an estimator? */
+    val foldsData = EndiveUtils.generateFoldsRDD(allData.keyBy(r => (r.win.region.referenceName, r.win.cellType)), numFolds = 4)
     val cellTypeFeaturizer = Transformer.apply[LabeledWindow, Int](x => x.win.cellType.id) andThen new ClassLabelIndicatorsFromIntLabels(CellTypes.toVector.size)
+    foldsData.map(_._1.count())
+    foldsData.map(_._2.count())
+    println("FOLDS DATA GENERATED")
+    val ngramSize = 8
+    val alphabetSize = 4
+    val approxDim = 4096
+    val seed = 0
 
-
+    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+    val gaussian = new Gaussian(0, 1)
+    val uniform = new Uniform(0, 1)
+    val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
+    val b = DenseVector.rand(approxDim, uniform)
     for (i <- (0 until conf.folds)) {
 
       println("Fold " + i)
       println("HELD OUT CELL TYPES " + foldsData(i)._3.mkString(","))
       println("HELD OUT CHROMOSOMES " + foldsData(i)._4.mkString(","))
-      val r = new java.util.Random()
-      var train = foldsData(i)._1.map(_._2).filter(x => x.label == 1 || (x.label == 0 && r.nextFloat < 0.001)).setName("train").cache()
-      train.count()
-      val test = foldsData(i)._2.map(_._2).setName("test").cache()
-      test.count()
+      val r = new java.util.Random(0)
+
+      var train = foldsData(i)._1.filter(x => x._2.label == 1 || (x._2.label == 0 && r.nextFloat < 0.001)).map(x => x._2)
+      val test = foldsData(i)._2.map(x => x._2)
+
+      var XTrain:RDD[DenseVector[Double]] = train.map(x => denseFeaturize(x.win.sequence)).setName("XTrain").cache()
+
+      val XTest:RDD[DenseVector[Double]] = test.map(x => denseFeaturize(x.win.sequence)).setName("XTest").cache()
 
       val yTrain = train.map(_.label).setName("yTrain").cache()
       val yTest = test.map(_.label).setName("yTest").cache()
-      val NUM_FEATURES = 4096
 
-      println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
+      XTrain.count()
+      XTest.count()
 
-      println("Building Pipeline")
-      val sequenceFeaturizer =
-      Transformer.apply[LabeledWindow, String](x => x.win.sequence) andThen
-      Trim andThen
-      LowerCase() andThen
-      Tokenizer("|") andThen
-      NGramsFeaturizer(4 to 7) andThen
-      TermFrequency(x => 1.0) andThen
-      (CommonSparseFeatures[Seq[String]](NUM_FEATURES), train) andThen
-      Transformer.apply[SparseVector[Double], DenseVector[Double]](x => x.toDenseVector)
-      val featurizer = Pipeline.gather[LabeledWindow, DenseVector[Double]] {
-        sequenceFeaturizer :: (cellTypeFeaturizer) :: Nil
-       } andThen VectorCombiner() andThen new Cacher
-
-     val labelGrabber = ClassLabelIndicatorsFromIntLabels(2) andThen new Cacher[DenseVector[Double]]
-
-      val trainFeaturized = featurizer(train).get()
-      val testFeaturized = featurizer(test).get()
-
-      val values = testFeaturized.mapPartitions(rows => {
-          if (!rows.isEmpty) {
-            val rowsArr = rows.toArray
-            val nRows = rowsArr.length
-            val nCols = rowsArr(0).length
-            Iterator.single((nRows, nCols))
-          } else {
-            Iterator.empty
-          }
-      }).countByValue()
-
-      println("COUNT " + values.mkString(","))
+      println("Converted data to one hot representation")
+      println("Generating random lift now...")
 
 
+      val kernelApprox = new KernelApproximator(filters=W)
 
-      /*
-     val model = new BlockWeightedLeastSquaresEstimator(4096, 1, 0.1, 0.0, Some(NUM_FEATURES)).fit(trainFeaturized, labelGrabber(yTrain).get()) andThen TopKClassifier(1)
+      val XTrainLift = kernelApprox(XTrain).setName("XTrainLift").cache()
+      val XTestLift = kernelApprox(XTest).setName("XTestLift").cache()
 
+      println(XTrainLift.first.slice(0,100,1))
 
-      val yPredTrain = model(trainFeaturized).get().map(x => x(0).toDouble)
-      val yPredTest = model(testFeaturized).get().map(x => x(0).toDouble)
+      val trainCount = XTrainLift.count()
+      val testCount = XTestLift.count()
 
-      println("TRAIN PREDICTIONS " + yPredTrain.count())
-      println("TEST PREDICTIONS " + yPredTest.count())
+      println(s"Fold ${i}, training points ${trainCount}, testing points ${testCount}")
 
+      println("Fitting model now...")
+      val model = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.1).fit(XTrainLift, yTrain)
+
+      val yPredTrain = model(XTrainLift)
+      val yPredTest = model(XTestLift)
+
+      val evalTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
-      println("Test Results: \n ")
+      println("Train Results (lifted): \n ")
+      printMetrics(evalTrain)
+
+      println("Test Results (lifted): \n ")
       printMetrics(evalTest)
-      */
+
+      println("Training Baseline model")
+      val modelBaseLine = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.1).fit(XTrain, yTrain)
+
+      val yPredTrainBaseLine = modelBaseLine(XTrain)
+      val yPredTestBaseLine = modelBaseLine(XTest)
+
+      val evalTrainBaseLine = new BinaryClassificationMetrics(yPredTrainBaseLine.zip(yTrain.map(_.toDouble)))
+      val evalTestBaseLine = new BinaryClassificationMetrics(yPredTestBaseLine.zip(yTest.map(_.toDouble)))
+
+
+      println("Train Results (baseLine): \n ")
+      printMetrics(evalTrainBaseLine)
+
+      println("Test Results (baseLine): \n ")
+      printMetrics(evalTestBaseLine)
+
     }
   }
 
