@@ -16,13 +16,18 @@
 package net.akmorrow13.endive.pipelines
 
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.utils.{DeepbindRecord, DeepbindRecordLoader}
+import net.akmorrow13.endive.utils._
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
+import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.rdd.GenomicRegionPartitioner
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import org.bdgenomics.utils.misc.Logging
+
+import scala.annotation.tailrec
+import scala.collection.mutable.ListBuffer
 
 
 object ReadDeepbindPipeline extends Serializable with Logging {
@@ -56,18 +61,84 @@ object ReadDeepbindPipeline extends Serializable with Logging {
 
   def run(sc: SparkContext, conf: EndiveConf) {
 
-    println("STARTING DNase Processing")
-    val dir = conf.labels
+    val labelsPath = conf.labels
+    val referencePath = conf.reference
+    if (labelsPath == null)
+      throw new Exception("labels are null")
 
-    val (train, test) = DeepbindRecordLoader.load(sc, dir)
 
-    println("train negatives", train.filter(_.label == 0).count)
-    println("train positives", train.filter(_.label == 1).count)
+    // create sequence dictionary
+    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-    println(train.count)
-    println(test.count)
-    test.filter(_.label == 0).take(10).foreach(r => println(r.id, r.sequence))
+    val data: RDD[(ReferenceRegion, LabeledWindow)] = sc.textFile(labelsPath)
+      .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
+      .keyBy(_.win.region)
+      .repartitionAndSortWithinPartitions(GenomicRegionPartitioner(sd.records.length, sd))
 
+    println(data.partitions.length)
+
+
+    val positives = data.filter(_._2.label == 1)
+    val negatives = data.filter(_._2.label == 0)
+
+    println(positives.partitions.length)
+    println(positives.count)
+
+    val mergedPositives = positives.mapPartitions(iter => {
+      if (iter.hasNext) {
+        val first = iter.next
+        collapse(iter, first, List.empty)
+      } else iter
+    })
+
+    println(mergedPositives.count)
+
+
+  }
+
+  /**
+   * Tail recursion for merging adjacent ReferenceRegions with the same value.
+   *
+   * @param iter partition iterator of ReferenceRegion and coverage values.
+   * @param condensed Condensed iterator of iter with adjacent regions with the same value merged.
+   * @return merged tuples of adjacent ReferenceRegions and coverage.
+   */
+  @tailrec private def collapse(iter: Iterator[(ReferenceRegion, LabeledWindow)],
+                                last: (ReferenceRegion, LabeledWindow),
+                                condensed: List[(ReferenceRegion, LabeledWindow)]): Iterator[(ReferenceRegion, LabeledWindow)] = {
+    if (!iter.hasNext) {
+      // if lastCoverage has not yet been added, add to condensed
+      val nextCondensed =
+        if (condensed.map(r => r._1).filter(_.overlaps(last._1)).isEmpty) {
+          last :: condensed
+        } else {
+          condensed
+        }
+      nextCondensed.toIterator
+    } else {
+      val cov = iter.next
+      val rr = cov
+      val lastRegion = last
+      val (nextCoverage, nextCondensed) =
+        if (rr._1.overlaps(lastRegion._1) && rr._2.win.cellType == lastRegion._2.win.cellType) {
+          // merge sequences
+          val hull = rr._1.hull(lastRegion._1)
+          val seq =
+            if (rr._1.compareTo(lastRegion._1) == -1) // rr is < last
+              rr._2.win.sequence.substring(0, (lastRegion._1.start - rr._1.start).toInt) + lastRegion._2.win.sequence
+            else
+              lastRegion._2.win.sequence.substring(0, (rr._1.start - lastRegion._1.start).toInt)+ rr._2.win.sequence
+          assert(seq.length == hull.length())
+          val dnase = (rr._2.win.dnase ++ lastRegion._2.win.dnase).distinct
+          val rnaseq = (rr._2.win.rnaseq ++ lastRegion._2.win.rnaseq).distinct
+          val motifs = (rr._2.win.motifs ++ lastRegion._2.win.motifs).distinct
+          val win = Window(rr._2.win.tf, rr._2.win.cellType, hull, seq, dnase,rnaseq,motifs)
+          ((hull, LabeledWindow(win, rr._2.label)), condensed)
+        } else {
+          (cov, last :: condensed)
+        }
+      collapse(iter, nextCoverage, nextCondensed)
+    }
   }
 
 }
