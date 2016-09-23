@@ -15,8 +15,13 @@
  */
 package net.akmorrow13.endive.pipelines
 
+import java.io.File
+
 import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.processing.{TranscriptionFactors, Preprocess, PeakRecord, CellTypes}
 import net.akmorrow13.endive.utils._
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
@@ -62,9 +67,12 @@ object ReadDeepbindPipeline extends Serializable with Logging {
   def run(sc: SparkContext, conf: EndiveConf) {
 
     val labelsPath = conf.labels
+    val chipseq = conf.chipPeaks // this is the directory of the chipPeaks
     val referencePath = conf.reference
     if (labelsPath == null)
       throw new Exception("labels are null")
+
+    val tf = TranscriptionFactors.withName(labelsPath.split('.')(0))
 
 
     // create sequence dictionary
@@ -80,10 +88,14 @@ object ReadDeepbindPipeline extends Serializable with Logging {
 
     val positives = data.filter(_._2.label == 1)
     val negatives = data.filter(_._2.label == 0)
+    val filteredNeg = negatives.filter(_._2.win.getDnase.size > 0)
+      .map(p => (p._2.win.region.referenceName, p._2.win.tf, p._2.win.cellType, p._2.win.sequence, p._2.label))
+    println(" number of negatives ", filteredNeg.count)
 
     println(positives.partitions.length)
     println(positives.count)
 
+    // collapse elements
     val mergedPositives = positives.mapPartitions(iter => {
       if (iter.hasNext) {
         val first = iter.next
@@ -93,7 +105,62 @@ object ReadDeepbindPipeline extends Serializable with Logging {
 
     println(mergedPositives.count)
 
+    // merge with conservative peaks and center at the peak
+    val fs: FileSystem = FileSystem.get(new Configuration())
+    val labelStatus = fs.listStatus(new Path(labelsPath))
+          .filter(_.getPath.toString.contains(tf.toString))
 
+    // for all cell Types
+    for (i <- labelStatus) {
+      val file: String = i.getPath.toString
+      println(file)
+      val cellType = CellTypes.getEnumeration(file.split("/").last.split('.')(1))
+      println(cellType)
+
+      val peaks = sc.broadcast(Preprocess.loadPeaks(sc, file)
+                  .map(r => (r._2.region, r._2))
+                  .collect)
+
+
+      val half = 100 // TODO
+      val centeredPositives = mergedPositives.mapPartitions(iter => {
+        iter.map(p => {
+          val peak = peaks.value.find(r => p._2.win.region.overlaps(r._1))
+          if (peak.isDefined) { // recented and take half from each side
+            val middle = (peak.get._1.end - peak.get._1.start)/2
+            val (start, end) = (middle - half, middle + half)
+            val (newStart, newEnd) = ((start - p._2.win.region.start), end - p._2.win.region.start)
+            val newSeq = p._2.win.sequence.substring(newStart.toInt, newEnd.toInt)
+            (p._2.win.region.referenceName, p._2.win.tf, p._2.win.cellType, newSeq, p._2.label)
+          } else {
+            val middle = (p._1.start + p._1.end)/2
+            val (start, end) = (middle - half, middle + half)
+            val (newStart, newEnd) = ((start - p._2.win.region.start), end - p._2.win.region.start)
+            val newSeq = p._2.win.sequence.substring(newStart.toInt, newEnd.toInt)
+            (p._2.win.region.referenceName, p._2.win.tf, p._2.win.cellType, newSeq, p._2.label)
+          }
+        })
+      })
+
+      // save negatives and positives as tsv (tf, cellType, seq, label)
+      val fin = centeredPositives.union(filteredNeg).map(r => s"${r._1},${r._2.toString},${r._3.toString},${r._4},${r._5}")
+        .collect
+
+      val output = s"/home/eecs/akmorrow/ADAM/tfPaper/ENCODEFormatted/${tf.toString}.${cellType.toString}.csv"
+      printToFile(new File(output)) { p =>
+        fin.foreach(p.println)
+      }
+
+    }
+
+
+
+
+  }
+
+  def printToFile(f: java.io.File)(op: java.io.PrintWriter => Unit) {
+    val p = new java.io.PrintWriter(f)
+    try { op(p) } finally { p.close() }
   }
 
   /**
@@ -103,7 +170,7 @@ object ReadDeepbindPipeline extends Serializable with Logging {
    * @param condensed Condensed iterator of iter with adjacent regions with the same value merged.
    * @return merged tuples of adjacent ReferenceRegions and coverage.
    */
-  @tailrec private def collapse(iter: Iterator[(ReferenceRegion, LabeledWindow)],
+  @tailrec def collapse(iter: Iterator[(ReferenceRegion, LabeledWindow)],
                                 last: (ReferenceRegion, LabeledWindow),
                                 condensed: List[(ReferenceRegion, LabeledWindow)]): Iterator[(ReferenceRegion, LabeledWindow)] = {
     if (!iter.hasNext) {
