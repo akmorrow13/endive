@@ -88,7 +88,8 @@ object DnaseModel extends Serializable  {
     val data: RDD[LabeledWindow] = sc.textFile(labelsPath)
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
 
-    val windowsRDD = EndiveUtils.subselectRandomSamples(sc, data, sd)
+    //val windowsRDD = EndiveUtils.subselectRandomSamples(sc, data, sd)
+    val windowsRDD = data
       .setName("windowsRDD")
       .cache()
 
@@ -111,7 +112,7 @@ object DnaseModel extends Serializable  {
     val aggregatedCuts: RDD[CutMap] = dnase.merge(sd).cache()
     aggregatedCuts.count
 
-    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false)
+    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false, motifs=Some(motifs))
     println(featurized.first)
 
     cuts.unpersist(true)
@@ -125,7 +126,7 @@ object DnaseModel extends Serializable  {
       val r = new java.util.Random()
 
       val train = folds(i)._1.map(_._2)
-        .filter(x => x.labeledWindow.label == 1 || (x.labeledWindow.label == 0 && r.nextFloat < 0.001))
+        .filter(x => x.labeledWindow.label == 1)// || (x.labeledWindow.label == 0 && r.nextFloat < 0.001))
         .setName("train").cache()
 
       val test = folds(i)._2.map(_._2)
@@ -165,6 +166,8 @@ object DnaseModel extends Serializable  {
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
       println("Test Results: \n ")
       Metrics.printMetrics(evalTest)
+
+      sys.exit()
     }
   }
 
