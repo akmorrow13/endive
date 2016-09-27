@@ -45,9 +45,7 @@ def generateFoldsRDD[T: ClassTag](allData:RDD[((String, CellTypes.Value), T)], n
 def generateTrainTestSplit[T: ClassTag](allData: RDD[((String, CellTypes.Value), T)], holdOutCellTypes: Set[CellTypes.Value],
  holdOutChromosomes: Set[String]) = {
         val train = allData.filter { window => !holdOutChromosomes.contains(window._1._1) && !holdOutCellTypes.contains(window._1._2) }
-          .setName("train").cache()
         val test = allData.filter { window => holdOutChromosomes.contains(window._1._1) && holdOutCellTypes.contains(window._1._2) }
-          .setName("test").cache()
         (train, test)
  }
 

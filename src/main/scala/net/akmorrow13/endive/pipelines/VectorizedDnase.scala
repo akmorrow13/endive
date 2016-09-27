@@ -125,21 +125,21 @@ assert(cuts.count > 0)
       val xTrainPositives = train.filter(r => r.features.findAll(_ > 0).size > 0).map(_.features)
         .setName("XTrainPositives").cache()
       val xTrainNegatives = train.map(_.features).filter(r => r.findAll(_ > 0).size == 0)
-      	.setName("XTrainNegatives").cache()
+        .setName("XTrainNegatives").cache()
       println("training positives and negatives", xTrainPositives.count, xTrainNegatives.count)
 
       // testing features
       val xTestPositives: RDD[DenseVector[Double]] = test.map(_.features).filter(r => r.findAll(_ > 0).size > 0)
-	.setName("XTestPositives").cache()
+  .setName("XTestPositives").cache()
       val xTestNegatives: RDD[DenseVector[Double]] = test.map(_.features).filter(r => r.findAll(_ > 0).size == 0)
-	.setName("XTestNegatives").cache()
+  .setName("XTestNegatives").cache()
       println("testing positives and negatives", xTestPositives.count, xTestNegatives.count)
  
       // training labels
       val yTrainPositives = train.filter(r => r.features.findAll(_ > 0).size > 0).map(_.labeledWindow.label)
         .setName("yTrainPositive").cache()
       val yTrainNegatives = train.filter(r => r.features.findAll(_ > 0).size == 0).map(_.labeledWindow.label)
-	      .setName("yTrainNegative").cache()
+        .setName("yTrainNegative").cache()
       val yTrain = yTrainPositives.union(yTrainNegatives).map(_.toDouble)
       
       // testing labels
@@ -205,9 +205,9 @@ assert(cuts.count > 0)
 
 
     // filter windows into regions with and without relaxed dnase peaks
-    //val windowsWithoutDnase = filteredRDD.filter(_.win.dnase.size == 0)
+    val windowsWithoutDnase = filteredRDD.filter(_.win.dnase.size == 0)
 
-    //val windowsWithDnase = filteredRDD.filter(_.win.dnase.size > 0)
+    val windowsWithDnase = filteredRDD.filter(_.win.dnase.size > 0)
       //.keyBy(r => ReferenceRegion(r.win.region.referenceName, Math.max(0, r.win.region.start - flanking), r.win.region.end + flanking))
 
     //println("windows with dnase filtered: With Dnase:", windowsWithDnase.count, "\n\twithoutDnase", windowsWithoutDnase.count)
@@ -220,6 +220,12 @@ assert(cuts.count > 0)
 
     // join chunked dnase and windows
     println("Coverage: " + coverage.count)
+    var x = false
+    var cutsAndWindows: RDD[(LabeledWindow, Iterable[CutMap])] = sc.emptyRDD
+    try {
+      cutsAndWindows = sc.objectFile[(LabeledWindow, Iterable[CutMap])]("DREAMDATA/cutsAndWindows/EGR1")
+    } catch {
+      case e: Exception => {
     val regionsAndCuts: RDD[(ReferenceRegion, CutMap)] = coverage.flatMap (r => if(r.position.pos%windowJump == 0) { //occurs in windowSize/windowJump number of windows
                                                                                   for {
                                                                                     i <- 0 to windowSize/windowJump
@@ -237,35 +243,46 @@ assert(cuts.count > 0)
     println("Cuts Count: " + regionsAndCuts.count)
     //temp.take(50).foreach(println)
     
-    val cutsAndWindows: RDD[(LabeledWindow, Iterable[CutMap])] = filteredRDD.map(f => (f.win.getRegion,f)).fullOuterJoin(regionsAndCuts).map(f => combineLabelWindowAndCutMap(f._2._1,f._2._2)).filter(f => f._1 != null && f._2 != null).groupByKey
+    cutsAndWindows = windowsWithDnase.map(f => (f.win.getRegion,f)).fullOuterJoin(regionsAndCuts).map(f => combineLabelWindowAndCutMap(f._2._1,f._2._2)).filter(f => f._1 != null && f._2 != null).groupByKey
     println("Cuts and Windows Count: " + cutsAndWindows.count)
-    cutsAndWindows.take(50).foreach(println)
-//    cutsAndWindows.saveAsObjectFile("/data/anv/DREAMDATA/cutsAndWindows/EGR1")
+//    cutsAndWindows.take(50).foreach(println)
+
+    cutsAndWindows.saveAsObjectFile("DREAMDATA/cutsAndWindows/EGR1")
+      
+    }
+  }
 //      InnerShuffleRegionJoinAndGroupByLeft[LabeledWindow, CutMap](sd, dnaseSelectionSize, sc).partitionAndJoin(windowsWithDnase, partitionedCuts)
 
 //    cutsAndWindows.map(r => (r._1.toString + "/" + r._2.map(_.toString).mkString(":")))
 //      .saveAsTextFile("path")
 
-    featurizePreloaded(cutsAndWindows, scale, motifs)
+    val centipedeWindows = featurizePositives(cutsAndWindows, scale, motifs)
+
+    // println("centipede feature length", featureLength)
+
+    // put back in windows without relaxed dnase
+    val featureLength = centipedeWindows.first.features.length
+    windowsWithoutDnase.map(r => BaseFeature(r, DenseVector.zeros(featureLength))).union(centipedeWindows)
+
   }
 
 
-  def featurizePreloaded(cutsAndWindows: RDD[(LabeledWindow, Iterable[CutMap])],
+  def featurizePositives(cutsAndWindows: RDD[(LabeledWindow, Iterable[CutMap])],
                 scale: Option[Int] = None,
                 motifs: Option[List[Motif]] = None): RDD[BaseFeature] = {
 
     // filter windows into regions with and without relaxed dnase peaks
-    val windowsWithoutDnase = cutsAndWindows.filter(_._1.win.dnase.size == 0)
-    println("DNase:\nNegative count: " + windowsWithoutDnase.count)
-    val windowsWithDnase = cutsAndWindows.filter(_._1.win.dnase.size > 0)
-    println("Positive count: " + windowsWithDnase.count)
+    //val windowsWithoutDnase = cutsAndWindows.filter(_._1.win.dnase.size == 0)
+
+    //val windowsWithDnase = cutsAndWindows.filter(_._1.win.dnase.size > 0)
+
 
     // set size of dnase region to featurize
-    val dnaseFeatureCount = 300
+    val dnaseFeatureCount = 200
     val flanking = dnaseFeatureCount/2
 
     val centipedeWindows: RDD[BaseFeature] =
-      windowsWithDnase.map(windowed => {
+      cutsAndWindows.map(windowed => {
         val window: LabeledWindow = windowed._1
         val cellType = window.win.cellType
         val dnase: Map[(Strand, Long), CutMap] = windowed._2.map(r => ((r.position.orientation, r.position.pos), r)).toMap
@@ -319,13 +336,15 @@ assert(cuts.count > 0)
         // positions should be size of window
         BaseFeature(window, DenseVector(positions))
       })
-
+/*
     val featureLength = centipedeWindows.first.features.length
     println("centipede feature length", featureLength)
 
     // put back in windows without relaxed dnase
     windowsWithoutDnase.map(r => BaseFeature(r._1, DenseVector.zeros(featureLength)))
       .union(centipedeWindows)
+  */
+    centipedeWindows
   }
 
 

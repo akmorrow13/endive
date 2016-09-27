@@ -89,7 +89,7 @@ object DnaseModel extends Serializable  {
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
 
     //val windowsRDD = EndiveUtils.subselectRandomSamples(sc, data, sd)
-    val windowsRDD = data
+    val windowsRDD = data//.sample(false, 0.0001, 1337)
       .setName("windowsRDD")
       .cache()
 
@@ -125,13 +125,17 @@ object DnaseModel extends Serializable  {
       println("FOLD " + i)
       val r = new java.util.Random()
 
-      val train = folds(i)._1.map(_._2)
-        .filter(x => x.labeledWindow.label == 1)// || (x.labeledWindow.label == 0 && r.nextFloat < 0.001))
-        .setName("train").cache()
+      var train = folds(i)._1.map(_._2)
 
+      println("train size", train.count)
+     train = train.filter(x => x.labeledWindow.label == 1 || (x.labeledWindow.label == 0 && r.nextFloat < 0.001))
+     train.setName("train").cache()
+println("train count: ", train.count)
+      println("\tpositive", train.filter(f => f.labeledWindow.label > 0).count)
+      println("\tnegative", train.filter(f => f.labeledWindow.label == 0).count)
       val test = folds(i)._2.map(_._2)
         .setName("test").cache()
-
+println("test count: ", test.count)
 
       val xTrain = train.map(_.features)
       val xTest = test.map(_.features)
@@ -166,8 +170,7 @@ object DnaseModel extends Serializable  {
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
       println("Test Results: \n ")
       Metrics.printMetrics(evalTest)
-
-      sys.exit()
+      train.unpersist()
     }
   }
 
