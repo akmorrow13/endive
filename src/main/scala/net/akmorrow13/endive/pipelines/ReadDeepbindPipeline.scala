@@ -90,6 +90,7 @@ object ReadDeepbindPipeline extends Serializable with Logging {
     val negatives = data.filter(_._2.label == 0)
     val filteredNeg = negatives.filter(_._2.win.getDnase.size > 0)
       .map(p => (p._2.win.region.referenceName, p._2.win.tf, p._2.win.cellType, p._2.win.sequence, p._2.label))
+      .sample(false, 0.1)
     println(" number of negatives ", filteredNeg.count)
 
     println(positives.partitions.length)
@@ -107,7 +108,7 @@ object ReadDeepbindPipeline extends Serializable with Logging {
 
     // merge with conservative peaks and center at the peak
     val fs: FileSystem = FileSystem.get(new Configuration())
-    val labelStatus = fs.listStatus(new Path(labelsPath))
+    val labelStatus = fs.listStatus(new Path(chipseq))
           .filter(_.getPath.toString.contains(tf.toString))
 
     // for all cell Types
@@ -120,7 +121,6 @@ object ReadDeepbindPipeline extends Serializable with Logging {
       val peaks = sc.broadcast(Preprocess.loadPeaks(sc, file)
                   .map(r => (r._2.region, r._2))
                   .collect)
-
 
       val half = 100 // TODO
       val centeredPositives = mergedPositives.mapPartitions(iter => {
@@ -136,7 +136,11 @@ object ReadDeepbindPipeline extends Serializable with Logging {
             val middle = (p._1.start + p._1.end)/2
             val (start, end) = (middle - half, middle + half)
             val (newStart, newEnd) = ((start - p._2.win.region.start), end - p._2.win.region.start)
-            val newSeq = p._2.win.sequence.substring(newStart.toInt, newEnd.toInt)
+            val newSeq =
+              if (newStart < 0 || newEnd >  p._2.win.sequence.length)
+                p._2.win.sequence
+              else
+                p._2.win.sequence.substring(newStart.toInt, newEnd.toInt)
             (p._2.win.region.referenceName, p._2.win.tf, p._2.win.cellType, newSeq, p._2.label)
           }
         })

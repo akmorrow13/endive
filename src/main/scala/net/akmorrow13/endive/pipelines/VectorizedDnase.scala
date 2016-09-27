@@ -246,6 +246,8 @@ object VectorizedDnase extends Serializable  {
                   .maxBy(_._1)
               }).maxBy(_._1)._2
 
+            // use jims bed file and just take scores
+
             (window.win.region.start + center  - flanking,
               window.win.region.start + center + flanking) //determines size of dnase footprint region
           } else
