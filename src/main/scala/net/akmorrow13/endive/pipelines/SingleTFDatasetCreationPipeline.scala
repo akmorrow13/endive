@@ -106,12 +106,13 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
      .filter(r => Chromosomes.toVector.contains(r._2.region.referenceName)) 
      .cache()
 
+    dnase.map(_._1).distinct.collect.foreach(println)
     println("Reading dnase peaks")
     println(dnase.count)
 
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
-    println("labeled window count", sequences.count)
+    println("sequenced window count", sequences.count, sequences.first)
 
     val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
 
