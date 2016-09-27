@@ -66,7 +66,7 @@ object ReadDeepbindPipeline extends Serializable with Logging {
 
   def run(sc: SparkContext, conf: EndiveConf) {
 
-    val labelsPath = conf.labels
+    val labelsPath = conf.labels // this is the aggregated data
     val chipseq = conf.chipPeaks // this is the directory of the chipPeaks
     val referencePath = conf.reference
     if (labelsPath == null)
@@ -88,13 +88,12 @@ object ReadDeepbindPipeline extends Serializable with Logging {
 
     val positives = data.filter(_._2.label == 1)
     val negatives = data.filter(_._2.label == 0)
+
     val filteredNeg = negatives.filter(_._2.win.getDnase.size > 0)
       .map(p => (p._2.win.region.referenceName, p._2.win.tf, p._2.win.cellType, p._2.win.sequence, p._2.label))
-      .sample(false, 0.1)
-    println(" number of negatives ", filteredNeg.count)
+      .sample(false, 0.3)
 
     println(positives.partitions.length)
-    println(positives.count)
 
     // collapse elements
     val mergedPositives = positives.mapPartitions(iter => {
@@ -102,62 +101,77 @@ object ReadDeepbindPipeline extends Serializable with Logging {
         val first = iter.next
         collapse(iter, first, List.empty)
       } else iter
-    })
+    }).setName("mergedPositives").cache()
 
-    println(mergedPositives.count)
+    println("merged positives", mergedPositives.count)
 
     // merge with conservative peaks and center at the peak
     val fs: FileSystem = FileSystem.get(new Configuration())
     val labelStatus = fs.listStatus(new Path(chipseq))
-          .filter(_.getPath.toString.contains(tf.toString))
+          .filter(_.getPath.toString.contains(tf.toString)) // get peaks for this tf
 
-    // for all cell Types
+    // iterate for all cell Types for that tf
     for (i <- labelStatus) {
       val file: String = i.getPath.toString
       println(file)
       val cellType = CellTypes.getEnumeration(file.split("/").last.split('.')(1))
-      println(cellType)
+      println(s"creating data for celltype ${cellType}")
 
+      // peaks for 1 cell type
       val peaks = sc.broadcast(Preprocess.loadPeaks(sc, file)
-                  .map(r => (r._2.region, r._2))
+                  .map(r => (r._2.region, r))
                   .collect)
 
-      val half = 100 // TODO
-      val centeredPositives = mergedPositives.mapPartitions(iter => {
-        iter.map(p => {
-          val peak = peaks.value.find(r => p._2.win.region.overlaps(r._1))
-          if (peak.isDefined) { // recented and take half from each side
-            val middle = (peak.get._1.end - peak.get._1.start)/2
-            val (start, end) = (middle - half, middle + half)
-            val (newStart, newEnd) = ((start - p._2.win.region.start), end - p._2.win.region.start)
-            val newSeq = p._2.win.sequence.substring(newStart.toInt, newEnd.toInt)
-            (p._2.win.region.referenceName, p._2.win.tf, p._2.win.cellType, newSeq, p._2.label)
-          } else {
-            val middle = (p._1.start + p._1.end)/2
-            val (start, end) = (middle - half, middle + half)
-            val (newStart, newEnd) = ((start - p._2.win.region.start), end - p._2.win.region.start)
-            val newSeq =
-              if (newStart < 0 || newEnd >  p._2.win.sequence.length)
-                p._2.win.sequence
-              else
-                p._2.win.sequence.substring(newStart.toInt, newEnd.toInt)
-            (p._2.win.region.referenceName, p._2.win.tf, p._2.win.cellType, newSeq, p._2.label)
-          }
+      val half = 100
+
+      val cellTypePositives = mergedPositives.filter(_._2.win.cellType == cellType)
+      val cellTypeNegatives = filteredNeg.filter(_._3 == cellType)
+        .map(r => (r._4, r._5)) //map to (sequence, label) pairs
+
+
+      // returns RDD(sequence, label)
+      val centeredPositives: RDD[(String, Int)] = cellTypePositives.mapPartitions(iter => {
+        // filter by areas that overlap known peaks
+        val peakIter = iter
+          .map(r => (r,peaks.value.find(p => r._2.win.region.overlaps(r._1))))
+          .filter(p => p._2.isDefined)
+          .map(r => (r._1, r._2.get))
+
+        peakIter.map(p => {
+          val window = p._1._2
+          val peak = p._2
+          val middle = (peak._1.end - peak._1.start)/2 // find center of peak
+          // recenter sequence at peak
+          val (start, end) = (middle - half, middle + half)
+          val (newStart, newEnd) = ((start - window.win.region.start), end - window.win.region.start)
+          val newSeq = window.win.sequence.substring(newStart.toInt, newEnd.toInt)
+          (newSeq, window.label)
         })
       })
 
-      // save negatives and positives as tsv (tf, cellType, seq, label)
-      val fin = centeredPositives.union(filteredNeg).map(r => s"${r._1},${r._2.toString},${r._3.toString},${r._4},${r._5}")
-        .collect
+      println(s"celltpye positives and negatives ${centeredPositives.count}, ${cellTypeNegatives.count}")
 
-      val output = s"/home/eecs/akmorrow/ADAM/tfPaper/ENCODEFormatted/${tf.toString}.${cellType.toString}.csv"
+      // save negatives and positives as tsv (tf, cellType, seq, label)
+      val finalPositives = centeredPositives.collect
+
+      // make sure you have the same number of positives and negatives
+      val positiveCount = finalPositives.length
+      val finalNegatives = cellTypeNegatives.takeSample(false, positiveCount)
+      val fin = finalPositives.union(finalNegatives)
+
+
+      // save csv file with labels
+      var output = s"/home/eecs/akmorrow/ADAM/tfPaper/ENCODEFormatted/${tf.toString}.${cellType.toString}.csv"
       printToFile(new File(output)) { p =>
-        fin.foreach(p.println)
+        fin.map(r => s"${r._1},${r._2}").foreach(p.println)
       }
 
+      // save seq file without labels
+      output = s"/home/eecs/akmorrow/ADAM/tfPaper/ENCODEFormatted/${tf.toString}.${cellType.toString}.seq"
+      printToFile(new File(output)) { p =>
+        fin.map(r => s"${r._1}").foreach(p.println)
+      }
     }
-
-
 
 
   }
