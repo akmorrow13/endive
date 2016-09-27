@@ -85,7 +85,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     val fs: FileSystem = FileSystem.get(new Configuration())
     val dnaseStatus = fs.listStatus(new Path(dnasePath))
 
-    val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
+    var (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
     
     train
 	.setName("Raw Train Data").cache()
@@ -111,8 +111,12 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     println(dnase.count)
 
     // extract sequences from reference over training regions
-    val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
-    println("sequenced window count", sequences.count, sequences.first)
+    val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train)
+	.filter(r => !r.win.sequence.contains('N'))
+	.repartition(50)
+	.cache()
+
+    println("train size", train.count, "filtered sequences", sequences.count)
 
     val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
 

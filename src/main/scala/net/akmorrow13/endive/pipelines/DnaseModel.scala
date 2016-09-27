@@ -113,7 +113,7 @@ object DnaseModel extends Serializable  {
     val aggregatedCuts: RDD[CutMap] = dnase.merge(sd).cache()
     aggregatedCuts.count
 
-    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false, Some(motifs),Some(tempOutput))
+    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false)//, Some(motifs),Some(tempOutput))
     println("generated features", featurized.first)
 
     cuts.unpersist(true)

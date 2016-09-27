@@ -96,7 +96,7 @@ object VectorizedDnase extends Serializable  {
     val aggregatedCuts = dnase.merge(sd).cache()
     aggregatedCuts.count
 
-
+    val scale = None
     println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
       println("FOLD " + i)
