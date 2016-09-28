@@ -23,6 +23,7 @@ import net.akmorrow13.endive.utils._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
@@ -69,7 +70,7 @@ object ReadDeepbindPipeline extends Serializable with Logging {
     val labelsPath = conf.labels // this is the aggregated data
     val chipseq = conf.chipPeaks // this is the directory of the chipPeaks
     val referencePath = conf.reference
-    if (labelsPath == null)
+    if (labelsPath == null || chipseq == null || referencePath == null)
       throw new Exception("labels are null")
 
     println(labelsPath.split('/').last)
@@ -79,34 +80,22 @@ object ReadDeepbindPipeline extends Serializable with Logging {
     // create sequence dictionary
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-    val data: RDD[(ReferenceRegion, LabeledWindow)] = sc.textFile(labelsPath)
+    val data: RDD[LabeledWindow] = sc.textFile(labelsPath)
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
-      .keyBy(_.win.region)
-      .repartitionAndSortWithinPartitions(GenomicRegionPartitioner(sd.records.length, sd))
-    
-    val positives = data.filter(_._2.label == 1)
-    val negatives = data.filter(_._2.label == 0)
+    .repartition(50)
 
-    val filteredNeg = negatives.filter(_._2.win.getDnase.size > 0)
-      .map(p => (p._2.win.region.referenceName, p._2.win.tf, p._2.win.cellType, p._2.win.sequence.substring(50,150), p._2.label))
+    val positives = data.filter(_.label == 1)
+    val negatives = data.filter(r => r.label == 0 &&  r.win.getDnase.size > 0)
       .sample(false, 0.3)
-
-    // collapse elements
-    val mergedPositives = positives.mapPartitions(iter => {
-      if (iter.hasNext) {
-        val first = iter.next
-        collapse(iter, first, List.empty)
-      } else iter
-    }).setName("mergedPositives").cache()
-
-    println("merged positives", mergedPositives.count)
 
     // merge with conservative peaks and center at the peak
     val fs: FileSystem = FileSystem.get(new Configuration())
     val labelStatus = fs.listStatus(new Path(chipseq))
           .filter(_.getPath.toString.contains(tf.toString)) // get peaks for this tf
 
-    // iterate for all cell Types for that tf
+
+
+    // iterate for all cell Type
     for (i <- labelStatus) {
       val file: String = i.getPath.toString
       println(file)
@@ -114,55 +103,30 @@ object ReadDeepbindPipeline extends Serializable with Logging {
       println(s"creating data for celltype ${cellType}")
 
       // peaks for 1 cell type
-      val peaks = sc.broadcast(Preprocess.loadPeaks(sc, file)
-                  .map(r => (r._2.region, r))
+      val peaks: Broadcast[Array[PeakRecord]] = sc.broadcast(Preprocess.loadPeaks(sc, file)
+                  .map(_._2)
                   .collect)
 
       println(s"peak count ${peaks.value.length}")
       val half = 50
 
-      val cellTypePositives = mergedPositives.filter(_._2.win.cellType == cellType)
-      println(s"cell type positives count ${cellTypePositives.count}")
-      val cellTypeNegatives = filteredNeg.filter(_._3 == cellType)
-        .map(r => (r._4, r._5)) //map to (sequence, label) pairs
-
-/// test
-      val s = cellTypePositives
-	.map(r => ( r,peaks.value.find(p => p._1.overlaps(r._1))))
-	.filter(p => p._2.isDefined)
-	.map(r => (r._1, r._2.get))
-
-      println(s"filtered out nonoverlapping peaks + ${s.count}")
+      // filter by current celltypes for positives and negatives
+      val cellTypePositives = positives.filter(_.win.cellType == cellType)
 
 
-      // returns RDD(sequence, label)
-      val centeredPositives: RDD[(String, Int)] = cellTypePositives.mapPartitions(iter => {
-        // filter by areas that overlap known peaks
-        val peakIter = iter
-          .map(r => (r,peaks.value.find(p => p._1.overlaps(r._1))))
-          .filter(p => p._2.isDefined)
-          .map(r => (r._1, r._2.get))
+      val cellTypeNegatives = negatives.filter(_.win.cellType == cellType)
+        .map(r => (r.win.sequence.substring(100-half, 100+half), r.label)) //map to (sequence, label) pairs
 
-        peakIter.map(p => {
-         
-	  val window = p._1._2
-          val peak = p._2
-          val middle = (peak._1.end - peak._1.start)/2 + peak._1.start // find center of peak
-          // recenter sequence at peak
-          val (start, end) = (middle - half, middle + half)
-          val (newStart, newEnd) = ((start - window.win.region.start), end - window.win.region.start)
-        try {
-	  val newSeq = window.win.sequence.substring(newStart.toInt, newEnd.toInt)
-          (newSeq, window.label)
-	 } catch {
-		case e: Exception => {
-			val st: String = s"peak start and end ${peak._1.start}-${peak._1.end} peak middle ${middle} window region ${window.win.region.start}-${window.win.region.end} sequence length ${window.win.sequence.length}, new start,end ${start} ${end}"
-			println(st)
-			(window.win.sequence.substring(50,150), window.label)		
-		}
-	 }
+      val peakRegions: RDD[ReferenceRegion] = cellTypePositives.map(r => peaks.value.find(p => p.region.overlaps(r.win.region)))
+        .filter(r => r.isDefined)
+        .map(r => r.get.region).distinct() // get all distinct regions
+        .map(r => {
+          val middle = (r.end - r.start)/2 + r.start
+          ReferenceRegion(r.referenceName, middle - half, middle + half) // remap to center peak
         })
-      })
+
+      val centeredPositives: RDD[(String, Int)] = DatasetCreationPipeline.extractSequences(referencePath, peakRegions)
+        .map(r => (r._2, 1)) // map to sequences and positive labels
 
       println(s"celltpye positives and negatives ${centeredPositives.count}, ${cellTypeNegatives.count}")
 
@@ -177,7 +141,6 @@ object ReadDeepbindPipeline extends Serializable with Logging {
      val (posLen, negLen) = (cellTypeNegatives.first._1.length, finalPositives.head._1.length)
      println(s"lengths ${posLen}, ${negLen}")
      assert(posLen == negLen)
-
 
       // save csv file with labels
       var output = s"/home/eecs/akmorrow/ADAM/tfPaper/ENCODEFormatted/${tf.toString}.${cellType.toString}.csv"

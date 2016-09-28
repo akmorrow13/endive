@@ -156,20 +156,26 @@ object DatasetCreationPipeline extends Serializable  {
         }
       }
     } else {
-      regionsAndLabels.mapPartitions { part =>
-        val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-        part.map { r =>
-          val startIdx = r._3.start
-          val endIdx = r._3.end
-          val sequence = reference.extract(r._3)
-          val label = r._4
-          val win: Window = Window(r._1, r._2, r._3, sequence)
-          LabeledWindow(win, label)
-        }
-      }
+      extractSequences(referencePath, regionsAndLabels.map(_._3))
+          .zip(regionsAndLabels)
+          .map(r => {
+            val win = Window(r._2._1, r._2._2, r._1._1, r._1._2)
+            LabeledWindow(win, r._2._4)
+          })
     }
-
-
   }
 
+
+  /**
+   * Extracts sequences from 2bit file for all ReferenceRegions
+   * @param referencePath path to 2bit file
+   * @param rdd RDD of regions to extract
+   * @return RDD of regions and their corresponding sequences
+   */
+  def extractSequences(referencePath: String, rdd: RDD[ReferenceRegion]): RDD[(ReferenceRegion, String)] = {
+    rdd.mapPartitions { part =>
+      val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+      part.map (r => (r, reference.extract(r)))
+    }
+  }
 }
