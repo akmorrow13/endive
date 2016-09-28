@@ -72,7 +72,8 @@ object ReadDeepbindPipeline extends Serializable with Logging {
     if (labelsPath == null)
       throw new Exception("labels are null")
 
-    val tf = TranscriptionFactors.withName(labelsPath.split('.')(0))
+    println(labelsPath.split('/').last)
+    val tf = TranscriptionFactors.withName(labelsPath.split('/').last)
 
 
     // create sequence dictionary
@@ -82,18 +83,13 @@ object ReadDeepbindPipeline extends Serializable with Logging {
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
       .keyBy(_.win.region)
       .repartitionAndSortWithinPartitions(GenomicRegionPartitioner(sd.records.length, sd))
-
-    println(data.partitions.length)
-
-
+    
     val positives = data.filter(_._2.label == 1)
     val negatives = data.filter(_._2.label == 0)
 
     val filteredNeg = negatives.filter(_._2.win.getDnase.size > 0)
-      .map(p => (p._2.win.region.referenceName, p._2.win.tf, p._2.win.cellType, p._2.win.sequence, p._2.label))
+      .map(p => (p._2.win.region.referenceName, p._2.win.tf, p._2.win.cellType, p._2.win.sequence.substring(50,150), p._2.label))
       .sample(false, 0.3)
-
-    println(positives.partitions.length)
 
     // collapse elements
     val mergedPositives = positives.mapPartitions(iter => {
@@ -122,30 +118,49 @@ object ReadDeepbindPipeline extends Serializable with Logging {
                   .map(r => (r._2.region, r))
                   .collect)
 
-      val half = 100
+      println(s"peak count ${peaks.value.length}")
+      val half = 50
 
       val cellTypePositives = mergedPositives.filter(_._2.win.cellType == cellType)
+      println(s"cell type positives count ${cellTypePositives.count}")
       val cellTypeNegatives = filteredNeg.filter(_._3 == cellType)
         .map(r => (r._4, r._5)) //map to (sequence, label) pairs
+
+/// test
+      val s = cellTypePositives
+	.map(r => ( r,peaks.value.find(p => p._1.overlaps(r._1))))
+	.filter(p => p._2.isDefined)
+	.map(r => (r._1, r._2.get))
+
+      println(s"filtered out nonoverlapping peaks + ${s.count}")
 
 
       // returns RDD(sequence, label)
       val centeredPositives: RDD[(String, Int)] = cellTypePositives.mapPartitions(iter => {
         // filter by areas that overlap known peaks
         val peakIter = iter
-          .map(r => (r,peaks.value.find(p => r._2.win.region.overlaps(r._1))))
+          .map(r => (r,peaks.value.find(p => p._1.overlaps(r._1))))
           .filter(p => p._2.isDefined)
           .map(r => (r._1, r._2.get))
 
         peakIter.map(p => {
-          val window = p._1._2
+         
+	  val window = p._1._2
           val peak = p._2
-          val middle = (peak._1.end - peak._1.start)/2 // find center of peak
+          val middle = (peak._1.end - peak._1.start)/2 + peak._1.start // find center of peak
           // recenter sequence at peak
           val (start, end) = (middle - half, middle + half)
           val (newStart, newEnd) = ((start - window.win.region.start), end - window.win.region.start)
-          val newSeq = window.win.sequence.substring(newStart.toInt, newEnd.toInt)
+        try {
+	  val newSeq = window.win.sequence.substring(newStart.toInt, newEnd.toInt)
           (newSeq, window.label)
+	 } catch {
+		case e: Exception => {
+			val st: String = s"peak start and end ${peak._1.start}-${peak._1.end} peak middle ${middle} window region ${window.win.region.start}-${window.win.region.end} sequence length ${window.win.sequence.length}, new start,end ${start} ${end}"
+			println(st)
+			(window.win.sequence.substring(50,150), window.label)		
+		}
+	 }
         })
       })
 
@@ -158,6 +173,10 @@ object ReadDeepbindPipeline extends Serializable with Logging {
       val positiveCount = finalPositives.length
       val finalNegatives = cellTypeNegatives.takeSample(false, positiveCount)
       val fin = finalPositives.union(finalNegatives)
+
+     val (posLen, negLen) = (cellTypeNegatives.first._1.length, finalPositives.head._1.length)
+     println(s"lengths ${posLen}, ${negLen}")
+     assert(posLen == negLen)
 
 
       // save csv file with labels
