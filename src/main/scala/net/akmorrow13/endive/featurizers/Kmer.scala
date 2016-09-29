@@ -18,26 +18,37 @@ package net.akmorrow13.endive.featurizers
 import nodes.nlp.{NGramsFeaturizer, Tokenizer}
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.ReferenceRegion
 
 object Kmer {
-  def extractKmers(rdd: RDD[(ReferenceRegion, String)], kmerLength: Int, differences: Int = 0): RDD[Vector] = {
-    // extract sequences
-    val sequences = rdd.map(_._2)
 
-    // featurize sequences to 8mers
-    val featurizer = Tokenizer("") andThen NGramsFeaturizer[String](Seq(kmerLength))
+  /**
+   * Featurizes sequences into a sparse vector of kmer counts
+   * @param sequences RDD of sequences to featurize
+   * @param k length of kmers
+   * @param maxDistance maximum distance to count kmers from
+   * @return RDD of sparse vector of kmer counts
+   */
+  def extractKmers(sequences: RDD[String], k: Int, maxDistance: Int = 0): RDD[Vector] = {
+    // featurize sequences to kmers
+    val featurizer = Tokenizer("") andThen NGramsFeaturizer[String](Seq(k))
 
     // extract all 8mers in each training point
     val results: RDD[Seq[String]] = featurizer(sequences).get.map(s => s.map(r => r.seq.reduce((x,y) => (x + y))))
 
     // count all kmers
-    countKmers(results, kmerLength, differences)
+    countKmers(results, k, maxDistance)
 
   }
 
+  /**
+   * Counts the number of times each kmer occurs and stores resulting counts
+   * in a sparse vector
+   * @param rdd RDD of sequences of kmers
+   * @param kmerLength Length of kmers in RDD
+   * @return Vector represenatation of kmer counts
+   */
   def countKmers(rdd: RDD[Seq[String]], kmerLength: Int): RDD[Vector] = {
-    val kmers = generateAllKmers(kmerLength) // gets all possible kmers of this length
+    val kmers = generateKmers(kmerLength) // gets all possible kmers of this length
     val kmerCount = kmers.length
 
     val vectors: RDD[Vector] = rdd.map(s => {
@@ -52,33 +63,51 @@ object Kmer {
 
   }
 
-  def countKmers(rdd: RDD[Seq[String]], kmerLength: Int, differences: Int = 1): RDD[Vector] = {
-    if (differences == 0)
+  /**
+   * Counts the number of times each kmer occurs and stores resulting counts
+   * in a sparse vector
+   * @param rdd RDD of sequences of kmers
+   * @param kmerLength Length of kmers in RDD
+   * @param maxDistance threshold to count kmer differences from
+   * @return Vector represenatation of kmer counts
+   */
+  def countKmers(rdd: RDD[Seq[String]], kmerLength: Int, maxDistance: Int): RDD[Vector] = {
+    if (maxDistance == 0)
       return countKmers(rdd, kmerLength) // this implementation is more efficient
-    val kmers = generateAllKmers(kmerLength) // gets all possible kmers of this length
+    val kmers = generateKmers(kmerLength) // gets all possible kmers of this length
     val kmerCount = kmers.length
 
     val vectors: RDD[Vector] = rdd.map(s => {
       val sparse: Seq[(Int, Double)] = kmers.zipWithIndex.map(k => {
-        (k._2, s.filter(r => r.diff(k._1).length <= differences).size.toDouble)
+        (k._2, s.filter(r => r.diff(k._1).length <= maxDistance).size.toDouble)
       }).filter(_._2 > 0.0)
 
       Vectors.sparse(kmers.length, sparse)
     })
-
     vectors
-
   }
 
-  def generateAllKmers(k: Int): Array[String] = {
-    generateKmer("", k - 1)
+  /**
+   * Generates all possible kmers of length k
+   * @param k length of kmer
+   * @return Array of all possible enumerations of kmers
+   */
+  def generateKmers(k: Int): Array[String] = {
+    generateKmer(k - 1)
   }
 
-  def generateKmer(s: String, pos: Int): Array[String] = {
+  /**
+   * Recursively generates all kmers of length k
+   * @param s Kmer string to iterate on
+   * @param k length of kmer
+   * @return Array of all kmers of length k
+   */
+  private def generateKmer(k: Int, s: String = ""): Array[String] = {
     val bases = Array('A','T','G','C')
-    if (pos < 0) {
+    if (k < 0) {
       return Array(s)
     }
-    bases.flatMap(b => generateKmer(s + b, pos - 1))
+    bases.flatMap(b => generateKmer(k - 1, s + b))
   }
+
 }
