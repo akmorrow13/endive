@@ -34,7 +34,11 @@ class EndiveConf extends Serializable {
 
 
   /* data sources*/
-
+  @BeanProperty var labelsPathArray: Array[String] = Array()
+  @BeanProperty var cutmapInputPath: String = null
+  @BeanProperty var cutmapOutputPath: String = null
+  @BeanProperty var predictionOutputPath: String = null
+  @BeanProperty var modelTest: String = "true"
   /* dnase data */
   @BeanProperty var dnase: String = null
   @BeanProperty var useRawDnase: Boolean = false
