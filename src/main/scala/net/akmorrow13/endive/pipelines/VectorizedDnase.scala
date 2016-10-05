@@ -220,12 +220,12 @@ assert(cuts.count > 0)
 
     // join chunked dnase and windows
     println("Coverage: " + coverage.count)
-    var x = false
-    var cutsAndWindows: RDD[(LabeledWindow, Iterable[CutMap])] = sc.emptyRDD
-    try {
-      cutsAndWindows = sc.objectFile[(LabeledWindow, Iterable[CutMap])]("DREAMDATA/cutsAndWindows/EGR1")
-    } catch {
-      case e: Exception => {
+//    var x = false
+//    var cutsAndWindows: RDD[(LabeledWindow, Iterable[CutMap])] = sc.emptyRDD
+//    try {
+//      cutsAndWindows = sc.objectFile[(LabeledWindow, Iterable[CutMap])]("DREAMDATA/cutsAndWindows/EGR1")
+//    } catch {
+//      case e: Exception => {
     val regionsAndCuts: RDD[(ReferenceRegion, CutMap)] = coverage.flatMap (r => if(r.position.pos%windowJump == 0) { //occurs in windowSize/windowJump number of windows
                                                                                   for {
                                                                                     i <- 0 to windowSize/windowJump
@@ -243,14 +243,14 @@ assert(cuts.count > 0)
     println("Cuts Count: " + regionsAndCuts.count)
     //temp.take(50).foreach(println)
     
-    cutsAndWindows = windowsWithDnase.map(f => (f.win.getRegion,f)).fullOuterJoin(regionsAndCuts).map(f => combineLabelWindowAndCutMap(f._2._1,f._2._2)).filter(f => f._1 != null && f._2 != null).groupByKey
+    val cutsAndWindows = windowsWithDnase.map(f => (f.win.getRegion,f)).fullOuterJoin(regionsAndCuts).map(f => combineLabelWindowAndCutMap(f._2._1,f._2._2)).filter(f => f._1 != null && f._2 != null).groupByKey
     println("Cuts and Windows Count: " + cutsAndWindows.count)
 //    cutsAndWindows.take(50).foreach(println)
 
-    cutsAndWindows.saveAsObjectFile("DREAMDATA/cutsAndWindows/EGR1")
+//    cutsAndWindows.saveAsObjectFile("DREAMDATA/cutsAndWindows/EGR1")
       
-    }
-  }
+ //   }
+  //}
 //      InnerShuffleRegionJoinAndGroupByLeft[LabeledWindow, CutMap](sd, dnaseSelectionSize, sc).partitionAndJoin(windowsWithDnase, partitionedCuts)
 
 //    cutsAndWindows.map(r => (r._1.toString + "/" + r._2.map(_.toString).mkString(":")))

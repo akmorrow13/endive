@@ -300,7 +300,7 @@ object Preprocess {
 		.filter(_.endsWith("adam"))
     		.filter(r => cellTypes.map(_.toString).contains(r.split("/").last.split('.')(1)))
 
-    println(s"loading dnase cuts for: ")
+    println(s"loading dnase cuts for: " + cellTypes.map(_.toString).mkString(","))
     for (file <- fileNames) {
       data = data.union(CutLoader(file, sc))
     }

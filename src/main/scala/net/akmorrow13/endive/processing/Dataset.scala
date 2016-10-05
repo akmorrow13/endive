@@ -22,7 +22,7 @@ object Dataset extends Logging {
 
   // held out values for final round
   val heldOutChrs = List(Chromosomes.chr1, Chromosomes.chr8, Chromosomes.chr21)
-  val heldOutTypes = List(CellTypes.PC3, CellTypes.liver, CellTypes.inducedpluripotentstemcell)
+  val heldOutTypes = List(CellTypes.K562, CellTypes.PC3, CellTypes.liver, CellTypes.inducedpluripotentstemcell)
 
 }
 
