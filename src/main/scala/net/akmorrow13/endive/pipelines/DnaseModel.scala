@@ -70,10 +70,23 @@ object DnaseModel extends Serializable  {
 
     // create new sequence with reference path
     val referencePath = conf.reference
-    // load chip seq labels from 1 file
-    val labelsPath = conf.labels
+    // load chip seq labels from any number of files
+    val labelsPathArray = conf.labels.split(" ")
     val dnasePath = conf.dnase
     val motifPath = conf.motifDBPath
+    val cutmapInputPath = conf.cutmapInputPath
+    val cutmapOutputPath = conf.cutmapOutputPath
+    val predictionOutputPath = conf.predictionOutputPath
+    //this should be a boolean
+    var modelTest = true
+    try{
+      modelTest = conf.modelTest.toBoolean
+      if(modelTest == false){
+        require(predictionOutputPath != null, "You must specify output path for full prediction")
+      }
+    } catch {
+      case e: java.lang.IllegalArgumentException => modelTest = true
+    }
 
     /** ***************************************
       * Read in reference dictionary
@@ -85,15 +98,12 @@ object DnaseModel extends Serializable  {
 
     val motifs: List[Motif] = Motif.parseYamlMotifs(motifPath)
 
-    val data: RDD[LabeledWindow] = sc.textFile(labelsPath)
-      .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
-
-    //val windowsRDD = EndiveUtils.subselectRandomSamples(sc, data, sd)
-    val windowsRDD = data//.sample(false, 0.0001, 1337)
-      .setName("windowsRDD")
-      .cache()
-
-    // filter data
+    var data: RDD[LabeledWindow] = sc.emptyRDD[LabeledWindow]
+    for(label <- labelsPathArray){
+      data = data.union(sc.textFile(label).map(s => LabeledWindowLoader.stringToLabeledWindow(s)))
+    }
+    
+    val windowsRDD = data.setName("windowsRDD").cache()
 
     val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
     val cellTypes = chrCellTypes.map(_._2)
@@ -101,41 +111,51 @@ object DnaseModel extends Serializable  {
     /************************************
       *  Prepare dnase data
       **********************************/
-    val keyedCuts = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
-        .keyBy(r => (r.region, r.getCellType))
-        .partitionBy(GenomicRegionPartitioner(1000, sd))
+    var aggregatedCuts: RDD[CutMap] = sc.emptyRDD[CutMap]
+    try {
+      aggregatedCuts = sc.objectFile(cutmapInputPath)
+      aggregatedCuts.count
+    } catch {
+        case e @ (_: org.apache.hadoop.mapred.InvalidInputException | _: java.lang.NullPointerException) => {
+          val keyedCuts = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
+              .keyBy(r => (r.region, r.getCellType))
+              .partitionBy(GenomicRegionPartitioner(1000, sd))
+          keyedCuts.count
+          val cuts = keyedCuts.map(_._2)
+          cuts.count
+          val dnase = new Dnase(windowSize, stride, sc, cuts)
+          aggregatedCuts = dnase.merge(sd).cache()
+          aggregatedCuts.count
+          try {
+            aggregatedCuts.saveAsObjectFile(cutmapOutputPath)
+            println("Wrote cutmap to " + cutmapOutputPath)
+          } catch {
+            case e @ (_: java.lang.NullPointerException | _: java.lang.IllegalArgumentException) => {
+              println("To store Cutmap, add {cutmapOutputPath} to conf file")
+            }
+          }
+        }
+    }
 
-    keyedCuts.count
-    val cuts = keyedCuts.map(_._2).cache()
-    cuts.count
-    val dnase = new Dnase(windowSize, stride, sc, cuts)
-    val aggregatedCuts: RDD[CutMap] = dnase.merge(sd).cache()
-    aggregatedCuts.count
-
+    
     val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false, motifs=Some(motifs))
-    println(featurized.first)
-
-    cuts.unpersist(true)
-
+    var folds: IndexedSeq[(org.apache.spark.rdd.RDD[((String, CellTypes.Value), BaseFeature)], RDD[((String, CellTypes.Value), BaseFeature)])] = IndexedSeq()
+    if(modelTest == true) {
     /* First one chromesome and one celltype per fold (leave 1 out) */
-    val folds = EndiveUtils.generateFoldsRDD(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds, sampleFreq = None)
+      folds = EndiveUtils.generateFoldsRDD(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds, sampleFreq = None)
+    } else{
+      //We have to wrap this in a vector because we want to reuse as much logic as possible.
+      folds = IndexedSeq(EndiveUtils.generateTrainTestSplit(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), Dataset.heldOutTypes.toSet))
+    }
 
-    println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
-      println("FOLD " + i)
       val r = new java.util.Random()
-
       var train = folds(i)._1.map(_._2)
 
-      println("train size", train.count)
      train = train.filter(x => x.labeledWindow.label == 1 || (x.labeledWindow.label == 0 && r.nextFloat < 0.001))
      train.setName("train").cache()
-println("train count: ", train.count)
-      println("\tpositive", train.filter(f => f.labeledWindow.label > 0).count)
-      println("\tnegative", train.filter(f => f.labeledWindow.label == 0).count)
       val test = folds(i)._2.map(_._2)
         .setName("test").cache()
-println("test count: ", test.count)
 
       val xTrain = train.map(_.features)
       val xTest = test.map(_.features)
@@ -146,15 +166,14 @@ println("test count: ", test.count)
       println("TRAIN SIZE IS " + train.count())
       println("TEST SIZE IS " + test.count())
 
-
       // get testing cell types for this fold
       val cellTypesTest: Iterable[CellTypes.Value] = test.map(x => (x.labeledWindow.win.cellType)).countByValue().keys
-      println(s"Fold ${i}, testing cell types:")
+      println(s"Fold " + i + " testing cell types:")
       cellTypesTest.foreach(println)
 
       // get testing chrs for this fold
       val chromosomesTest:Iterable[String] = test.map(x => (x.labeledWindow.win.getRegion.referenceName)).countByValue().keys
-      println(s"Fold ${i}, testing chromsomes:")
+      println("Fold " + i + " testing chromsomes:")
       chromosomesTest.foreach(println)
 
       println("Training model")
@@ -167,11 +186,36 @@ println("test count: ", test.count)
       Metrics.printMetrics(evalTrain)
 
       val yPredTest = predictor(xTest)
+      val finalPrediction = test.map(f => (f.labeledWindow.win.region, f.labeledWindow.win.cellType)).zip(yPredTest)
+      if(modelTest == false) {
+        //wouldn't it be sad if we made it here and realized that our path already existed?
+        //most of the logic here is to prevent sadness and wasted time.
+        try {
+          test.map(f => (f.labeledWindow.win.region, f.labeledWindow.win.cellType)).zip(yPredTest).saveAsTextFile(predictionOutputPath)
+        } catch {
+          case e: org.apache.hadoop.mapred.FileAlreadyExistsException => {
+            var i = 0
+            while(true) {
+              try {
+                finalPrediction.saveAsTextFile(predictionOutputPath + "_" + i)
+                println("Filename already exists, storing as " + predictionOutputPath + "_" + i)
+                sys.exit()
+              } catch {
+                case e: org.apache.hadoop.mapred.FileAlreadyExistsException => {
+                  i+=1
+                }
+              }
+            }
+          }
+        }
+        sys.exit()
+      }
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
       println("Test Results: \n ")
       Metrics.printMetrics(evalTest)
-      train.unpersist()
+      train.unpersist(true)
+      test.unpersist(true)
     }
   }
-
 }
+
