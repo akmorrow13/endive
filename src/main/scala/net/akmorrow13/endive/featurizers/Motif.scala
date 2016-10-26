@@ -1,23 +1,15 @@
 package net.akmorrow13.endive.featurizers
 
-import java.io.{PrintWriter, File}
-import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.utils.{ Window, LabeledWindow}
 import net.akmorrow13.endive.processing._
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
-<<<<<<< HEAD
+
 import org.bdgenomics.adam.rdd.GenomicRegionPartitioner
-import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.bdgenomics.utils.misc.MathUtils
 import scala.annotation.tailrec
 import scala.beans.BeanProperty
-import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
-import scala.sys.process._
-import scala.util.Random
-import java.io.{File, FileInputStream}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 

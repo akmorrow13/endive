@@ -260,38 +260,23 @@ object Preprocess {
 
 
   def loadPeakFolder(sc: SparkContext, folder: String): RDD[(CellTypes.Value, PeakRecord)] = {
-
-    var data: RDD[(CellTypes.Value, PeakRecord)] = sc.emptyRDD[(CellTypes.Value, PeakRecord)]
-    if (sc.isLocal) {
-      val d = new File(folder)
-      if (d.exists && d.isDirectory) {
-        val files = d.listFiles.filter(_.isFile).toList
-        files.map(f => {
-          data = data.union(loadPeaks(sc, f.getPath))
-        })
+    val files: List[String] =
+      if (sc.isLocal) {
+        val d = new File(folder)
+        d.listFiles.filter(_.isFile).map(_.getPath).toList
       } else {
-        throw new Exception(s"${folder} is not a valid directory for peaks")
+          getFileNamesFromDirectory(sc, folder).toList
       }
-    } else {
-      try{
-        val fileNames = getFileNamesFromDirectory(sc, folder)
-        for (file <- fileNames) {
-        data = data.union(loadPeaks(sc, file))
-      }
-      } catch {
-        case e: Exception => println(s"Directory ${folder} could not be loaded")
-      }
-    }
-    data
+    // load all files and reduce to 1 RDD
+    files.map(f => {
+      loadPeaks(sc, f)
+    }).reduce(_ union _)
   }
 
   def loadPeakFiles(sc: SparkContext, files: Array[String]): RDD[(CellTypes.Value, PeakRecord)] = {
-    var data: RDD[(CellTypes.Value, PeakRecord)] = sc.emptyRDD[(CellTypes.Value, PeakRecord)]
-    for (f <- files) {
-      val temp = loadPeaks(sc, f)
-      data = data.union(temp)
-    }
-    data
+    files.map(f => {
+      loadPeaks(sc, f)
+    }).reduce(_ union _)
   }
 
   def loadCuts(sc: SparkContext, folder: String, cellTypes: Array[CellTypes.Value]): RDD[Cut] = {
