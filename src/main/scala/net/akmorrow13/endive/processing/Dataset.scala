@@ -1,166 +1,41 @@
 package net.akmorrow13.endive.processing
 
-import net.akmorrow13.endive.utils.LabeledWindow
-import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.SequenceDictionary
+import org.bdgenomics.utils.misc.Logging
 
-object Dataset {
+object Dataset extends Logging {
+
+  def filterCellTypeName(cellType: String): String = {
+    val newCellType = cellType.filterNot("-_".toSet)
+    try {
+      CellTypes.withName(newCellType)
+    } catch {
+      case e: NoSuchElementException => log.error("Error, celltype not found in list of available cell types")
+    }
+    newCellType
+  }
+
+  // window settings
+  val windowSize = 200
+  val stride = 20
+
+  val partitions = 60
 
   // held out values for final round
+
   val heldOutChrs = List("chr1", "chr8", "chr21")
   val heldOutTypes = List("PC-3", "liver", "induced_pluripotent_stem_cell")
 
-  val cellTypes = List("A549","GM12878", "H1hESC", "HCT116", "HeLaS3", "HepG2", "IMR90", "K562",
+  val cellTypes = List("A549", "GM12878", "H1hESC", "HCT116", "HeLaS3", "HepG2", "IMR90", "K562",
     "MCF7", "PC3",
     "Panc1", "SKNSH", "inducedpluripotentstemcell", "liver")
 
-  val aminoAcidTable = Map(
-    "UUU" -> "F",
-    "UUG" -> "L",
-    "UUC" -> "F",
-    "UUA" -> "L",
-    "UGU" -> "C",
-    "UGG" -> "W",
-    "UGC" -> "C",
-    "UGA" -> "*",
-    "UCU" -> "S",
-    "UCG" -> "S",
-    "UCC" -> "S",
-    "UCA" -> "S",
-    "UAU" -> "Y",
-    "UAG" -> "*",
-    "UAC" -> "Y",
-    "UAA" -> "*",
-
-    "GUU" -> "V",
-    "GUG" -> "V",
-    "GUC" -> "V",
-    "GUA" -> "V",
-    "GGU" -> "G",
-    "GGG" -> "G",
-    "GGC" -> "G",
-    "GGA" -> "G",
-    "GCU" -> "A",
-    "GCG" -> "A",
-    "GCC" -> "A",
-    "GCA" -> "A",
-    "GAU" -> "D",
-    "GAG" -> "E",
-    "GAC" -> "D",
-    "GAA" -> "E",
-
-    "CUU" -> "L",
-    "CUG" -> "L",
-    "CUC" -> "L",
-    "CUA" -> "L",
-    "CGU" -> "R",
-    "CGG" -> "R",
-    "CGC" -> "R",
-    "CGA" -> "R",
-    "CCU" -> "P",
-    "CCG" -> "P",
-    "CCC" -> "P",
-    "CCA" -> "P",
-    "CAU" -> "H",
-    "CAG" -> "Q",
-    "CAC" -> "H",
-    "CAA" -> "Q",
-
-    "AUU" -> "I",
-    "AUG" -> "M",
-    "AUC" -> "I",
-    "AUA" -> "I",
-    "AGU" -> "S",
-    "AGG" -> "R",
-    "AGC" -> "S",
-    "AGA" -> "R",
-    "ACU" -> "T",
-    "ACG" -> "T",
-    "ACC" -> "T",
-    "ACA" -> "T",
-    "AAU" -> "N",
-    "AAG" -> "K",
-    "AAC" -> "N",
-    "AAA" -> "K"
-  )
-
-  val mRNATranscription = Map(
-    "AAA" -> "UUU",
-    "AAC" -> "UUG",
-    "AAG" -> "UUC",
-    "AAT" -> "UUA",
-    "ACA" -> "UGU",
-    "ACC" -> "UGG",
-    "ACG" -> "UGC",
-    "ACT" -> "UGA",
-    "AGA" -> "UCU",
-    "AGC" -> "UCG",
-    "AGG" -> "UCC",
-    "AGT" -> "UCA",
-    "ATA" -> "UAU",
-    "ATC" -> "UAG",
-    "ATG" -> "UAC",
-    "ATT" -> "UAA",
-
-    "CAA" -> "GUU",
-    "CAC" -> "GUG",
-    "CAG" -> "GUC",
-    "CAT" -> "GUA",
-    "CCA" -> "GGU",
-    "CCC" -> "GGG",
-    "CCG" -> "GGC",
-    "CCT" -> "GGA",
-    "CGA" -> "GCU",
-    "CGC" -> "GCG",
-    "CGG" -> "GCC",
-    "CGT" -> "GCA",
-    "CTA" -> "GAU",
-    "CTC" -> "GAG",
-    "CTG" -> "GAC",
-    "CTT" -> "GAA",
-
-    "GAA" -> "CUU",
-    "GAC" -> "CUG",
-    "GAG" -> "CUC",
-    "GAT" -> "CUA",
-    "GCA" -> "CGU",
-    "GCC" -> "CGG",
-    "GCG" -> "CGC",
-    "GCT" -> "CGA",
-    "GGA" -> "CCU",
-    "GGC" -> "CCG",
-    "GGG" -> "CCC",
-    "GGT" -> "CCA",
-    "GTA" -> "CAU",
-    "GTC" -> "CAG",
-    "GTG" -> "CAC",
-    "GTT" -> "CAA",
-
-    "TAA" -> "AUU",
-    "TAC" -> "AUG",
-    "TAG" -> "AUC",
-    "TAT" -> "AUA",
-    "TCA" -> "AGU",
-    "TCC" -> "AGG",
-    "TCG" -> "AGC",
-    "TCT" -> "AGA",
-    "TGA" -> "ACU",
-    "TGC" -> "ACG",
-    "TGG" -> "ACC",
-    "TGT" -> "ACA",
-    "TTA" -> "AAU",
-    "TTC" -> "AAG",
-    "TTG" -> "AAC",
-    "TTT" -> "AAA"
-  )
-
   val tfs = List("ARID3A",
     "CEBPB", "EGR1", "HNF4A", "REST", "TCF12",
-    "EP300", "JUND",	"RFX5",	"TCF7L2",
-    "CREB1",	"FOXA1",	"MAFK",	"SPI1",	"TEAD4",
-    "ATF2",	"CTCF",	"FOXA2",	"MAX",		"SRF",		"YY1",
-    "ATF3",	"E2F1",	"GABPA",	"MYC",		"STAT3",	"ZNF143",
-    "ATF7",	"E2F6",	"GATA3",	"NANOG",	"TAF1")
+    "EP300", "JUND", "RFX5", "TCF7L2",
+    "CREB1", "FOXA1", "MAFK", "SPI1", "TEAD4",
+    "ATF2", "CTCF", "FOXA2", "MAX", "SRF", "YY1",
+    "ATF3", "E2F1", "GABPA", "MYC", "STAT3", "ZNF143",
+    "ATF7", "E2F6", "GATA3", "NANOG", "TAF1")
   val chrs = List("chr10",
     "chr11",
     "chr12",
@@ -185,7 +60,38 @@ object Dataset {
     "chr9",
     "chrX")
 
-}
+  object TranscriptionFactors extends Enumeration with Serializable {
+    val ARID3A, CEBPB, EGR1, HNF4A, REST, TCF12,
+    EP300, JUND, RFX5, TCF7L2,
+    CREB1, FOXA1, MAFK, SPI1, TEAD4,
+    ATF2, CTCF, FOXA2, MAX, SRF, YY1,
+    ATF3, E2F1, GABPA, MYC, STAT3, ZNF143,
+    ATF7, E2F6, GATA3, NANOG, TAF1 = Value
 
+    def toVector: Vector[String] = this.values.map(_.toString).toVector
+  }
+
+  object CellTypes extends Enumeration with Serializable {
+    val A549, GM12878, H1hESC, HCT116, HeLaS3, HepG2, IMR90, K562,
+    MCF7, PC3,
+    Panc1, SKNSH, inducedpluripotentstemcell, liver = Value
+
+    def toVector: Vector[String] = this.values.map(_.toString).toVector
+
+    def getEnumeration(cellType: String): CellTypes.Value = {
+      CellTypes.withName(Dataset.filterCellTypeName(cellType))
+    }
+  }
+
+  object Chromosomes extends Enumeration with Serializable {
+    val chr10, chr11, chr12, chr13, chr14, chr15, chr16,
+    chr17, chr18, chr19, chr1, chr20, chr21, chr22, chr2,
+    chr3, chr4, chr5, chr6, chr7, chr8, chr9, chrX = Value
+
+    def toVector: Vector[String] = this.values.map(_.toString).toVector
+
+  }
+
+}
 
 

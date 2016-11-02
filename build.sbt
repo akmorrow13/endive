@@ -7,7 +7,7 @@ name := "endive"
 version := "0.1"
 
 
-scalaVersion := "2.10.4"
+scalaVersion := "2.10.5"
 
 parallelExecution in Test := false
 
@@ -80,6 +80,10 @@ resolvers ++= Seq(
 
 resolvers += Resolver.sonatypeRepo("public")
 
+resolvers += Resolver.mavenLocal
+
+resolvers += "Local Maven Repository" at "file:///"+Path.userHome+"/.m2/repository"
+
 mergeStrategy in assembly <<= (mergeStrategy in assembly) { (old) =>
   {
     case PathList("javax", "servlet", xs @ _*)               => MergeStrategy.first
@@ -97,5 +101,6 @@ mergeStrategy in assembly <<= (mergeStrategy in assembly) { (old) =>
 }
 
 assemblyOption in assembly := (assemblyOption in assembly).value.copy(includeScala = false, includeDependency = false)
+
 
 test in assembly := {}

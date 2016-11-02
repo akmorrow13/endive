@@ -18,7 +18,7 @@ package net.akmorrow13.endive.pipelines
 import breeze.linalg._
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.metrics.Metrics
-import net.akmorrow13.endive.processing.Sequence
+import net.akmorrow13.endive.processing.Dataset.CellTypes
 import net.akmorrow13.endive.utils._
 import nodes.learning._
 import nodes.nlp._
@@ -29,7 +29,6 @@ import utils.{Image, MatrixUtils, Stats, ImageMetadata, LabeledImage, RowMajorAr
 import workflow.{Pipeline, Transformer}
 import com.github.fommil.netlib.BLAS
 import evaluation.BinaryClassifierEvaluator
-import net.akmorrow13.endive.processing.Sampling
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -119,7 +118,7 @@ object StrawmanPipeline extends Serializable with Logging {
       println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
 
       /* Make an estimator? */
-      val cellTypes:Map[String, Int] = train.map(x => (x.win.cellType)).countByValue().keys.zipWithIndex.toMap
+      val cellTypes:Map[CellTypes.Value, Int] = train.map(x => (x.win.cellType)).countByValue().keys.zipWithIndex.toMap
       val cellTypeFeaturizer = Transformer.apply[LabeledWindow, Int](x => cellTypes(x.win.cellType)) andThen new ClassLabelIndicatorsFromIntLabels(cellTypes.size)
 
 

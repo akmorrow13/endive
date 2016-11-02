@@ -15,6 +15,9 @@
  */
 package net.akmorrow13.endive
 
+import net.akmorrow13.endive.processing.Dataset.Chromosomes
+import org.apache.commons.math3.genetics.Chromosome
+import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary}
 import org.bdgenomics.utils.misc.SparkFunSuite
 
 trait EndiveFunSuite extends SparkFunSuite {
@@ -28,4 +31,9 @@ trait EndiveFunSuite extends SparkFunSuite {
 
   // fetches resources
   def resourcePath(path: String) = ClassLoader.getSystemClassLoader.getResource(path).getFile
+
+  def getSequenceDictionary: SequenceDictionary = {
+    val records = Chromosomes.toVector.map(r => SequenceRecord(r, 10000000))
+    new SequenceDictionary(records)
+  }
 }

@@ -15,27 +15,18 @@
  */
 package net.akmorrow13.endive.pipelines
 
-import java.io.File
 import breeze.linalg.DenseVector
-import evaluation.BinaryClassifierEvaluator
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
+import net.akmorrow13.endive.processing.Dataset.{CellTypes, Chromosomes}
 import net.akmorrow13.endive.utils._
-import net.akmorrow13.endive.processing.Dataset
 import nodes.learning.LogisticRegressionEstimator
-import nodes.util.ClassLabelIndicatorsFromIntLabels
 
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
-import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
-import org.apache.spark.mllib.linalg.Vectors
-import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary, ReferenceRegion}
-import org.bdgenomics.adam.util.TwoBitFile
-import org.bdgenomics.utils.io.LocalFileByteAccess
+import org.bdgenomics.adam.models.SequenceDictionary
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
@@ -47,8 +38,7 @@ object NoSeqBaseModel extends Serializable  {
    * A very basic dataset creation pipeline that *doesn't* featurize the data
    * but creates a csv of (Window, Label)
    *
-   *
-   * @param args
+    * @param args
    */
   def main(args: Array[String]) = {
 
@@ -83,43 +73,38 @@ object NoSeqBaseModel extends Serializable  {
     val labelsPath = conf.labels
     val dnasePath = conf.dnase
 
-    val fullMatrix: RDD[LabeledWindow] = sc.textFile(labelsPath)
+    val windowsRDD: RDD[LabeledWindow] = sc.textFile(labelsPath)
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
       .cache()
 
     val records = DatasetCreationPipeline.getSequenceDictionary(referencePath)
-                .records.filter(r => Dataset.chrs.contains(r.name))
+                .records.filter(r => Chromosomes.toVector.contains(r.name))
 
     val sd = new SequenceDictionary(records)
 
-  
-    
-    val cellTypes: Array[String] = fullMatrix.map(x => (x.win.cellType)).countByValue().keys.toArray
-    val folds = cellTypes.size
+    /* First one chromesome and one celltype per fold (leave 1 out) */
+    val folds = EndiveUtils.generateFoldsRDD(windowsRDD.keyBy(r => (r.win.region.referenceName, r.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds)
+    val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
 
-    val foldsData: RDD[BaseFeature] = featurize(sc, fullMatrix, sd)
-      .setName("foldsData")
-      .cache()
+    println("TOTAL FOLDS " + folds.size)
+    for (i <- (0 until folds.size)) {
+      println("FOLD " + i)
+      val train = featurize(sc, folds(i)._1.map(_._2), sd)
+      val test = featurize(sc, folds(i)._2.map(_._2), sd, false)
+
+      println("TRAIN SIZE IS " + train.count())
+      println("TEST SIZE IS " + test.count())
 
 
-    val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
+      // get testing cell types for this fold
+      val cellTypesTest: Iterable[CellTypes.Value] = test.map(x => (x.labeledWindow.win.cellType)).countByValue().keys
+      println(s"Fold ${i}, testing cell types:")
+      cellTypesTest.foreach(println)
 
-    for (i <- (0 until folds)) {
-      println("calcuated for fold ", i)
-
-      val train = foldsData.filter(x => x.labeledWindow.win.getCellType != cellTypes(i))
-        .setName("trainData")
-        .cache()
-      val test = foldsData.filter(x =>  x.labeledWindow.win.getCellType == cellTypes(i))
-        .setName("testData")
-        .cache()
-      println(train.count, test.count)
-
-      // get training and testing cell types for this fold
-      val testCellType = cellTypes(i)
-      println(s"Fold ${i}, testing cell types ${testCellType}")
-
-      println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
+      // get testing chrs for this fold
+      val chromosomesTest:Iterable[String] = test.map(x => (x.labeledWindow.win.getRegion.referenceName)).countByValue().keys
+      println(s"Fold ${i}, testing chromsomes:")
+      chromosomesTest.foreach(println)
 
       // training features
       val XTrainPositives = train.filter(_.labeledWindow.win.getDnase.length > 0).map(_.features)
@@ -138,7 +123,7 @@ object NoSeqBaseModel extends Serializable  {
       val yTrain = yTrainPositives.union(yTrainNegatives).map(_.toDouble)
 
       // testing labels
-      val yTestPositives = test.filter(_.labeledWindow.win.getDnase.length > 0).map(_.labeledWindow.label).cache()
+      val yTestPositives: RDD[Int] = test.filter(_.labeledWindow.win.getDnase.length > 0).map(_.labeledWindow.label).cache()
       val yTestNegatives = test.filter(_.labeledWindow.win.getDnase.length == 0).map(_.labeledWindow.label).cache()
       val yTest = yTestPositives.union(yTestNegatives).map(_.toDouble)
 
@@ -150,7 +135,7 @@ object NoSeqBaseModel extends Serializable  {
       println("Train Results: \n ")
       Metrics.printMetrics(evalTrain)
 
-      val yPredTest = predictor(XTestPositives).union(XTestNegatives.map(r => 0.0))
+      val yPredTest: RDD[Double] = predictor(XTestPositives).union(XTestNegatives.map(r => 0.0))
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest))
       println("Test Results: \n ")
       Metrics.printMetrics(evalTest)
@@ -162,17 +147,23 @@ object NoSeqBaseModel extends Serializable  {
     ** featurize data wth motifs
     *  Bins that do overlap DNASE peaks are scored using a linear classifier with a log loss function
     *  Linear Classifier Input features:
-          - Known motifs: -log2(motif score) region summary statistics
-          - Max, 0.99%, 0.95%, 0.75%, 0.50%, mean
-          - max DNASE fold change across each bin
+    * - Known motifs: -log2(motif score) region summary statistics
+    * - Max, 0.99%, 0.95%, 0.75%, 0.50%, mean
+    * - max DNASE fold change across each bin
     *************************************/
-  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], sd: SequenceDictionary): RDD[BaseFeature] = {
+  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], sd: SequenceDictionary, filter: Boolean = true): RDD[BaseFeature] = {
 
-    val filteredRDD = Sampling.subselectSamples(sc, rdd, sd, partition = false)
+    val filteredRDD =
+      if (filter)
+        EndiveUtils.subselectSamples(sc, rdd, sd, partition = false)
+      else
+        rdd
+
+    // print sampling statistics
     println(s"filtered rdd ${filteredRDD.count}, original rdd ${rdd.count}")
     println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
       s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
-
+/*
     filteredRDD
       .map(r => {
         if (r.win.getDnase.length > 0) {
@@ -191,6 +182,18 @@ object NoSeqBaseModel extends Serializable  {
           BaseFeature(r, DenseVector(0.0,0.0))
         }
 
+      })*/
+
+    filteredRDD
+      .map(r => {
+        if (r.win.getDnase.length > 0) {
+          BaseFeature(r, DenseVector(1.0))
+        } else {
+          BaseFeature(r, DenseVector(0.0))
+        }
+
       })
   }
+
+
 }

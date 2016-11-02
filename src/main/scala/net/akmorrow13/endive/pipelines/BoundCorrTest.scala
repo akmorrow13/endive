@@ -12,11 +12,4 @@ import org.bdgenomics.adam.models.ReferenceRegion
 
 object BoundCorrTest {
 
-  def prepareTest(sc: SparkContext, filepath: String): RDD[(String, String, ReferenceRegion, Int)] = {
-
-    val tsvRDD = Preprocess.loadLabelFolder(sc, filepath)
-    return tsvRDD
-  }
-
-
 }

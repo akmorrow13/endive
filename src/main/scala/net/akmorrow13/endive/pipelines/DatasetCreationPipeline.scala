@@ -17,21 +17,16 @@ package net.akmorrow13.endive.pipelines
 
 import java.io.File
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.processing.Sequence
+import net.akmorrow13.endive.processing.Dataset.{Chromosomes, CellTypes, TranscriptionFactors}
 import net.akmorrow13.endive.utils._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
-import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceDictionary, SequenceRecord, ReferenceRegion}
-import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.rdd.GenomicPositionPartitioner
 import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
-import org.bdgenomics.formats.avro._
-import org.bdgenomics.formats.avro.NucleotideContigFragment
 import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.constructor.Constructor
@@ -45,8 +40,7 @@ object DatasetCreationPipeline extends Serializable  {
    * A very basic dataset creation pipeline that *doesn't* featurize the data
    * but creates a csv of (Window, Label)
    *
-   *
-   * @param args
+    * @param args
    */
   def main(args: Array[String]) = {
 
@@ -97,30 +91,30 @@ object DatasetCreationPipeline extends Serializable  {
       for (i <- labelStatus) {
         val file: String = i.getPath.toString
         try {
-          val (train: RDD[(String, String, ReferenceRegion, Int)], cellTypes: Array[String]) = Preprocess.loadLabels(sc, file)
+          val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, file)
           train.setName("train").cache()
           train.count
 
-	  val tf = train.first._1
+	        val tf = train.first._1
           println(s"celltypes for tf ${tf}:")
           cellTypes.foreach(println)
 
           // extract sequences from reference over training regions
           val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
           // val sequences: RDD[LabeledWindow] = sc.emptyRDD[LabeledWindow]
-	  println("extracted sequences", sequences.count)
+	        println("extracted sequences", sequences.count)
           // Load DNase data of (cell type, peak record)
-	  val dnaseFiles = dnaseStatus.filter(r => {
-		cellTypes.contains(r.getPath.getName.split('.')(1))
+	        val dnaseFiles = dnaseStatus.filter(r => {
+		        cellTypes.contains(r.getPath.getName.split('.')(1))
           })
- 	 
-          val dnase: RDD[(String, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
-            .map(r => (Window.filterCellTypeName(r._1), r._2))
-            .cache()
+
+          // loading peak files
+          val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
+              .cache()
 
           val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-          val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(String, RNARecord)], sd)
+          val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
 
           val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
 
@@ -138,11 +132,13 @@ object DatasetCreationPipeline extends Serializable  {
 
   def getSequenceDictionary(referencePath: String): SequenceDictionary = {
     val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-    new SequenceDictionary(reference.seqRecords.toVector.map(r => SequenceRecord(r._1, r._2.dnaSize)))
+    val seqRecords = reference.seqRecords.toVector.map(r => SequenceRecord(r._1, r._2.dnaSize))
+		.filter(r => Chromosomes.toVector.contains(r.name))
+    new SequenceDictionary(seqRecords)
   }
 
 
-  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(String, String, ReferenceRegion, Int)], placeHolder: Boolean = false): RDD[LabeledWindow]  = {
+  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], placeHolder: Boolean = false): RDD[LabeledWindow]  = {
     /* TODO: This is a kludge that relies that the master + slaves share NFS
      * but the correct thing to do is to use scp/nfs to distribute the sequence data
      * across the cluster

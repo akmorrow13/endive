@@ -1,7 +1,8 @@
 package net.akmorrow13.endive.featurizers
 
 import net.akmorrow13.endive.EndiveFunSuite
-import net.akmorrow13.endive.processing.{Preprocess, Sequence}
+import net.akmorrow13.endive.processing.Dataset.{CellTypes, TranscriptionFactors}
+import net.akmorrow13.endive.processing.{Sequence, Preprocess}
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.formats.avro.{Contig, NucleotideContigFragment}
@@ -38,7 +39,7 @@ class KmerSuite extends EndiveFunSuite {
   }
 
   sparkTest("should extract kmers using reference and regions") {
-    val trainRDD: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelPath)._1
+    val trainRDD: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelPath)._1
 
     val reference = Sequence(sc.parallelize(Seq(fragment)), sc)
     val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(trainRDD.map(_._3))

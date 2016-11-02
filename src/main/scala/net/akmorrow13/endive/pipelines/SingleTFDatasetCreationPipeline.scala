@@ -17,8 +17,11 @@ package net.akmorrow13.endive.pipelines
 
 import java.io.File
 import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.processing.Dataset.{CellTypes, TranscriptionFactors}
 import net.akmorrow13.endive.processing.Sequence
 import net.akmorrow13.endive.utils._
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -42,8 +45,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
    * A very basic dataset creation pipeline that *doesn't* featurize the data
    * but creates a csv of (Window, Label)
    *
-   *
-   * @param args
+    * @param args
    */
   def main(args: Array[String]) = {
     if (args.size < 1) {
@@ -71,43 +73,76 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     // create new sequence with reference path
     val referencePath = conf.reference
 
+    // load dnase path for all files
+    val dnasePath = conf.dnase
+
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
 
-    val train: RDD[(String, String, ReferenceRegion, Int)] = Preprocess.loadLabels(sc, labelsPath)._1
-    train.setName("Raw Train Data").cache()
+    // create sequence dictionary
+    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-    println("First reading labels")
-    train.count()
+    val fs: FileSystem = FileSystem.get(new Configuration())
+    val dnaseStatus = fs.listStatus(new Path(dnasePath))
+
+    val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
+    
+    train
+	.setName("Raw Train Data").cache()
+
+    println(train.count, train.partitions.length)
+    val tf = train.first._1
+    println(s"celltypes for tf ${tf}:")
+    cellTypes.foreach(println)
+
+    // Load DNase data of (cell type, peak record)
+    val dnaseFiles = dnaseStatus.filter(r => {
+      val cellType = Dataset.filterCellTypeName(r.getPath.getName.split('.')(1))
+      cellTypes.map(_.toString).contains(cellType)
+    })
+
+    // load peak data from dnase
+    val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
+      .cache()
+
+    println("Reading dnase peaks")
+    println(dnase.count)
 
     // extract sequences from reference over training regions
     val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
+    println("labeled window count", sequences.count)
+
+    val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
+
+    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
 
     println("Now matching labels with reference genome")
-    sequences.count()
+    println(fullMatrix.count)
 
     println("Now saving to disk")
-    sequences.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput)
+    fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + tf)
   }
 
 
-  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(String, String, ReferenceRegion, Int)]): RDD[LabeledWindow]  = {
+  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)]): RDD[LabeledWindow]  = {
     /* TODO: This is a kludge that relies that the master + slaves share NFS
      * but the correct thing to do is to use scp/nfs to distribute the sequence data
      * across the cluster
      */
-
-    regionsAndLabels.mapPartitions { part =>
-        val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-        part.map { r =>
+   	
+      regionsAndLabels.map( r => { 
+ //   regionsAndLabels.mapPartitions { part =>
+   //     val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+     //   part.map { r =>
           val startIdx = r._3.start
           val endIdx = r._3.end
-          val sequence = reference.extract(r._3)
-          val label = r._4
+   //       val sequence = reference.extract(r._3)
+          val sequence = "N" * 200
+	  val label = r._4
           val win = Window(r._1, r._2, r._3, sequence)
           LabeledWindow(win, label)
-        }
-      }
+   //     }
+      })
   }
 
 }
