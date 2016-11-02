@@ -17,7 +17,7 @@ package net.akmorrow13.endive.pipelines
 
 import java.io.File
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.processing.Dataset.{CellTypes, TranscriptionFactors}
+import net.akmorrow13.endive.processing.Dataset.{Chromosomes, CellTypes, TranscriptionFactors}
 import net.akmorrow13.endive.processing.Sequence
 import net.akmorrow13.endive.utils._
 import org.apache.hadoop.conf.Configuration
@@ -103,7 +103,8 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
 
     // load peak data from dnase
     val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
-      .cache()
+     .filter(r => Chromosomes.toVector.contains(r._2.region.referenceName)) 
+     .cache()
 
     println("Reading dnase peaks")
     println(dnase.count)
@@ -130,18 +131,16 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
      * across the cluster
      */
    	
-      regionsAndLabels.map( r => { 
- //   regionsAndLabels.mapPartitions { part =>
-   //     val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-     //   part.map { r =>
+    regionsAndLabels.mapPartitions( part => {
+        val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+        part.map { r =>
           val startIdx = r._3.start
           val endIdx = r._3.end
-   //       val sequence = reference.extract(r._3)
-          val sequence = "N" * 200
+          val sequence = reference.extract(r._3)
 	  val label = r._4
           val win = Window(r._1, r._2, r._3, sequence)
           LabeledWindow(win, label)
-   //     }
+       }
       })
   }
 

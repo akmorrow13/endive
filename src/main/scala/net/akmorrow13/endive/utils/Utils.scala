@@ -35,19 +35,19 @@ def generateFoldsRDD[T: ClassTag](allData:RDD[((String, CellTypes.Value), T)], n
   /* this will work with exponentially high probability */
   val chromosomes:Iterable[String] = cellTypesChromosomes.map(_._1)
 
-  for (i <- (0 until numFolds)) yield
-    {
+
+    for (i <- (0 until numFolds)) yield {
       val holdOutCellTypes = r.shuffle(cellTypes).take(numHeldOutCellTypes).toSet
       val holdOutChromosomes = r.shuffle(chromosomes).take(numHeldOutChromosomes).toSet
       generateTrainTestSplit(allData, holdOutCellTypes, Some(holdOutChromosomes))
     }
 }
 
-  def generateTrainTestSplit[T: ClassTag](allData: RDD[((String, CellTypes.Value), T)], holdOutCellTypes: Set[CellTypes.Value], holdOutChromosomes: Option[Set[String]] = None) = {
-    val train = allData.filter { window => !holdOutCellTypes.contains(window._1._2) && !holdOutChromosomes.getOrElse(Set()).contains(window._1._1) }
-    val test = allData.filter { window => holdOutCellTypes.contains(window._1._2) && holdOutChromosomes.getOrElse(Set(window._1._1)).contains(window._1._1) }
-    (train, test)
-  }
+def generateTrainTestSplit[T: ClassTag](allData: RDD[((String, CellTypes.Value), T)], holdOutCellTypes: Set[CellTypes.Value], holdOutChromosomes: Option[Set[String]] = None) = {
+        val train = allData.filter { window => !holdOutCellTypes.contains(window._1._2) && !holdOutChromosomes.getOrElse(Set()).contains(window._1._1) }
+        val test = allData.filter { window => holdOutCellTypes.contains(window._1._2) && holdOutChromosomes.getOrElse(Set(window._1._1)).contains(window._1._1) } 
+        (train, test)
+}
 
 
   /**

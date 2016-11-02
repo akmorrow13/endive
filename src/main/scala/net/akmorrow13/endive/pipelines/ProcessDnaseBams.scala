@@ -16,7 +16,7 @@
 package net.akmorrow13.endive.pipelines
 
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.processing.{Cut, Dataset}
+import net.akmorrow13.endive.processing.Dataset.Chromosomes
 import net.akmorrow13.endive.processing.{Cut, Dataset}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileStatus, Path, FileSystem}
@@ -36,7 +36,6 @@ object ProcessDnaseBams extends Serializable with Logging {
   /**
    * A very basic dataset creation pipeline that *doesn't* featurize the data
    * but creates a csv of (Window, Label)
-   *
    *
    * @param args
    */
@@ -66,7 +65,8 @@ object ProcessDnaseBams extends Serializable with Logging {
     val dnase = conf.dnase
     val output = conf.getFeaturizedOutput
     val referencePath = conf.reference
-
+    val chromosomes = Chromosomes.toVector
+    
     val fs: FileSystem = FileSystem.get(new Configuration())
     val positiveFolder = s"${output}/"
     val saved = fs.listStatus(new Path(positiveFolder)).map(_.getPath.toString)
@@ -83,7 +83,7 @@ object ProcessDnaseBams extends Serializable with Logging {
       val cellType = grp._1
       println(s"processing Dnase for celltype ${cellType}")
 
-      val totalCuts: RDD[Cut] = sc.emptyRDD[Cut]
+      var totalCuts: RDD[Cut] = sc.emptyRDD[Cut]
       val outputLocation = s"${output}/DNASE.${cellType}.adam"
       totalCuts.cache()
 
@@ -99,16 +99,16 @@ object ProcessDnaseBams extends Serializable with Logging {
           alignments.rdd.cache
 
           val cuts: RDD[Cut] = alignments.rdd
-            .filter(r => r.getContigName != null)
+            .filter(r => r.getContigName != null && chromosomes.contains(r.getContigName))
             .map(r => Cut(ReferenceRegion(r), fileName, r.getReadName, r.getReadNegativeStrand))
 
-          totalCuts.union(cuts)
+          totalCuts = totalCuts.union(cuts)
           alignments.rdd.unpersist(false)
         }
 
         log.info(s"Now saving dnase cuts for ${cellType} to disk")
         // TODO: save cuts for celltype
-        totalCuts.map(_.toString).saveAsTextFile(output)
+        totalCuts.map(_.toString).saveAsTextFile(outputLocation)
         totalCuts.unpersist(true)
       } else {
         println(s"dnase for ${cellType} exists. skipping")

@@ -21,9 +21,8 @@ object Dataset extends Logging {
   val partitions = 60
 
   // held out values for final round
-
-  val heldOutChrs = List("chr1", "chr8", "chr21")
-  val heldOutTypes = List("PC-3", "liver", "induced_pluripotent_stem_cell")
+  val heldOutChrs = List(Chromosomes.chr1, Chromosomes.chr8, Chromosomes.chr21)
+  val heldOutTypes = List(CellTypes.K562, CellTypes.PC3, CellTypes.liver, CellTypes.inducedpluripotentstemcell)
 
   val cellTypes = List("A549", "GM12878", "H1hESC", "HCT116", "HeLaS3", "HepG2", "IMR90", "K562",
     "MCF7", "PC3",
@@ -93,5 +92,3 @@ object Dataset extends Logging {
   }
 
 }
-
-
