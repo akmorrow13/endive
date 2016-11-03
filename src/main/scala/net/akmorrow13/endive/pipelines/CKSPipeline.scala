@@ -27,6 +27,72 @@ object CSKPipeline extends Serializable  {
 
   val alphabetSize = 4
 
+  val bases = 4
+  val alphabetSize = 4
+
+  def denseFeaturize(in: String): DenseVector[Double] = {
+    /* Identity featurizer */
+
+    val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
+    val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
+
+    val intString:Seq[Int] = in.map(BASEPAIRMAP(_))
+    val seqString = intString.map { bp =>
+      val out = DenseVector.zeros[Double](4)
+      if (bp != -1) {
+        out(bp) = 1
+      }
+      out
+    }
+    DenseVector.vertcat(seqString:_*)
+  }
+
+  def vectorToString(in: DenseVector[Double]): String = {
+
+    val BASEPAIRREVMAP = Array('A', 'T', 'C', 'G')
+    var i = 0
+    var str = ""
+    while (i < in.size) {
+      val charVector = in(i until i+alphabetSize)
+      if (charVector == DenseVector.zeros[Double](alphabetSize)) {
+        str += "N"
+      } else {
+        val bp = BASEPAIRREVMAP(argmax(charVector))
+        str += bp
+      }
+      i += alphabetSize
+    }
+    str
+  }
+
+  def computeConvolutionalNorm(X: DenseMatrix[Double]): Double =  {
+    var i = 0
+    var norm = 0.0
+    while (i < X.rows) {
+      var j = 0
+      while (j < X.rows) {
+        val ngram1:DenseVector[Double] = X(i,::).t
+        val ngram2:DenseVector[Double] = X(j,::).t
+        val k = ngram1.t * ngram2
+        norm += k
+        j += 1
+      }
+      i += 1
+    }
+    sqrt(norm)
+  }
+
+  def convertNgramsToStrings(ngramMat: DenseMatrix[Double], outSize:Int ): Array[String] =  {
+    var i = 0
+    val ngramStrings:Array[String] = new Array[String](outSize)
+    while (i < outSize) {
+      val ngramString = vectorToString(ngramMat(i, ::).t.toDenseVector)
+      ngramStrings(i) = ngramString
+      i += 1
+    }
+    ngramStrings
+  }
+
   /**
     * A very basic dataset creation pipeline that *doesn't* featurize the data
     * but creates a csv of (Window, Label)
