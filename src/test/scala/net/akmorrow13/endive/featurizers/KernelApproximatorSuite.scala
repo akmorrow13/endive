@@ -144,8 +144,8 @@ class KernelApproximatorSuite extends EndiveFunSuite {
     val sequenceVector:DenseVector[Double] = denseFeaturize(sequenceLong)
     val sequenceVector2:DenseVector[Double] = denseFeaturize(sequenceLong2)
 
-    var ngramMat1 = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
-    var ngramMat2 = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
+    val ngramMat1 = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
+    val ngramMat2 = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
 
 
     val ngrams1 = KernelApproximator.makeNgrams(sequenceVector, ngramMat1, ngramSize,  alphabetSize)

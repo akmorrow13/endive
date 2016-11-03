@@ -1,12 +1,17 @@
 package net.akmorrow13.endive.pipelines
 
-import breeze.linalg.DenseVector
+import breeze.linalg.{argmax, DenseMatrix, DenseVector}
+import breeze.numerics._
+import breeze.stats.distributions.{Gaussian, ThreadLocalRandomGenerator, RandBasis}
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.processing.Dataset.{CellTypes, Chromosomes}
 import net.akmorrow13.endive.utils._
+import nodes.akmorrow13.endive.featurizers.KernelApproximator
 import nodes.learning.LogisticRegressionEstimator
+import nodes.util.ClassLabelIndicatorsFromIntLabels
+import org.apache.commons.math3.random.MersenneTwister
 
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
@@ -20,6 +25,72 @@ import net.akmorrow13.endive.processing._
 
 object CSKPipeline extends Serializable  {
 
+  val bases = 4
+  val alphabetSize = 4
+
+  def denseFeaturize(in: String): DenseVector[Double] = {
+    /* Identity featurizer */
+
+    val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
+    val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
+
+    val intString:Seq[Int] = in.map(BASEPAIRMAP(_))
+    val seqString = intString.map { bp =>
+      val out = DenseVector.zeros[Double](4)
+      if (bp != -1) {
+        out(bp) = 1
+      }
+      out
+    }
+    DenseVector.vertcat(seqString:_*)
+  }
+
+  def vectorToString(in: DenseVector[Double]): String = {
+
+    val BASEPAIRREVMAP = Array('A', 'T', 'C', 'G')
+    var i = 0
+    var str = ""
+    while (i < in.size) {
+      val charVector = in(i until i+alphabetSize)
+      if (charVector == DenseVector.zeros[Double](alphabetSize)) {
+        str += "N"
+      } else {
+        val bp = BASEPAIRREVMAP(argmax(charVector))
+        str += bp
+      }
+      i += alphabetSize
+    }
+    str
+  }
+
+  def computeConvolutionalNorm(X: DenseMatrix[Double]): Double =  {
+    var i = 0
+    var norm = 0.0
+    while (i < X.rows) {
+      var j = 0
+      while (j < X.rows) {
+        val ngram1:DenseVector[Double] = X(i,::).t
+        val ngram2:DenseVector[Double] = X(j,::).t
+        val k = ngram1.t * ngram2
+        norm += k
+        j += 1
+      }
+      i += 1
+    }
+    sqrt(norm)
+  }
+
+  def convertNgramsToStrings(ngramMat: DenseMatrix[Double], outSize:Int ): Array[String] =  {
+    var i = 0
+    val ngramStrings:Array[String] = new Array[String](outSize)
+    while (i < outSize) {
+      val ngramString = vectorToString(ngramMat(i, ::).t.toDenseVector)
+      ngramStrings(i) = ngramString
+      i += 1
+    }
+    ngramStrings
+  }
+
   /**
     * A very basic dataset creation pipeline that *doesn't* featurize the data
     * but creates a csv of (Window, Label)
@@ -28,7 +99,7 @@ object CSKPipeline extends Serializable  {
     */
   def main(args: Array[String]) = {
 
-    if (args.size < 1) {
+    if (args.length < 1) {
       println("Incorrect number of arguments...Exiting now.")
     } else {
       val configfile = scala.io.Source.fromFile(args(0))
@@ -66,7 +137,7 @@ object CSKPipeline extends Serializable  {
     var modelTest = true
     try{
       modelTest = conf.modelTest.toBoolean
-      if(modelTest == false){
+      if(!modelTest){
         require(predictionOutputPath != null, "You must specify output path for full prediction")
       }
     } catch {
@@ -123,7 +194,19 @@ object CSKPipeline extends Serializable  {
     }
 
 
-    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false, motifs=Some(motifs))
+    //val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, subselectNegatives = false, motifs=Some(motifs))
+    //featurized.map(f => (f.labeledWindow,f.features))
+    //val featurized = windowsRDD.map(f => BaseFeature(f, denseFeaturize(f.win.getSequence)))
+    val featurized = windowsRDD.map(f => BaseFeature(f, {
+      val seed = 14567
+      val ngramSize = 1
+      implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+      val gaussian = new Gaussian(0, 1)
+      val approxDim = 4000
+      val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
+      val kernelApprox = new KernelApproximator(W)
+      kernelApprox(denseFeaturize(f.win.getSequence))
+    }))
     val folds: IndexedSeq[(RDD[((String, CellTypes.Value), BaseFeature)], RDD[((String, CellTypes.Value), BaseFeature)])] =
     if(modelTest) {
       /* First one chromesome and one celltype per fold (leave 1 out) */
@@ -172,7 +255,7 @@ object CSKPipeline extends Serializable  {
 
       val yPredTest = predictor(xTest)
       val finalPrediction = test.map(f => (f.labeledWindow.win.region, f.labeledWindow.win.cellType)).zip(yPredTest)
-      if(modelTest == false) {
+      if(!modelTest) {
         //wouldn't it be sad if we made it here and realized that our path already existed?
         //most of the logic here is to prevent sadness and wasted time.
         try {
