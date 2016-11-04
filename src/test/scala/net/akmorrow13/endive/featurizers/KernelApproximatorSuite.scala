@@ -234,7 +234,7 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     val gaussian = new Gaussian(0, 1)
     val approxDim = 4000
     //val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
-    val kernelApprox = new KernelApproximator(W)
+    val kernelApprox = new KernelApproximator(W, Math.cos)
 
     val trainApprox = train.map(f => (kernelApprox({
       val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
@@ -253,6 +253,8 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     println(train.first)
     println(trainApprox.first)
     println(trainApprox.first._1.length)
+    sys.exit()
+
     val testApprox = test.map(f => (kernelApprox({
       val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
       val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)

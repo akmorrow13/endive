@@ -9,6 +9,7 @@ import workflow.Transformer
 import breeze.numerics._
 import net.jafama.FastMath
 
+import scala.collection.mutable.ListBuffer
 
 
 /* This only works for small alphabet size, use sparse matrix later */
@@ -35,14 +36,14 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
     offset: Option[DenseVector[Double]],
     alphabetSize: Int = 4): DenseVector[Double] = {
 
-      /* Make the ngram */
-     val ngrams: DenseMatrix[Double] = KernelApproximator.makeNgrams(seq, ngramMat, ngramSize)
+    /* Make the ngram */
+    val ngrams: DenseMatrix[Double] = KernelApproximator.makeNgrams(seq, ngramMat, ngramSize)
     /* Actually do the convolution */
     val convRes: DenseMatrix[Double] = ngrams * filters.t
 
     /* Apply non linearity element wise */
-   var i = 0
-   while (i < convRes.rows) {
+    var i = 0
+    while (i < convRes.rows) {
       var j = 0
       while (j < convRes.cols) {
         val phase = offset.map(x => x(i)).getOrElse(0.0)
@@ -50,18 +51,17 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
         j += 1
       }
      i += 1
-   }
+    }
 
-   /* sum across spatial dimension */
-  val outV =  sum(convRes, Axis._0).toDenseVector
-  outV *= 1.0/sqrt(filters.rows)
+    /* sum across spatial dimension */
+    val outV =  sum(convRes, Axis._0).toDenseVector
+    outV *= 1.414 * 1.0/sqrt(filters.rows)
 
-  /* Normalize */
-  outV :/= norm(outV)
-  outV
+    /* Normalize */
+    println(norm(outV))
+    outV :/= norm(outV)
+
   }
-
-
 
   def convolvePartitions(seq: Iterator[DenseVector[Double]],
     filters: DenseMatrix[Double],
@@ -69,33 +69,33 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
     offset:Option[DenseVector[Double]],
     ngramSize: Int,
     outSize: Int,
-    alphabetSize: Int = 4): Iterator[DenseVector[Double]] =
-    {
-      var ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
+    alphabetSize: Int = 4): Iterator[DenseVector[Double]] = {
+      val ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
       seq.map(convolve(_, ngramMat, filters, nonLin, offset, alphabetSize))
     }
   }
 
-  object KernelApproximator  {
+object KernelApproximator  {
 
-    def makeNgrams(seq: DenseVector[Double],
-      ngramMat: DenseMatrix[Double],
-      ngramSize: Int,
-      alphabetSize: Int = 4): DenseMatrix[Double] = {
+  def makeNgrams(seq: DenseVector[Double],
+                  ngramMat: DenseMatrix[Double],
+                  ngramSize: Int,
+                  alphabetSize: Int = 4): DenseMatrix[Double] = {
 
-        /* The length of seq is alphabet size times sequence length */
-       val numSymbols = seq.size/alphabetSize
+    /* The length of seq is alphabet size times sequence length */
+    val numSymbols = seq.size/alphabetSize
 
-       /* valid convolution */
+    /* valid convolution */
     val outSize = numSymbols - ngramSize + 1
     val ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
     var i = 0
     while (i < outSize) {
       val currNgram = seq(i*alphabetSize until (i + ngramSize)*alphabetSize)
-      ngramMat(i, ::) := currNgram.t
+      for(j <- 0 until currNgram.length) {
+        ngramMat(i,j) = currNgram(j)
+      }
       i += 1
     }
     ngramMat
   }
-
 }
