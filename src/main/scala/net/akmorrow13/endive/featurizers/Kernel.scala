@@ -24,7 +24,7 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
   }
 
   def apply(in: DenseVector[Double]): DenseVector[Double]= {
-    var ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
+    val ngramMat = null//new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
     convolve(in, ngramMat, filters, nonLin, offset)
   }
 
@@ -36,8 +36,7 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
     alphabetSize: Int = 4): DenseVector[Double] = {
 
       /* Make the ngram */
-     var ngrams: DenseMatrix[Double] = KernelApproximator.makeNgrams(seq, ngramMat, ngramSize)
-
+     val ngrams: DenseMatrix[Double] = KernelApproximator.makeNgrams(seq, ngramMat, ngramSize)
     /* Actually do the convolution */
     val convRes: DenseMatrix[Double] = ngrams * filters.t
 
@@ -89,7 +88,7 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
 
        /* valid convolution */
     val outSize = numSymbols - ngramSize + 1
-
+    val ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
     var i = 0
     while (i < outSize) {
       val currNgram = seq(i*alphabetSize until (i + ngramSize)*alphabetSize)

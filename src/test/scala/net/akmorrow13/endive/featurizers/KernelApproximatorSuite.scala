@@ -216,12 +216,15 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     assert(Stats.aboutEq(kxxhat, kxx, 0.01))
     assert(Stats.aboutEq(kyyhat, kyy, 0.01))
 
-
   }
 
   sparkTest("Testing that output is same as paper results") {
 
-    var infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq")).filter(f => f(0) == 'A')
+    val W = breeze.linalg.csvread(new java.io.File("/Users/DevinPetersohn/Downloads/nprandom_4000_32.csv"))
+    println(W(0,0))
+    println(W(1,0))
+
+    var infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq.100Lines")).filter(f => f(0) == 'A')
     val train = infile.map(f => f.split(" ")).map(f => (f(2), f.last.toInt))
     infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq")).filter(f => f(0) == 'A')
     val test = infile.map(f => f.split("\t")).map(f => (f(2), f.last.toInt))
@@ -230,7 +233,7 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
     val approxDim = 4000
-    val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
+    //val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
     val kernelApprox = new KernelApproximator(W)
 
     val trainApprox = train.map(f => (kernelApprox({
@@ -247,7 +250,9 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
       }
       DenseVector.vertcat(seqString:_*)
     }), f._2))
-
+    println(train.first)
+    println(trainApprox.first)
+    println(trainApprox.first._1.length)
     val testApprox = test.map(f => (kernelApprox({
       val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
       val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
