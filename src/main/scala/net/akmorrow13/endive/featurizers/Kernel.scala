@@ -58,6 +58,7 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
     outV *= 1.414 * 1.0/sqrt(filters.rows)
 
     /* Normalize */
+    //something wrong in normalize
     println(norm(outV))
     outV :/= norm(outV)
 
