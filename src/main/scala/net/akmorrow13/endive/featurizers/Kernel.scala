@@ -13,7 +13,7 @@ import net.jafama.FastMath
 
 /* This only works for small alphabet size, use sparse matrix later */
 class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double = (x: Double) => x , offset:Option[DenseVector[Double]] = None, ngramSize: Int = 8, alphabetSize: Int = 4, seqSize: Int = 200)
-  extends Transformer[DenseVector[Double], DenseVector[Double]] {
+  extends Transformer[DenseVector[Double], DenseVector[Double]] with Serializable {
 
 
   /* valid convolution */

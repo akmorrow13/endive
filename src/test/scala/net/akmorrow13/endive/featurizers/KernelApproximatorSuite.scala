@@ -17,7 +17,7 @@ import org.apache.commons.math3.random.MersenneTwister
 import nodes.akmorrow13.endive.featurizers.KernelApproximator
 import utils.Stats
 
-class KernelApproximatorSuite extends EndiveFunSuite {
+class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
 
   val bases = 4
 
@@ -219,38 +219,49 @@ class KernelApproximatorSuite extends EndiveFunSuite {
 
   }
 
-  test("Testing that output is same as paper results") {
-    val conf = new SparkConf()
-      .setMaster("local[4]")
-      .setAppName("AnAnnoyingStep")
-    val sc = new SparkContext(conf)
+  sparkTest("Testing that output is same as paper results") {
+
     var infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq")).filter(f => f(0) == 'A')
     val train = infile.map(f => f.split(" ")).map(f => (f(2), f.last.toInt))
     infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq")).filter(f => f(0) == 'A')
-    println(infile.first)
     val test = infile.map(f => f.split("\t")).map(f => (f(2), f.last.toInt))
 
-    val trainApprox = sc.parallelize(train.collect.map(f => ({
-      val seed = 14567
-      val ngramSize = 1
-      implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
-      val gaussian = new Gaussian(0, 1)
-      val approxDim = 4000
-      val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
-      val kernelApprox = new KernelApproximator(W)
-      kernelApprox(denseFeaturize(f._1))
-    }, f._2)))
+    val ngramSize = 8
+    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+    val gaussian = new Gaussian(0, 1)
+    val approxDim = 4000
+    val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
+    val kernelApprox = new KernelApproximator(W)
 
-    val testApprox = sc.parallelize(test.collect.map(f => ({
-      val seed = 14567
-      val ngramSize = 1
-      implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
-      val gaussian = new Gaussian(0, 1)
-      val approxDim = 4000
-      val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
-      val kernelApprox = new KernelApproximator(W)
-      kernelApprox(denseFeaturize(f._1))
-    }, f._2)))
+    val trainApprox = train.map(f => (kernelApprox({
+      val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
+      val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
+
+      val intString:Seq[Int] = f._1.map(BASEPAIRMAP(_))
+      val seqString = intString.map { bp =>
+        val out = DenseVector.zeros[Double](4)
+        if (bp != -1) {
+          out(bp) = 1
+        }
+        out
+      }
+      DenseVector.vertcat(seqString:_*)
+    }), f._2))
+
+    val testApprox = test.map(f => (kernelApprox({
+      val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
+      val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
+
+      val intString:Seq[Int] = f._1.map(BASEPAIRMAP(_))
+      val seqString = intString.map { bp =>
+        val out = DenseVector.zeros[Double](4)
+        if (bp != -1) {
+          out(bp) = 1
+        }
+        out
+      }
+      DenseVector.vertcat(seqString:_*)
+    }), f._2))
 
     val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.01)
       .fit(trainApprox.keys, trainApprox.values)
@@ -261,7 +272,7 @@ class KernelApproximatorSuite extends EndiveFunSuite {
     Metrics.printMetrics(evalTrain)
 
     val predictionOnTestData = predictor(testApprox.keys)
-    val evalTest = new BinaryClassificationMetrics(modelTestUsingTrainData.zip(testApprox.values.map(_.toDouble)))
+    val evalTest = new BinaryClassificationMetrics(predictionOnTestData.zip(testApprox.values.map(_.toDouble)))
     println("Test Results: \n ")
     Metrics.printMetrics(evalTest)
   }
