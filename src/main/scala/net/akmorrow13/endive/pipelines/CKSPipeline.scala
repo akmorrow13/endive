@@ -28,23 +28,6 @@ object CSKPipeline extends Serializable  {
   val bases = 4
   val alphabetSize = 4
 
-  def denseFeaturize(in: String): DenseVector[Double] = {
-    /* Identity featurizer */
-
-    val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
-    val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
-
-    val intString:Seq[Int] = in.map(BASEPAIRMAP(_))
-    val seqString = intString.map { bp =>
-      val out = DenseVector.zeros[Double](4)
-      if (bp != -1) {
-        out(bp) = 1
-      }
-      out
-    }
-    DenseVector.vertcat(seqString:_*)
-  }
-
   def vectorToString(in: DenseVector[Double]): String = {
 
     val BASEPAIRREVMAP = Array('A', 'T', 'C', 'G')
@@ -80,17 +63,6 @@ object CSKPipeline extends Serializable  {
     sqrt(norm)
   }
 
-  def convertNgramsToStrings(ngramMat: DenseMatrix[Double], outSize:Int ): Array[String] =  {
-    var i = 0
-    val ngramStrings:Array[String] = new Array[String](outSize)
-    while (i < outSize) {
-      val ngramString = vectorToString(ngramMat(i, ::).t.toDenseVector)
-      ngramStrings(i) = ngramString
-      i += 1
-    }
-    ngramStrings
-  }
-
   /**
     * A very basic dataset creation pipeline that *doesn't* featurize the data
     * but creates a csv of (Window, Label)
@@ -122,7 +94,6 @@ object CSKPipeline extends Serializable  {
     // challenge parameters
     val windowSize = 200
     val stride = 50
-
 
     // create new sequence with reference path
     val referencePath = conf.reference
@@ -173,7 +144,7 @@ object CSKPipeline extends Serializable  {
       aggregatedCuts.count
     } catch {
       case e @ (_: org.apache.hadoop.mapred.InvalidInputException | _: java.lang.NullPointerException) => {
-        val keyedCuts = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
+        val keyedCuts = Preprocess.loadCuts(sc, dnasePath, cellTypes.toArray)
           .keyBy(r => (r.region, r.getCellType))
           .partitionBy(GenomicRegionPartitioner(1000, sd))
         keyedCuts.count
@@ -193,19 +164,31 @@ object CSKPipeline extends Serializable  {
       }
     }
 
-
+    val seed = 14567
+    val ngramSize = 8
+    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+    val gaussian = new Gaussian(0, 1)
+    val approxDim = 4000
+    val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
+    val kernelApprox = new KernelApproximator(W, nonLin = Math.cos, ngramSize = ngramSize)
     //val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, subselectNegatives = false, motifs=Some(motifs))
     //featurized.map(f => (f.labeledWindow,f.features))
     //val featurized = windowsRDD.map(f => BaseFeature(f, denseFeaturize(f.win.getSequence)))
     val featurized = windowsRDD.map(f => BaseFeature(f, {
-      val seed = 14567
-      val ngramSize = 1
-      implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
-      val gaussian = new Gaussian(0, 1)
-      val approxDim = 4000
-      val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
-      val kernelApprox = new KernelApproximator(W)
-      kernelApprox(denseFeaturize(f.win.getSequence))
+      kernelApprox({
+        val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
+        val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
+
+        val intString:Seq[Int] = f.win.sequence.map(BASEPAIRMAP(_))
+        val seqString = intString.map { bp =>
+          val out = DenseVector.zeros[Double](4)
+          if (bp != -1) {
+            out(bp) = 1
+          }
+          out
+        }
+        DenseVector.vertcat(seqString:_*)
+      })
     }))
     val folds: IndexedSeq[(RDD[((String, CellTypes.Value), BaseFeature)], RDD[((String, CellTypes.Value), BaseFeature)])] =
     if(modelTest) {
