@@ -6,7 +6,6 @@ import breeze.stats.distributions.{Gaussian, ThreadLocalRandomGenerator, RandBas
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
-import net.akmorrow13.endive.processing.Dataset.{CellTypes, Chromosomes}
 import net.akmorrow13.endive.utils._
 import nodes.akmorrow13.endive.featurizers.KernelApproximator
 import nodes.learning.LogisticRegressionEstimator
@@ -23,29 +22,10 @@ import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
 
 
-object CSKPipeline extends Serializable  {
-
-  val alphabetSize = 4
+object DnaseModel extends Serializable  {
 
   val bases = 4
   val alphabetSize = 4
-
-  def denseFeaturize(in: String): DenseVector[Double] = {
-    /* Identity featurizer */
-
-    val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
-    val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
-
-    val intString:Seq[Int] = in.map(BASEPAIRMAP(_))
-    val seqString = intString.map { bp =>
-      val out = DenseVector.zeros[Double](4)
-      if (bp != -1) {
-        out(bp) = 1
-      }
-      out
-    }
-    DenseVector.vertcat(seqString:_*)
-  }
 
   def vectorToString(in: DenseVector[Double]): String = {
 
@@ -82,20 +62,10 @@ object CSKPipeline extends Serializable  {
     sqrt(norm)
   }
 
-  def convertNgramsToStrings(ngramMat: DenseMatrix[Double], outSize:Int ): Array[String] =  {
-    var i = 0
-    val ngramStrings:Array[String] = new Array[String](outSize)
-    while (i < outSize) {
-      val ngramString = vectorToString(ngramMat(i, ::).t.toDenseVector)
-      ngramStrings(i) = ngramString
-      i += 1
-    }
-    ngramStrings
-  }
-
   /**
     * A very basic dataset creation pipeline that *doesn't* featurize the data
     * but creates a csv of (Window, Label)
+    *
     *
     * @param args
     */
@@ -161,7 +131,7 @@ object CSKPipeline extends Serializable  {
     }
 
     val windowsRDD = data.setName("windowsRDD").cache()
-/*
+
     val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
     val cellTypes = chrCellTypes.map(_._2)
 
@@ -193,7 +163,13 @@ object CSKPipeline extends Serializable  {
         }
       }
     }
-*/
+
+<<<<<<< HEAD
+
+    val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, false, motifs=Some(motifs))
+    var folds: IndexedSeq[(org.apache.spark.rdd.RDD[((String, CellTypes.Value), BaseFeature)], RDD[((String, CellTypes.Value), BaseFeature)])] = IndexedSeq()
+    if(modelTest == true) {
+=======
     val seed = 14567
     val ngramSize = 8
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
@@ -204,8 +180,6 @@ object CSKPipeline extends Serializable  {
     //val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, subselectNegatives = false, motifs=Some(motifs))
     //featurized.map(f => (f.labeledWindow,f.features))
     //val featurized = windowsRDD.map(f => BaseFeature(f, denseFeaturize(f.win.getSequence)))
-
-    /* Sequence Featurization */
     val featurized = windowsRDD.map(f => BaseFeature(f, {
       kernelApprox({
         val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
@@ -224,11 +198,12 @@ object CSKPipeline extends Serializable  {
     }))
     val folds: IndexedSeq[(RDD[((String, CellTypes.Value), BaseFeature)], RDD[((String, CellTypes.Value), BaseFeature)])] =
     if(modelTest) {
+>>>>>>> 7b37de3... Testing CKS featurization
       /* First one chromesome and one celltype per fold (leave 1 out) */
-        EndiveUtils.generateFoldsRDD(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds, sampleFreq = None)
+      folds = EndiveUtils.generateFoldsRDD(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds, sampleFreq = None)
     } else{
       //We have to wrap this in a vector because we want to reuse as much logic as possible.
-      IndexedSeq(EndiveUtils.generateTrainTestSplit(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), Dataset.heldOutTypes.toSet))
+      folds = IndexedSeq(EndiveUtils.generateTrainTestSplit(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), Dataset.heldOutTypes.toSet))
     }
 
     for (i <- (0 until folds.size)) {
