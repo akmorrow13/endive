@@ -229,10 +229,10 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq")).filter(f => f(0) == 'A')
     val test = infile.map(f => f.split("\t")).map(f => (f(2), f.last.toInt))
 
-    val ngramSize = 8
-    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
-    val gaussian = new Gaussian(0, 1)
-    val approxDim = 4000
+//    val ngramSize = 8
+//    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+//    val gaussian = new Gaussian(0, 1)
+//    val approxDim = 4000
     //val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
     val kernelApprox = new KernelApproximator(W, Math.cos)
 
@@ -253,7 +253,6 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     println(train.first)
     println(trainApprox.first)
     println(trainApprox.first._1.length)
-    sys.exit()
 
     val testApprox = test.map(f => (kernelApprox({
       val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
