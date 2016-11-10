@@ -25,43 +25,7 @@ import net.akmorrow13.endive.processing._
 
 object CSKPipeline extends Serializable  {
 
-  val bases = 4
   val alphabetSize = 4
-
-  def vectorToString(in: DenseVector[Double]): String = {
-
-    val BASEPAIRREVMAP = Array('A', 'T', 'C', 'G')
-    var i = 0
-    var str = ""
-    while (i < in.size) {
-      val charVector = in(i until i+alphabetSize)
-      if (charVector == DenseVector.zeros[Double](alphabetSize)) {
-        str += "N"
-      } else {
-        val bp = BASEPAIRREVMAP(argmax(charVector))
-        str += bp
-      }
-      i += alphabetSize
-    }
-    str
-  }
-
-  def computeConvolutionalNorm(X: DenseMatrix[Double]): Double =  {
-    var i = 0
-    var norm = 0.0
-    while (i < X.rows) {
-      var j = 0
-      while (j < X.rows) {
-        val ngram1:DenseVector[Double] = X(i,::).t
-        val ngram2:DenseVector[Double] = X(j,::).t
-        val k = ngram1.t * ngram2
-        norm += k
-        j += 1
-      }
-      i += 1
-    }
-    sqrt(norm)
-  }
 
   /**
     * A very basic dataset creation pipeline that *doesn't* featurize the data
@@ -131,7 +95,7 @@ object CSKPipeline extends Serializable  {
     }
 
     val windowsRDD = data.setName("windowsRDD").cache()
-
+/*
     val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
     val cellTypes = chrCellTypes.map(_._2)
 
@@ -163,7 +127,7 @@ object CSKPipeline extends Serializable  {
         }
       }
     }
-
+*/
     val seed = 14567
     val ngramSize = 8
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
@@ -174,6 +138,8 @@ object CSKPipeline extends Serializable  {
     //val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, subselectNegatives = false, motifs=Some(motifs))
     //featurized.map(f => (f.labeledWindow,f.features))
     //val featurized = windowsRDD.map(f => BaseFeature(f, denseFeaturize(f.win.getSequence)))
+
+    /* Sequence Featurization */
     val featurized = windowsRDD.map(f => BaseFeature(f, {
       kernelApprox({
         val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)

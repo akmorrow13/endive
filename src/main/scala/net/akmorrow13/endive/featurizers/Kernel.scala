@@ -56,6 +56,8 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
     /* sum across spatial dimension */
     val outV =  sum(convRes, Axis._0).toDenseVector
     outV *= sqrt(2) * 1.0/sqrt(filters.rows)
+
+    println(outV)
     outV
   }
 
