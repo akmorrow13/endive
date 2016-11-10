@@ -7,36 +7,34 @@ import net.akmorrow13.endive.EndiveFunSuite
 import net.akmorrow13.endive.processing.{CellTypes, TranscriptionFactors, Preprocess, Sequence}
 import net.akmorrow13.endive.metrics.Metrics
 import nodes.learning.LogisticRegressionEstimator
-import nodes.util.{Identity, Cacher, ClassLabelIndicatorsFromIntLabels, TopKClassifier, MaxClassifier, VectorCombiner}
+import nodes.util.{ ClassLabelIndicatorsFromIntLabels }
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.formats.avro.{Contig, NucleotideContigFragment}
 import org.apache.commons.math3.random.MersenneTwister
+import net.akmorrow13.endive.processing.Dataset
 
 import nodes.akmorrow13.endive.featurizers.KernelApproximator
 import utils.Stats
 
 class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
 
-  val bases = 4
-
   // fragment used for reference
   val sequenceLong = "TTGGAAAGAGGACGTGGGACTGGGATTTACTCGGCCACCAAAACACTCAC" * 4
   val sequenceLong2 = "TATCGTTTACGAGTATATTTTTTAAAGGCTCTCTCATAGAATACTGGGAC" * 4
   val sequenceShort = "ATCG"
-  val alphabetSize = 4
+  val alphabetSize = Dataset.bases.size
   val seed = 0
 
 
   def denseFeaturize(in: String): DenseVector[Double] = {
     /* Identity featurizer */
 
-   val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
     val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
 
-    val intString:Seq[Int] = in.map(BASEPAIRMAP(_))
+    val intString:Seq[Int] = in.map(Dataset.bases(_))
     val seqString = intString.map { bp =>
       val out = DenseVector.zeros[Double](4)
       if (bp != -1) {
@@ -227,7 +225,10 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     println(W(1,0))
 
     var infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq.100Lines")).filter(f => f(0) == 'A')
+
     val train = infile.map(f => f.split(" ")).map(f => (f(2), f.last.toInt))
+
+    // generate test data
     infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq")).filter(f => f(0) == 'A')
     val test = infile.map(f => f.split("\t")).map(f => (f(2), f.last.toInt))
 

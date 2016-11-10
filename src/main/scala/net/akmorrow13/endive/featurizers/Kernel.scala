@@ -1,13 +1,10 @@
 package nodes.akmorrow13.endive.featurizers
 
 import breeze.linalg._
-import nodes.learning.ZCAWhitener
-import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
-import pipelines._
 import workflow.Transformer
 import breeze.numerics._
-import net.jafama.FastMath
+import net.akmorrow13.endive.processing.Dataset
 
 import scala.collection.mutable.ListBuffer
 
