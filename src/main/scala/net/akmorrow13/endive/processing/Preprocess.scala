@@ -65,7 +65,7 @@ object Preprocess {
     assert(filePath.endsWith("tsv") || filePath.endsWith("tsv.gz"))
     val headerTag = "start"
     // parse header for cell types
-    val tsvRDD = sc.textFile(filePath, numPartitions)
+    val tsvRDD = sc.textFile(filePath)
     val cellTypes = tsvRDD.filter(r => r.contains(headerTag)).first().split("\t").drop(3).map(r => CellTypes.getEnumeration(r))
     val file = filePath.split("/").last
     // parse file name for tf
