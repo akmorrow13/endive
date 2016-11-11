@@ -26,10 +26,12 @@ import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
-import org.bdgenomics.formats.avro.Strand
+import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
+import org.bdgenomics.formats.avro.{AlignmentRecord, Strand}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
+import org.bdgenomics.adam.rdd.ADAMContext._
 
 
 object VectorizedDnase extends Serializable  {
@@ -89,16 +91,9 @@ object VectorizedDnase extends Serializable  {
 
     println("Cell types: ")
     cellTypes.toArray.foreach(println)
-
-    /************************************
-      *  Prepare dnase data
-    **********************************/
-    val cuts: RDD[Cut] = Preprocess.loadCuts(sc, conf.dnase, cellTypes.toArray)
-    println("Cuts: " + cuts.count)
-assert(cuts.count > 0)
-    val dnase = new Dnase(windowSize, stride, sc, cuts)
-    val aggregatedCuts = dnase.merge(sd).cache()
-    aggregatedCuts.count
+    
+    // load dnase file (contains all cell types)
+    val dnase = sc.loadAlignments(conf.dnase)
 
 
     println("TOTAL FOLDS " + folds.size)
@@ -115,8 +110,8 @@ assert(cuts.count > 0)
       chromosomesTest.foreach(println)
 
       // calculate features for train and test sets
-      val train = featurize(sc, folds(i)._1.map(_._2), aggregatedCuts, sd, subselectNegatives = true).cache()
-      val test = featurize(sc, folds(i)._2.map(_._2), aggregatedCuts, sd, subselectNegatives = false).cache()
+      val train = featurize(sc, folds(i)._1.map(_._2), dnase, sd, subselectNegatives = true).cache()
+      val test = featurize(sc, folds(i)._2.map(_._2), dnase, sd, subselectNegatives = false).cache()
 
       println("TRAIN SIZE IS " + train.count())
       println("TEST SIZE IS " + test.count())
@@ -166,10 +161,6 @@ assert(cuts.count > 0)
     }
   }
 
-  def combineLabelWindowAndCutMap(labelwindow: Option[LabeledWindow], cutmap: Option[CutMap]): (LabeledWindow,CutMap) = {
-    (labelwindow.orNull, cutmap.orNull)
-  }
-
   /**
    * Featurize with full calcuated dnase coverage
    * @param sc SparkContext
@@ -181,7 +172,7 @@ assert(cuts.count > 0)
    */
   def featurize(sc: SparkContext,
                 rdd: RDD[LabeledWindow],
-                coverage: RDD[CutMap],
+                coverage: AlignmentRecordRDD,
                 sd: SequenceDictionary,
                 scale: Option[Int] = None,
                 subselectNegatives: Boolean = true,
@@ -206,23 +197,28 @@ assert(cuts.count > 0)
     val windowsWithoutDnase = filteredRDD.filter(_.win.dnase.size == 0)
 
     val windowsWithDnase = filteredRDD.filter(_.win.dnase.size > 0)
-    println("Coverage: " + coverage.count)
-    val regionsAndCuts: RDD[(ReferenceRegion, CutMap)] = coverage.flatMap (r => if(r.position.pos%windowJump == 0) { //occurs in windowSize/windowJump number of windows
+    println("Coverage: " + coverage.rdd.count)
+
+    val regionsAndCuts: RDD[(ReferenceRegion, Iterable[AlignmentRecord])] = coverage.rdd.flatMap (r => if(r.getStart%windowJump == 0) { //occurs in windowSize/windowJump number of windows
                                                                                   for {
                                                                                     i <- 0 to windowSize/windowJump
-                                                                                    if((r.position.pos / windowJump) * windowJump - (i * windowJump) > 0)
+                                                                                    if((r.getStart / windowJump) * windowJump - (i * windowJump) > 0)
                                                                                   } yield
-                                                                                      (ReferenceRegion(r.position.referenceName, (r.position.pos / windowJump) * windowJump - (i * windowJump), (r.position.pos / windowJump) * windowJump - (i * windowJump) + windowSize),r).asInstanceOf[(ReferenceRegion,CutMap)]
+                                                                                      (ReferenceRegion(r.getContigName, (r.getStart / windowJump) * windowJump - (i * windowJump),
+                                                                                        (r.getStart / windowJump) * windowJump - (i * windowJump) + windowSize),r)
                                                                                 } else { //occurs in windowSize/windowJump - 1 number of windows
                                                                                   for {
                                                                                     i <- 0 to windowSize/windowJump - 1
-                                                                                    if((r.position.pos / windowJump) * windowJump - (i * windowJump) > 0)
+                                                                                    if((r.getStart / windowJump) * windowJump - (i * windowJump) > 0)
                                                                                   } yield
-                                                                                      (ReferenceRegion(r.position.referenceName, (r.position.pos / windowJump) * windowJump - (i * windowJump), (r.position.pos / windowJump) * windowJump - (i * windowJump) + windowSize),r).asInstanceOf[(ReferenceRegion,CutMap)]
+                                                                                      (ReferenceRegion(r.getContigName, (r.getStart / windowJump) * windowJump - (i * windowJump),
+                                                                                        (r.getStart / windowJump) * windowJump - (i * windowJump) + windowSize),r)
                                                                                 }
-                                                                              )
-    
-    val cutsAndWindows = windowsWithDnase.map(f => (f.win.getRegion,f)).fullOuterJoin(regionsAndCuts).map(f => combineLabelWindowAndCutMap(f._2._1,f._2._2)).filter(f => f._1 != null && f._2 != null).groupByKey
+                                                                              ).groupByKey
+
+
+    val cutsAndWindows = windowsWithDnase.map(f => (f.win.getRegion,f)).leftOuterJoin(regionsAndCuts)
+      .map(f => (f._2._1, f._2._2.getOrElse(Iterator()).toIterator))
     println("Cuts and Windows Count: " + cutsAndWindows.count)
 
     val centipedeWindows = featurizePositives(cutsAndWindows, scale, motifs)
@@ -234,7 +230,7 @@ assert(cuts.count > 0)
   }
 
 
-  def featurizePositives(cutsAndWindows: RDD[(LabeledWindow, Iterable[CutMap])],
+  def featurizePositives(cutsAndWindows: RDD[(LabeledWindow, Iterator[AlignmentRecord])],
                 scale: Option[Int] = None,
                 motifs: Option[List[Motif]] = None): RDD[BaseFeature] = {
 
@@ -248,7 +244,6 @@ assert(cuts.count > 0)
       cutsAndWindows.map(windowed => {
         val window: LabeledWindow = windowed._1
         val cellType = window.win.cellType
-        val dnase: Map[(Strand, Long), CutMap] = windowed._2.map(r => ((r.position.orientation, r.position.pos), r)).toMap
 
         // where to center motif?
         val (start, end) =
@@ -281,16 +276,18 @@ assert(cuts.count > 0)
 
         val positivePositions: Array[Int] = (start until end)
           .map(r => {
-            val m = dnase.get((Strand.FORWARD,r))
-            if (m.isDefined) m.get.countMap.get(cellType).getOrElse(0)
-            else 0
+            // get forward counts for cell type and position r
+            windowed._2.filter(rec => rec.getStart == r
+              && !rec.getReadNegativeStrand
+              && rec.getAttributes == cellType.toString).length
           }).toArray
 
         val negativePositions: Array[Int] = (start until end)
           .map(r => {
-            val m = dnase.get((Strand.REVERSE,r))
-            if (m.isDefined) m.get.countMap.get(cellType).getOrElse(0)
-            else 0
+            // get reverse counts for cell type and position r
+            windowed._2.filter(rec => rec.getStart == r
+              && rec.getReadNegativeStrand
+              && rec.getAttributes == cellType.toString).length
           }).toArray
 
         val positions =
