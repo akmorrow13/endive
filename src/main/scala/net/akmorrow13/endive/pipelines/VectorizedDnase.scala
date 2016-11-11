@@ -29,6 +29,8 @@ import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.formats.avro.{AlignmentRecord, Strand}
+import org.bdgenomics.adam.rdd.InnerBroadcastRegionJoin
+import org.bdgenomics.formats.avro.Strand
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
@@ -169,15 +171,18 @@ object VectorizedDnase extends Serializable  {
    * @param coverage point coverage
    * @param sd SequenceDictionary
    * @param subselectNegatives whether or not to subselect the dataset
+   * @param filterRegionsByDnasePeaks: if true, does not featurize raw dnase with now peaks and thresholds these
+   *      features to 0
    * @return
    */
   def featurize(sc: SparkContext,
-                rdd: RDD[LabeledWindow],
-                coverage: AlignmentRecordRDD,
-                sd: SequenceDictionary,
-                scale: Option[Int] = None,
-                subselectNegatives: Boolean = true,
-                 motifs: Option[List[Motif]] = None): RDD[BaseFeature] = {
+                 rdd: RDD[LabeledWindow],
+                 coverage: AlignmentRecordRDD,
+                 sd: SequenceDictionary,
+                 subselectNegatives: Boolean = true,
+                 filterRegionsByDnasePeaks: Boolean = false,
+                 motifs: Option[List[Motif]] = None,
+                 doCentipede: Boolean = true): RDD[BaseFeature] = {
 
     // get cell types in the current dataset
     val chromosomes = Chromosomes.toVector
@@ -193,12 +198,6 @@ object VectorizedDnase extends Serializable  {
       else
         rdd
 
-
-    // filter windows into regions with and without relaxed dnase peaks
-    val windowsWithoutDnase = filteredRDD.filter(_.win.dnase.size == 0)
-
-    val windowsWithDnase = filteredRDD.filter(_.win.dnase.size > 0)
-    println("Coverage: " + coverage.rdd.count)
 
     val regionsAndCuts: RDD[(ReferenceRegion, Iterable[AlignmentRecord])] = coverage.rdd.flatMap (r => if(r.getStart%windowJump == 0) { //occurs in windowSize/windowJump number of windows
                                                                                   for {
@@ -218,22 +217,46 @@ object VectorizedDnase extends Serializable  {
                                                                               ).groupByKey
 
 
-    val cutsAndWindows = windowsWithDnase.map(f => (f.win.getRegion,f)).leftOuterJoin(regionsAndCuts)
+    // filter windows into regions with and without relaxed dnase peaks
+    val (windowsWithDnase, windowsWithoutDnase) =
+      if (filterRegionsByDnasePeaks) {
+        // filter windows into regions with and without relaxed dnase peaks
+        val windowsWithDnase = filteredRDD.filter(_.win.dnase.size > 0)
+        val windowsWithoutDnase = filteredRDD.filter(_.win.dnase.size == 0)
+        (windowsWithDnase, Some(windowsWithoutDnase))
+      } else {
+        (filteredRDD, None)
+      }
+
+    val cutsAndWindows = windowsWithDnase.map(f => (f.win.getRegion,f))
+      .leftOuterJoin(regionsAndCuts)
       .map(f => (f._2._1, f._2._2.getOrElse(Iterator()).toIterator))
     println("Cuts and Windows Count: " + cutsAndWindows.count)
 
-    val centipedeWindows = featurizePositives(cutsAndWindows, scale, motifs)
+    // featurize datapoints to vector of numbers
+    val vectorizedWindows = featurizePositives(cutsAndWindows, motifs, doCentipede)
 
-    // put back in windows without relaxed dnase
-    val featureLength = centipedeWindows.first.features.length
-    windowsWithoutDnase.map(r => BaseFeature(r, DenseVector.zeros(featureLength))).union(centipedeWindows)
+    if( windowsWithoutDnase.isDefined) {
+      // put back in windows without relaxed dnase
+      val featureLength = vectorizedWindows.first.features.length
+
+      windowsWithoutDnase.get.map(r => BaseFeature(r, DenseVector.zeros(featureLength))).union(vectorizedWindows)
+
+    }
+    else vectorizedWindows
 
   }
 
-
+  /**
+   * Featurizes cuts from dnase to vectors of numbers covering 200 bp windows
+   * @param cutsAndWindows cuts and windows to vectorize
+   * @param doCentipede Whether or not to concolve using msCentipede algorithm
+   * @param motifs
+   * @return
+   */
   def featurizePositives(cutsAndWindows: RDD[(LabeledWindow, Iterator[AlignmentRecord])],
-                scale: Option[Int] = None,
-                motifs: Option[List[Motif]] = None): RDD[BaseFeature] = {
+                motifs: Option[List[Motif]] = None,
+                doCentipede: Boolean = true): RDD[BaseFeature] = {
 
     // filter windows into regions with and without relaxed dnase peaks
 
@@ -292,7 +315,9 @@ object VectorizedDnase extends Serializable  {
           }).toArray
 
         val positions =
-          Dnase.msCentipede(positivePositions, scale) ++ Dnase.msCentipede(negativePositions, scale)
+          if (doCentipede)
+            Dnase.msCentipede(positivePositions) ++ Dnase.msCentipede(negativePositions)
+          else (positivePositions ++ negativePositions).map(_.toDouble)
 
         // positions should be size of window
         BaseFeature(window, DenseVector(positions))

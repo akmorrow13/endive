@@ -63,7 +63,7 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
     val coverage = new AlignedReadRDD(reads, sd, null)
     val motifs = Motif.parseYamlMotifs(motifPath)
 
-    val results = VectorizedDnase.featurize(sc, rdd, coverage, sd, None, false,
+    val results = VectorizedDnase.featurize(sc, rdd, coverage, sd, false, false,
                   Some(motifs))
     val features = results.first.features
     val featureLength = features.length

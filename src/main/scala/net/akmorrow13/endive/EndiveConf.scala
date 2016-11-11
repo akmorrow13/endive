@@ -56,6 +56,11 @@ class EndiveConf extends Serializable {
   /* Featurization parameters */
   @BeanProperty var kmerLength: Int = 8
   @BeanProperty var sequenceLength: Int = 100
+
+  /* Save predictions */
+  @BeanProperty var saveTrainPredictions: String = null
+  @BeanProperty var saveTestPredictions: String = null
+
 }
 
 object EndiveConf {

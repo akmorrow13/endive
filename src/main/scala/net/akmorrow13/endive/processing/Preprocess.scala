@@ -301,7 +301,7 @@ object Preprocess {
     data
   }
 
-    def extractLabel(s: String): Int = {
+  def extractLabel(s: String): Int = {
     s match {
       case "A" => -1 // ambiguous
       case "U" => 0  // unbound
@@ -320,7 +320,7 @@ object Preprocess {
  * @param expected_count
  * @param TPM: transcripts per million
  * @param FPKM: fragments per kilobase of exon per million reads mapped
- */
+*/
 case class RNARecord(region: ReferenceRegion, geneId: String, length: Double, effective_length: Double,	expected_count: Double,	TPM: Double,	FPKM: Double) {
   override def toString: String = {
     s"${region.referenceName},${region.start},${region.end},${geneId},${length},${effective_length},${expected_count},${TPM},${FPKM}"

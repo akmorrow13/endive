@@ -97,7 +97,7 @@ object BaseModel extends Serializable  {
     val folds = cellTypes.size
 
     // deepbind does not have creb1 scores so we will hold out for now
-    val foldsData: RDD[BaseFeature] = featurize(sc, fullMatrix, tfs, conf.motifDBPath, None, sd)
+    val foldsData: RDD[BaseFeature] = featurize(sc, fullMatrix, tfs, conf.motifDBPath, sd)
           .setName("foldsData")
           .cache()
     println(s"joined with motifs ${foldsData.count}")
@@ -168,7 +168,6 @@ object BaseModel extends Serializable  {
   def featurize(sc: SparkContext, rdd: RDD[LabeledWindow],
                 tfs: Array[TranscriptionFactors.Value],
                 motifDB: String,
-                deepbindPath: Option[String] = None,
                 sd:SequenceDictionary): RDD[BaseFeature] = {
     val motif = new MotifScorer(sc, sd)
 

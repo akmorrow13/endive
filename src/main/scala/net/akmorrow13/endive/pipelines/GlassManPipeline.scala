@@ -82,46 +82,6 @@ object GlassmanPipeline  extends Serializable with Logging {
     }
   }
 
-  def denseFeaturize(in: String): DenseVector[Double] = {
-    /* Identity featurizer */
-
-   val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
-    val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
-
-    val intString:Seq[Int] = in.map(BASEPAIRMAP(_))
-    val seqString = intString.map { bp =>
-      val out = DenseVector.zeros[Double](4)
-      if (bp != -1) {
-        out(bp) = 1
-      }
-      out
-    }
-    DenseVector.vertcat(seqString:_*)
-  }
-
-  def vectorToString(in: DenseVector[Double], alphabetSize: Int): String = {
-
-   val BASEPAIRREVMAP = Array('A', 'T', 'C', 'G')
-   var i = 0
-   var str = ""
-   while (i < in.size) {
-    val charVector = in(i until i+alphabetSize)
-    if (charVector == DenseVector.zeros[Double](alphabetSize)) {
-      str += "N"
-    } else {
-      val bp = BASEPAIRREVMAP(argmax(charVector))
-      str += bp
-    }
-    i += alphabetSize
-   }
-   str
-  }
-
-
-
-
-
-
   def run(sc: SparkContext, conf: EndiveConf) {
     val dataTxtRDD:RDD[String] = sc.textFile(conf.aggregatedSequenceOutput, minPartitions=600)
 
@@ -155,9 +115,9 @@ object GlassmanPipeline  extends Serializable with Logging {
       var train = foldsData(i)._1.filter(x => x._2.label == 1 || (x._2.label == 0 && r.nextFloat < 0.001)).map(x => x._2)
       val test = foldsData(i)._2.map(x => x._2)
 
-      var XTrain:RDD[DenseVector[Double]] = train.map(x => denseFeaturize(x.win.sequence)).setName("XTrain").cache()
+      var XTrain:RDD[DenseVector[Double]] = train.map(x => KernelApproximator.denseFeaturize(x.win.sequence)).setName("XTrain").cache()
 
-      val XTest:RDD[DenseVector[Double]] = test.map(x => denseFeaturize(x.win.sequence)).setName("XTest").cache()
+      val XTest:RDD[DenseVector[Double]] = test.map(x => KernelApproximator.denseFeaturize(x.win.sequence)).setName("XTest").cache()
 
       val yTrain = train.map(_.label).setName("yTrain").cache()
       val yTest = test.map(_.label).setName("yTest").cache()

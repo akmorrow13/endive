@@ -1,16 +1,21 @@
 package nodes.akmorrow13.endive.featurizers
 
 import breeze.linalg._
+import nodes.util.ClassLabelIndicatorsFromIntLabels
 import org.apache.spark.rdd.RDD
 import workflow.Transformer
 import breeze.numerics._
 import net.akmorrow13.endive.processing.Dataset
 
-import scala.collection.mutable.ListBuffer
 
 
 /* This only works for small alphabet size, use sparse matrix later */
-class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double = (x: Double) => x , offset:Option[DenseVector[Double]] = None, ngramSize: Int = 8, alphabetSize: Int = 4, seqSize: Int = 200)
+class KernelApproximator(filters: DenseMatrix[Double],
+                         nonLin: Double => Double = (x: Double) => x ,
+                         offset:Option[DenseVector[Double]] = None,
+                         ngramSize: Int = 8,
+                         alphabetSize: Int = Dataset.bases.size,
+                         seqSize: Int = Dataset.windowSize)
   extends Transformer[DenseVector[Double], DenseVector[Double]] with Serializable {
 
 
@@ -54,7 +59,6 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
     val outV =  sum(convRes, Axis._0).toDenseVector
     outV *= sqrt(2) * 1.0/sqrt(filters.rows)
 
-    println(outV)
     outV
   }
 
@@ -71,6 +75,71 @@ class KernelApproximator(filters: DenseMatrix[Double], nonLin: Double => Double 
   }
 
 object KernelApproximator  {
+
+
+  def denseFeaturize(in: String): DenseVector[Double] = {
+    /* Identity featurizer */
+
+    val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
+
+    val intString:Seq[Int] = in.map(Dataset.bases(_))
+    val seqString = intString.map { bp =>
+      val out = DenseVector.zeros[Double](4)
+      if (bp != -1) {
+        out(bp) = 1
+      }
+      out
+    }
+    DenseVector.vertcat(seqString:_*)
+  }
+
+  def vectorToString(in: DenseVector[Double]): String = {
+
+    val BASEPAIRREVMAP = Array('A', 'T', 'C', 'G')
+    val alphabetSize = Dataset.alphabet.size
+    var i = 0
+    var str = ""
+
+    while (i < in.size) {
+      val charVector = in(i until i+alphabetSize)
+      if (charVector == DenseVector.zeros[Double](alphabetSize)) {
+        str += "N"
+      } else {
+        val bp = BASEPAIRREVMAP(argmax(charVector))
+        str += bp
+      }
+      i += alphabetSize
+    }
+    str
+  }
+
+  def computeConvolutionalNorm(X: DenseMatrix[Double]): Double =  {
+    var i = 0
+    var norm = 0.0
+    while (i < X.rows) {
+      var j = 0
+      while (j < X.rows) {
+        val ngram1:DenseVector[Double] = X(i,::).t
+        val ngram2:DenseVector[Double] = X(j,::).t
+        val k = (ngram1.t * ngram2)
+        norm += k
+        j += 1
+      }
+      i += 1
+    }
+    sqrt(norm)
+  }
+
+  def convertNgramsToStrings(ngramMat: DenseMatrix[Double], outSize:Int ): Array[String] =  {
+    var i = 0
+    val ngramStrings:Array[String] = new Array[String](outSize)
+    while (i < outSize) {
+      val ngramString = vectorToString(ngramMat(i, ::).t.toDenseVector)
+      ngramStrings(i) = ngramString
+      i += 1
+    }
+    ngramStrings
+  }
 
   def makeNgrams(seq: DenseVector[Double],
                   ngramMat: DenseMatrix[Double],
