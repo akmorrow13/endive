@@ -301,19 +301,6 @@ object Preprocess {
     data
   }
 
-  def loadCuts(sc: SparkContext, folder: String, cellTypes: Array[CellTypes.Value]): RDD[Cut] = {
-    var data: RDD[Cut] = sc.emptyRDD[Cut]
-    val fileNames = getFileNamesFromDirectory(sc, folder)
-		.filter(_.endsWith("adam"))
-    		.filter(r => cellTypes.map(_.toString).contains(r.split("/").last.split('.')(1)))
-
-    println(s"loading dnase cuts for: " + cellTypes.map(_.toString).mkString(","))
-    for (file <- fileNames) {
-      data = data.union(CutLoader(file, sc))
-    }
-    data
-  }
-
     def extractLabel(s: String): Int = {
     s match {
       case "A" => -1 // ambiguous

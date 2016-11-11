@@ -15,9 +15,9 @@
  */
 package net.akmorrow13.endive
 
+import net.akmorrow13.endive.processing.Chromosomes
 import net.akmorrow13.endive.processing.Dataset.Chromosomes
 import org.apache.commons.math3.genetics.Chromosome
-import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary}
 import org.bdgenomics.utils.misc.SparkFunSuite
 
@@ -25,10 +25,8 @@ trait EndiveFunSuite extends SparkFunSuite {
   override val appName: String = "endive"
   override val properties: Map[String, String] = Map(("spark.serializer", "org.apache.spark.serializer.KryoSerializer"),
     ("spark.kryo.registrator", "net.akmorrow13.endive.EndiveKryoRegistrator"),
-    ("spark.kryoserializer.buffer.mb", "4"),
-    ("spark.kryo.referenceTracking", "true"),
-    ("spark.executor.memory","32G"),
-    ("spark.master.memory", "32G"))
+    ("spark.kryoserializer.buffer", "4"),
+    ("spark.kryo.referenceTracking", "true"))
 
   // fetches resources
   def resourcePath(path: String) = ClassLoader.getSystemClassLoader.getResource(path).getFile

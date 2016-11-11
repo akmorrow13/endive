@@ -25,14 +25,14 @@ class KmerSuite extends EndiveFunSuite {
     .build()
 
   test("gets all kmers of length 2") {
-    val kmers = Kmer.generateAllKmers(2)
+    val kmers = Kmer.generateKmers(2)
 
     assert(kmers.length == Math.pow(bases, 2))
     assert(kmers.length == kmers.distinct.length)
   }
 
   test("gets all kmers of length 3") {
-    val kmers = Kmer.generateAllKmers(3)
+    val kmers = Kmer.generateKmers(3)
 
     assert(kmers.length == Math.pow(bases, 3))
     assert(kmers.length == kmers.distinct.length)
@@ -43,9 +43,9 @@ class KmerSuite extends EndiveFunSuite {
 
     val reference = Sequence(sc.parallelize(Seq(fragment)), sc)
     val sequences: RDD[(ReferenceRegion, String)] = reference.extractSequences(trainRDD.map(_._3))
-    val kmers = Kmer.extractKmers(sequences, 8)
+    val kmers = Kmer.extractKmers(sequences.map(_._2), 8)
 
-    val kmerCounts = Kmer.generateAllKmers(8).length
+    val kmerCounts = Kmer.generateKmers(8).length
 
     assert(kmers.first.size == kmerCounts)
 
@@ -53,16 +53,14 @@ class KmerSuite extends EndiveFunSuite {
 
   sparkTest("should extract kmers with differnece of 1") {
     var str1 = "AAAAAAAAATAAAAAA"
-    var tuple = (ReferenceRegion("chr1", 0L,100L), str1)
     val differences = 1
-    val kmers = Kmer.generateAllKmers(8)
-    var rdd = Kmer.extractKmers(sc.parallelize(Seq(tuple)), 8, differences)
+    val kmers = Kmer.generateKmers(8)
+    var rdd = Kmer.extractKmers(sc.parallelize(Seq(str1)), 8, differences)
     var first = rdd.first.toArray.zip(kmers).filter(_._1 > 0.0)
     assert(first.apply(0)._1 == 9.0) //"AAAAAAAA" should occur 9 times with 1 difference
 
     str1 = "AAAAAAAAATTAAAAA"
-    tuple = (ReferenceRegion("chr1", 0L,100L), str1)
-    rdd = Kmer.extractKmers(sc.parallelize(Seq(tuple)), 8, differences)
+    rdd = Kmer.extractKmers(sc.parallelize(Seq(str1)), 8, differences)
     first = rdd.first.toArray.zip(kmers).filter(_._1 > 0.0)
     assert(first.apply(0)._1 == 3.0) //"AAAAAAAA" should occur 3 times with 1 difference
 

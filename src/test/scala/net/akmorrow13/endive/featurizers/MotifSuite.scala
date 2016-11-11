@@ -16,15 +16,6 @@ class MotifSuite extends EndiveFunSuite {
 
   val sd = getSequenceDictionary
 
-  sparkTest("deepbind for a small RDD of sequences") {
-    // extract sequences from reference over training regions
-    val sequences: RDD[String] = sc.parallelize(Seq("AGGUAAUAAUUUGCAUGAAAUAACUUGGAGAGGAUAGC"))
-    val motif = new MotifScorer(sc, sd)
-
-    val tfs = TranscriptionFactors.values.toList
-    val results = motif.getDeepBindScores(sequences, tfs, deepbindPath)
-  }
-
   test("should read pwms from yaml file") {
     val motifs = Motif.parseYamlMotifs(motifPath)
     assert(motifs.length == 3)
