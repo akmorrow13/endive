@@ -16,15 +16,15 @@
 package net.akmorrow13.endive.pipelines
 
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.processing._
+import net.akmorrow13.endive.processing.Chromosomes
+import net.akmorrow13.endive.processing.{Dnase, Dataset}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileStatus, Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.rdd.read.{AlignedReadRDD, AlignmentRecordRDD}
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.rdd.ReferencePartitioner
+import org.bdgenomics.formats.avro.AlignmentRecord
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import org.bdgenomics.utils.misc.Logging
@@ -35,7 +35,6 @@ object ProcessDnaseBams extends Serializable with Logging {
   /**
    * A very basic dataset creation pipeline that *doesn't* featurize the data
    * but creates a csv of (Window, Label)
-   *
    *
    * @param args
    */
@@ -83,33 +82,39 @@ object ProcessDnaseBams extends Serializable with Logging {
       val cellType = grp._1
       println(s"processing Dnase for celltype ${cellType}")
 
-      var totalCuts: RDD[Cut] = sc.emptyRDD[Cut]
-      val outputLocation = s"${output}/DNASE.${cellType}.adam"
-      totalCuts.cache()
+      var totalCuts: AlignmentRecordRDD = null
+      val outputLocation = s"${output}/aligmentcuts.DNASE.${cellType}.adam"
 
       if (!saved.contains(outputLocation)) {
-
         for (i <- grp._2.map(_._2)) {
           val filePath: String = i.getPath.toString
           val fileName = i.getPath.getName
-          println(s"processing file ${filePath}")
+          println(s"processing file ${fileName} from ${filePath}")
 
           // get positive strand coverage and key by region, cellType
           val alignments = sc.loadAlignments(filePath)
+            .transform(rdd => rdd.filter(r => r.getContigName != null))
+
           alignments.rdd.cache
 
-          val cuts: RDD[Cut] = alignments.rdd
-            .filter(r => r.getContigName != null && chromosomes.contains(r.getContigName))
-            .map(r => Cut(ReferenceRegion(r), fileName, r.getReadName, r.getReadNegativeStrand))
+          val cuts = alignments.transform(rdd => {
+            rdd.flatMap(r => Dnase.generateCuts(r, cellType, fileName))
+          })
 
-          totalCuts = totalCuts.union(cuts)
+          if (totalCuts == null ) {
+            totalCuts = cuts
+          } else {
+            totalCuts.transform(rdd => rdd.union(cuts.rdd))
+          }
           alignments.rdd.unpersist(false)
         }
 
         log.info(s"Now saving dnase cuts for ${cellType} to disk")
-        // TODO: save cuts for celltype
-        totalCuts.map(_.toString).saveAsTextFile(outputLocation)
-        totalCuts.unpersist(true)
+	      println(totalCuts.rdd.count)
+	      totalCuts.rdd.repartition(100)
+
+        totalCuts.save(outputLocation, false)
+        totalCuts.rdd.unpersist(true)
       } else {
         println(s"dnase for ${cellType} exists. skipping")
       }

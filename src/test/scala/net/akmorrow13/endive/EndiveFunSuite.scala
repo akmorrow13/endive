@@ -24,7 +24,7 @@ trait EndiveFunSuite extends SparkFunSuite {
   override val appName: String = "endive"
   override val properties: Map[String, String] = Map(("spark.serializer", "org.apache.spark.serializer.KryoSerializer"),
     ("spark.kryo.registrator", "net.akmorrow13.endive.EndiveKryoRegistrator"),
-    ("spark.kryoserializer.buffer.mb", "4"),
+    ("spark.kryoserializer.buffer", "4"),
     ("spark.kryo.referenceTracking", "true"))
 
   // fetches resources
