@@ -1,5 +1,7 @@
 package net.akmorrow13.endive.featurizers
 
+import java.io.File
+
 import breeze.linalg._
 import breeze.numerics._
 import breeze.stats.distributions._
@@ -221,13 +223,13 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
 
   sparkTest("Testing that output is same as paper results") {
 
-    val W = breeze.linalg.csvread(new java.io.File("/Users/DevinPetersohn/Downloads/nprandom_4000_32.csv"))
+    val W = breeze.linalg.csvread(new File(resourcePath("nprandom_4000_32.csv")))
     println(W(0,0))
     println(W(1,0))
-
+    val pythonScriptOutput = breeze.linalg.csvread(new File(resourcePath("seq.features"))).toDenseVector
     var infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq.100Lines")).filter(f => f(0) == 'A')
     val train = infile.map(f => f.split(" ")).map(f => (f(2), f.last.toInt))
-    infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq")).filter(f => f(0) == 'A')
+    infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq.100Lines")).filter(f => f(0) == 'A')
     val test = infile.map(f => f.split("\t")).map(f => (f(2), f.last.toInt))
 
     val ngramSize = 8
@@ -253,8 +255,9 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     }), f._2))
     println(train.first)
     println(trainApprox.first)
+    assert(norm(trainApprox.first._1) - norm(pythonScriptOutput) < 0.0000000001)
     println(trainApprox.first._1.length)
-    sys.exit()
+
     val testApprox = test.map(f => (kernelApprox({
       val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
       val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
