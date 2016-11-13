@@ -1,7 +1,5 @@
 package net.akmorrow13.endive.processing
 
-import net.akmorrow13.endive.processing.Dataset.CellTypes
-import net.akmorrow13.endive.processing.PeakRecord
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
 import net.akmorrow13.endive.utils.{LabeledWindow, Window}

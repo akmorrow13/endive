@@ -17,7 +17,7 @@ package net.akmorrow13.endive.pipelines
 
 import java.io.File
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.processing.Dataset.{Chromosomes, CellTypes, TranscriptionFactors}
+import net.akmorrow13.endive.processing.{Chromosomes, CellTypes, TranscriptionFactors}
 import net.akmorrow13.endive.utils._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem}

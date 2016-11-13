@@ -1,7 +1,7 @@
 package net.akmorrow13.endive.featurizers
 
 import net.akmorrow13.endive.EndiveFunSuite
-import net.akmorrow13.endive.processing.Dataset.{CellTypes, TranscriptionFactors}
+import net.akmorrow13.endive.processing.{CellTypes, TranscriptionFactors}
 import net.akmorrow13.endive.processing.{Sequence, Preprocess}
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion

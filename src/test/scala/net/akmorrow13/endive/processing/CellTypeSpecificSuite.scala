@@ -2,7 +2,6 @@ package net.akmorrow13.endive.processing
 
 import net.akmorrow13.endive.EndiveFunSuite
 import net.akmorrow13.endive.pipelines.DatasetCreationPipeline
-import net.akmorrow13.endive.processing.Dataset.{Chromosomes, CellTypes}
 import net.akmorrow13.endive.utils.{Window, LabeledWindow}
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary, ReferenceRegion}

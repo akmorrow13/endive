@@ -1,11 +1,6 @@
 package net.akmorrow13.endive.featurizers
 
 import net.akmorrow13.endive.EndiveFunSuite
-import net.akmorrow13.endive.processing.Dataset.TranscriptionFactors
-import net.akmorrow13.endive.utils.{Window, LabeledWindow}
-import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary, ReferenceRegion}
-import org.bdgenomics.formats.avro.{Contig, NucleotideContigFragment}
 
 class MotifSuite extends EndiveFunSuite {
 

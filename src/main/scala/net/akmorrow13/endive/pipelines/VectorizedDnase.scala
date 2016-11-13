@@ -19,7 +19,7 @@ import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
-import net.akmorrow13.endive.processing.Dataset.{Chromosomes, CellTypes}
+import net.akmorrow13.endive.processing.{Chromosomes, CellTypes}
 import net.akmorrow13.endive.utils._
 import nodes.learning.LogisticRegressionEstimator
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}

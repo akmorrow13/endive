@@ -16,8 +16,6 @@
 package net.akmorrow13.endive.processing
 
 import java.io.{InputStreamReader, BufferedReader, File}
-
-import net.akmorrow13.endive.processing.Dataset.{CellTypes, TranscriptionFactors}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion

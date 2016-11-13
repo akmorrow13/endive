@@ -16,9 +16,6 @@
 package net.akmorrow13.endive
 
 import net.akmorrow13.endive.processing.Chromosomes
-import net.akmorrow13.endive.processing.Dataset.Chromosomes
-import org.apache.commons.math3.genetics.Chromosome
-import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary}
 import org.bdgenomics.utils.misc.SparkFunSuite
 

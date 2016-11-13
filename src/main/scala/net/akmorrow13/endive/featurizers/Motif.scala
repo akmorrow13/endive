@@ -1,6 +1,5 @@
 package net.akmorrow13.endive.featurizers
 
-import net.akmorrow13.endive.processing.Dataset.TranscriptionFactors
 import net.akmorrow13.endive.utils.{ Window, LabeledWindow}
 import net.akmorrow13.endive.processing._
 import org.apache.spark.SparkContext

@@ -15,28 +15,20 @@
  */
 package net.akmorrow13.endive.pipelines
 
-import java.io.File
 import breeze.linalg.DenseVector
-import evaluation.BinaryClassifierEvaluator
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.{MotifScorer, Motif}
 import net.akmorrow13.endive.metrics.Metrics
-import net.akmorrow13.endive.processing.Dataset.{TranscriptionFactors, CellTypes, Chromosomes}
 import net.akmorrow13.endive.utils._
-import net.akmorrow13.endive.processing.Dataset
 import nodes.learning.LogisticRegressionEstimator
 import nodes.util.ClassLabelIndicatorsFromIntLabels
 
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
-import org.apache.spark.mllib.linalg.Vectors
-import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary, ReferenceRegion}
-import org.bdgenomics.adam.util.TwoBitFile
-import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._

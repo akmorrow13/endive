@@ -1,6 +1,6 @@
 package net.akmorrow13.endive
 
-import net.akmorrow13.endive.processing.Dataset.{Chromosomes, CellTypes}
+import net.akmorrow13.endive.processing.{Chromosomes, CellTypes}
 
 import scala.reflect.{BeanProperty, ClassTag}
 
