@@ -14,7 +14,12 @@ object EndiveUtils {
   val DEFAULTSAMPLING = 0.001
 
 /* Generate folds RDD */
-def generateFoldsRDD[T: ClassTag](allData:RDD[((String, CellTypes.Value), T)], numHeldOutCellTypes: Int = 1, numHeldOutChromosomes: Int = 3, numFolds: Int = 10, sampleFreq: Option[Double] = Some(DEFAULTSAMPLING), randomSeed:Int = DEFAULTSEED) = {
+def generateFoldsRDD[T: ClassTag](allData:RDD[((String, CellTypes.Value), T)],
+                                  numHeldOutCellTypes: Int = 1,
+                                  numHeldOutChromosomes: Int = 3,
+                                  numFolds: Int = 10,
+                                  sampleFreq: Option[Double] = Some(DEFAULTSAMPLING),
+                                  randomSeed:Int = DEFAULTSEED) = {
 
 
     val sampledData =

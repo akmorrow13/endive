@@ -23,6 +23,9 @@ import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.apache.hadoop.fs._
 import org.apache.hadoop.conf._
+import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.rdd.read.{AlignedReadRDD, AlignmentRecordRDD}
+
 
 object Preprocess {
 
@@ -308,6 +311,42 @@ object Preprocess {
       case "B" => 1  // bound
       case _ => throw new IllegalArgumentException(s"Illegal label ${s}")
     }
+  }
+
+  /**
+   * Parses folder of dnase files that load into AlignmentRecordRDDs. File
+   * naming convention for individual adam files is alignmentcuts.DNASE.<CELLTYPE_NAME>.adam
+   * @param sc Spark Context
+   * @param dnasePath path containing individual adam files for each cell Type
+   * @param cellTypes cell types to be loaded
+   */
+  def loadDnase(sc: SparkContext,
+                dnasePath: String,
+                cellTypes: Array[CellTypes.Value]): AlignmentRecordRDD = {
+
+    val cellStrings = cellTypes.map(_.toString)
+
+    val fs: FileSystem = FileSystem.get(new Configuration())
+
+    // read all bams in file and save positive coverage
+    val status: Array[FileStatus] = fs.listStatus(new Path(dnasePath))
+      .filter(i => i.getPath.getName.endsWith(".adam") // verify ADAM file
+        && cellStrings.contains(i.getPath.getName.split('.')(2))) // extract relevent celltype
+
+
+    val (coverage, sequences) =
+      status.map(i => {
+        val filePath: String = i.getPath.toString
+        val fileName = i.getPath.getName
+        val cell = fileName.split('.')(2)
+        println(s"processing file ${fileName} for cellType ${cell} from ${dnasePath}")
+
+        // get positive strand coverage
+        val alignments = sc.loadAlignments(filePath)
+        (alignments.rdd, alignments.sequences)
+      }).reduce((r1, r2) =>  (r1._1.union(r2._1), r1._2 ++ r2._2))
+
+    AlignedReadRDD(coverage, sequences, null)
   }
 
 }

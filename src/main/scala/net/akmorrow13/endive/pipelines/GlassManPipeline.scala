@@ -47,6 +47,8 @@ import scala.util.Random
 import utils.{Image, MatrixUtils, Stats, ImageMetadata, LabeledImage, RowMajorArrayVectorizedImage, ChannelMajorArrayVectorizedImage}
 import workflow.{Pipeline, Transformer}
 import org.apache.commons.math3.random.MersenneTwister
+import java.io.{File, BufferedWriter, FileWriter}
+
 
 object GlassmanPipeline  extends Serializable with Logging {
 
@@ -73,8 +75,8 @@ object GlassmanPipeline  extends Serializable with Logging {
       EndiveConf.validate(appConfig)
       val conf = new SparkConf().setAppName("ENDIVE")
       conf.setIfMissing("spark.master", "local[4]")
-      Logger.getLogger("org").setLevel(Level.WARN)
-      Logger.getLogger("akka").setLevel(Level.WARN)
+      Logger.getLogger("org").setLevel(Level.INFO)
+      Logger.getLogger("akka").setLevel(Level.INFO)
       val sc = new SparkContext(conf)
       val blasVersion = BLAS.getInstance().getClass().getName()
       println(s"Currently used version of blas is ${blasVersion}")
@@ -85,12 +87,19 @@ object GlassmanPipeline  extends Serializable with Logging {
   def run(sc: SparkContext, conf: EndiveConf) {
     val dataTxtRDD:RDD[String] = sc.textFile(conf.aggregatedSequenceOutput, minPartitions=600)
 
-    val _allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.aggregatedSequenceOutput, sc).setName("_All data").cache()
-    val allData = _allData.repartition(6400).setName("All Data").cache()
-    allData.count()
-    println("DATA LOADED AND REPARTIONED")
+    val allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.aggregatedSequenceOutput, sc).setName("_All data").cache()
+    println("RAW WINDOW COUNT " + allData.count())
+    println("RAW NUM POSITIVES " + allData.filter(_.label == 1).count())
+    println("RAW NUM NEGATIVES " + allData.filter(_.label == 0).count())
+    val r = new java.util.Random(0)
+    val filteredData = allData.filter(x => x.label == 1 || (x.label == 0 && r.nextFloat < 0.005)).setName("Filtered Data").repartition(300).cache()
+    println("FILTERED WINDOW COUNT " + filteredData.count())
+    println("FILTERED NUM POSITIVES " + filteredData.filter(_.label == 1).count())
+    println("FILTERED NUM NEGATIVES " + filteredData.filter(_.label == 0).count())
+    println("DATA LOADED filtered AND REPARTIONED")
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
-    val foldsData = EndiveUtils.generateFoldsRDD(allData.keyBy(r => (r.win.region.referenceName, r.win.cellType)), numFolds = 4)
+    val foldsData = EndiveUtils.generateFoldsRDD(filteredData.keyBy(r => (r.win.region.referenceName, r.win.cellType)),
+      numFolds = 5, numHeldOutChromosomes = 5, numHeldOutCellTypes = 2, randomSeed = 3)
     val cellTypeFeaturizer = Transformer.apply[LabeledWindow, Int](x => x.win.cellType.id) andThen new ClassLabelIndicatorsFromIntLabels(CellTypes.toVector.size)
     foldsData.map(_._1.count())
     foldsData.map(_._2.count())
@@ -103,28 +112,47 @@ object GlassmanPipeline  extends Serializable with Logging {
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
     val uniform = new Uniform(0, 1)
-    val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
+    val W = 0.1 * DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
     val b = DenseVector.rand(approxDim, uniform)
-    for (i <- (0 until conf.folds)) {
+    for (i <- (0 until 4)) {
 
       println("Fold " + i)
-      println("HELD OUT CELL TYPES " + foldsData(i)._3.mkString(","))
-      println("HELD OUT CHROMOSOMES " + foldsData(i)._4.mkString(","))
-      val r = new java.util.Random(0)
 
-      var train = foldsData(i)._1.filter(x => x._2.label == 1 || (x._2.label == 0 && r.nextFloat < 0.001)).map(x => x._2)
+      var train = foldsData(i)._1.map(x => x._2)
       val test = foldsData(i)._2.map(x => x._2)
 
       var XTrain:RDD[DenseVector[Double]] = train.map(x => KernelApproximator.denseFeaturize(x.win.sequence)).setName("XTrain").cache()
 
       val XTest:RDD[DenseVector[Double]] = test.map(x => KernelApproximator.denseFeaturize(x.win.sequence)).setName("XTest").cache()
 
-      val yTrain = train.map(_.label).setName("yTrain").cache()
-      val yTest = test.map(_.label).setName("yTest").cache()
 
       XTrain.count()
       XTest.count()
 
+//      val yTrain = train.map(_.label).setName("yTrain").cache()
+//      val yTest = test.map(_.label).setName("yTest").cache()
+//
+//      println("Collecting matrices")
+//      val XTrainLocal:DenseMatrix[Double] = MatrixUtils.rowsToMatrix(XTrain.collect())
+//      val XTestLocal:DenseMatrix[Double] = MatrixUtils.rowsToMatrix(XTest.collect())
+//
+//      val yTrainLocal:DenseMatrix[Double] = convert(DenseVector(yTrain.collect()).toDenseMatrix, Double)
+//      val yTestLocal:DenseMatrix[Double] = convert(DenseVector(yTest.collect()).toDenseMatrix, Double)
+//
+//      val XTrainFile  = new File(s"/home/eecs/vaishaal/endive-data/${foldId}_Train.csv")
+//      val XTestFile = new File(s"/home/eecs/vaishaal/endive-data/${foldId}_Test.csv")
+//
+//      val yTrainFile = new File(s"/home/eecs/vaishaal/endive-data/${foldId}_TrainLabels.csv")
+//      val yTestFile = new File(s"/home/eecs/vaishaal/endive-data/${foldId}_TestLabels.csv")
+//
+//      csvwrite(XTrainFile, XTrainLocal)
+//      csvwrite(XTestFile, XTestLocal)
+//      csvwrite(yTrainFile, yTrainLocal)
+//      csvwrite(yTestFile, yTestLocal)
+
+
+
+      /*
       println("Converted data to one hot representation")
       println("Generating random lift now...")
 
@@ -134,7 +162,6 @@ object GlassmanPipeline  extends Serializable with Logging {
       val XTrainLift = kernelApprox(XTrain).setName("XTrainLift").cache()
       val XTestLift = kernelApprox(XTest).setName("XTestLift").cache()
 
-      println(XTrainLift.first.slice(0,100,1))
 
       val trainCount = XTrainLift.count()
       val testCount = XTestLift.count()
@@ -142,7 +169,8 @@ object GlassmanPipeline  extends Serializable with Logging {
       println(s"Fold ${i}, training points ${trainCount}, testing points ${testCount}")
 
       println("Fitting model now...")
-      val model = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.1).fit(XTrainLift, yTrain)
+      val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
+      val model = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.0).fit(XTrainLift, yTrain)
 
       val yPredTrain = model(XTrainLift)
       val yPredTest = model(XTestLift)
@@ -156,7 +184,7 @@ object GlassmanPipeline  extends Serializable with Logging {
       printMetrics(evalTest)
 
       println("Training Baseline model")
-      val modelBaseLine = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.1).fit(XTrain, yTrain)
+      val modelBaseLine = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.0).fit(XTrain, yTrain)
 
       val yPredTrainBaseLine = modelBaseLine(XTrain)
       val yPredTestBaseLine = modelBaseLine(XTest)
@@ -170,6 +198,7 @@ object GlassmanPipeline  extends Serializable with Logging {
 
       println("Test Results (baseLine): \n ")
       printMetrics(evalTestBaseLine)
+      */
 
     }
   }

@@ -15,6 +15,7 @@
  */
 package net.akmorrow13.endive.pipelines
 
+import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveFunSuite
 import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.processing._
@@ -34,11 +35,11 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
 
   sparkTest("msCentipede at full scale") {
     val scale = Some(0)
-    val window = sc.parallelize(Seq(Array(1,1,1,1,1,1,1,1)))
-    val result = Dnase.centipedeRDD(window, scale)
+    val window = sc.parallelize(Seq(DenseVector(1,1,1,1,1,1,1,1)))
+    val result = Dnase.centipedeRDD(window)
     val first = result.first
     assert(first.length == 1)
-    assert(first.head == 8.0)
+    assert(first(0) == 8.0)
   }
 
   sparkTest("test recentering based on motifs in featurizer") {

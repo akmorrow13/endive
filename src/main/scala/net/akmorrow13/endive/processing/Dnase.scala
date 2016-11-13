@@ -1,7 +1,7 @@
 package net.akmorrow13.endive.processing
 
+import breeze.linalg.DenseVector
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.{ ReferencePosition }
 import org.bdgenomics.formats.avro.{ AlignmentRecord }
 
 object Dnase {
@@ -9,31 +9,30 @@ object Dnase {
   val lnOf2 = scala.math.log(2) // natural log of 2
   def log2(x: Double): Int = Math.floor(scala.math.log(x) / lnOf2).toInt
 
-  def msCentipede(r: Array[Int], scale: Option[Int] = None): Array[Double] = {
-    val j =
-      if (scale.isDefined) scale.get + 1
-      else log2(r.length) + 1
+  def msCentipede(r: DenseVector[Int]): DenseVector[Double] = {
+    val j = log2(r.length) + 1
 
-      // iterate through all scales s
-      (0 until j).flatMap(s => {
-        // create ith scale for parameter vector (see mscentipede to calculate model at bound motifs
-        if (s == 0) Array(r.sum.toDouble)
-        else {
-          val numeratorLength = Math.round(r.length/(Math.pow(2,s))).toInt
-          val denominatorLength =  Math.round(r.length/(Math.pow(2,s)) * 2).toInt
-          val x: Array[Double] = (0 until Math.pow(2, s-1).toInt).map(i => {
-            val numeratorSum = r.slice(i * denominatorLength, i * denominatorLength + numeratorLength).sum
-            val denominator = r.slice(i * denominatorLength, i * denominatorLength + denominatorLength).sum
-            val denominatorSum = if (denominator == 0) 1 else denominator
-            numeratorSum.toDouble/denominatorSum
-          }).toArray
-          x
-        }
-      }).toArray
+    // iterate through all scales s
+    val d = (0 until j).flatMap(s => {
+      // create ith scale for parameter vector (see mscentipede to calculate model at bound motifs
+      if (s == 0) Array(r.sum.toDouble)
+      else {
+        val numeratorLength = Math.round(r.length/(Math.pow(2,s))).toInt
+        val denominatorLength =  Math.round(r.length/(Math.pow(2,s)) * 2).toInt
+        val x = (0 until Math.pow(2, s-1).toInt).map(i => {
+          val numeratorSum = r.slice(i * denominatorLength, i * denominatorLength + numeratorLength).sum
+          val denominator = r.slice(i * denominatorLength, i * denominatorLength + denominatorLength).sum
+          val denominatorSum = if (denominator == 0) 1 else denominator
+          numeratorSum.toDouble/denominatorSum
+        })
+        x
+      }
+    }).toArray
+    DenseVector(d)
   }
 
-  def centipedeRDD(windows: RDD[Array[Int]], scale: Option[Int] = None): RDD[Array[Double]] = {
-    windows.map(r => msCentipede(r, scale))
+  def centipedeRDD(windows: RDD[DenseVector[Int]]): RDD[DenseVector[Double]] = {
+    windows.map(r => msCentipede(r))
   }
 
   /**

@@ -274,7 +274,6 @@ object VectorizedDnase extends Serializable  {
           if (motifs.isDefined) { // if motif is defined center at most probable motif
           // format motifs to map on tf
           val tfmotifs = motifs.get.filter(_.label == window.win.tf.toString)
-          println("tfmotifs length", tfmotifs.length)
           val center =
             if (tfmotifs.length == 0) {
               println(s"no motifs for tf ${window.win.tf.toString}. Parsing from center")
@@ -297,30 +296,25 @@ object VectorizedDnase extends Serializable  {
           } else
             (window.win.region.start, window.win.region.end)
 
+        val positivePositions = DenseVector.zeros[Int](Dataset.windowSize)
+        val negativePositions = DenseVector.zeros[Int](Dataset.windowSize)
 
-        val positivePositions: Array[Int] = (start until end)
-          .map(r => {
-            // get forward counts for cell type and position r
-            windowed._2.filter(rec => rec.getStart == r
-              && !rec.getReadNegativeStrand
-              && rec.getAttributes == cellType.toString).length
-          }).toArray
-
-        val negativePositions: Array[Int] = (start until end)
-          .map(r => {
-            // get reverse counts for cell type and position r
-            windowed._2.filter(rec => rec.getStart == r
-              && rec.getReadNegativeStrand
-              && rec.getAttributes == cellType.toString).length
-          }).toArray
+        windowed._2.toArray.foreach(rec => {
+          if (rec.getReadNegativeStrand)
+            negativePositions((rec.getStart - start).toInt) += 1
+          else
+            positivePositions((rec.getStart - start).toInt) += 1
+        })
 
         val positions =
           if (doCentipede)
-            Dnase.msCentipede(positivePositions) ++ Dnase.msCentipede(negativePositions)
-          else (positivePositions ++ negativePositions).map(_.toDouble)
+            DenseVector.vertcat(Dnase.msCentipede(positivePositions)
+              , Dnase.msCentipede(negativePositions))
+          else DenseVector.vertcat(positivePositions
+              , negativePositions).map(_.toDouble)
 
         // positions should be size of window
-        BaseFeature(window, DenseVector(positions))
+        BaseFeature(window, positions)
       })
     centipedeWindows
   }

@@ -20,9 +20,7 @@ import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.processing._
-import net.akmorrow13.endive.processing.Dataset.{ CellTypes}
 import net.akmorrow13.endive.utils._
-import net.jafama.FastMath
 import nodes.learning._
 import nodes.util._
 
@@ -35,7 +33,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{ SequenceDictionary }
 import org.bdgenomics.adam.rdd.feature.FeatureRDD
-import org.bdgenomics.adam.util.TwoBitFile
+import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.formats.avro._
 import org.bdgenomics.utils.io.LocalFileByteAccess
@@ -45,6 +43,7 @@ import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
 import java.io.{File, BufferedWriter, FileWriter}
+import org.bdgenomics.adam.rdd.ADAMContext._
 
 
 object KernelPipeline  extends Serializable with Logging {
@@ -94,7 +93,7 @@ object KernelPipeline  extends Serializable with Logging {
     val dataPath = conf.aggregatedSequenceOutput
     val referencePath = conf.reference
 
-    if (dataPath == null) {
+    if (dataPath == null || referencePath == null) {
       println("Error: no data or reference path")
       sys.exit(-1)
     }
@@ -152,7 +151,7 @@ object KernelPipeline  extends Serializable with Logging {
     Metrics.printMetrics(evalTrain)
 
     val testPredictions = predictor(testApprox.map(_.features))
-    val evalTest = new BinaryClassificationMetrics(trainPredictions.zip(testApprox.map(_.labeledWindow.label.toDouble)))
+    val evalTest = new BinaryClassificationMetrics(testPredictions.zip(testApprox.map(_.labeledWindow.label.toDouble)))
     println("Test Results: \n ")
     Metrics.printMetrics(evalTest)
 
@@ -229,82 +228,85 @@ object KernelPipeline  extends Serializable with Logging {
 
     val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize)
 
-    // TODO does this give you all datapoints?
-    val dnaseRDD = mergeDnase(sc, rdd, sd, cells, dnasePath)
+    // load cuts from AlignmentREcordRDD. filter out only cells of interest
+    val dnase = Preprocess.loadDnase(sc, dnasePath, cells)
+      .transform(rdd =>
+        rdd.filter(r => !r.getReadNegativeStrand) // only featurize positive strands.
+      )                                           // This will be changed when we have channels
 
+    val dnaseRDD = mergeDnase(sc, rdd, sd, cells, dnase)
 
     dnaseRDD.map(f => {
-      val kx = (kernelApprox({
-        val BASEPAIRMAP = Map('N' -> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
-
-        // form seq of int from bases and join with dnase
-        val intString: Seq[(Int, Double)] = f._1.win.sequence.map(BASEPAIRMAP(_))
-          .zip(f._2.toArray)
-
-        val seqString = intString.map { r =>
-          val out = DenseVector.zeros[Double](4)
-          if (r._1 != -1) {
-            out(r._1) = 1 + r._2
-          }
-          out
-        }
-        DenseVector.vertcat(seqString: _*)
-      }))
-      BaseFeature(f._1, kx)
+      val kx = (kernelApprox(oneHotEncode(f)))
+      BaseFeature(f.labeledWindow, kx)
     })
 
   }
 
-    /**
-     * Merge dnase cuts windows
-     * @param sc SparkContext
-     * @param cells cells to get DNASE for
-     * @return
-     */
-    def mergeDnase(sc: SparkContext,
-                   rdd: RDD[LabeledWindow],
-                   sd: SequenceDictionary,
-                   cells: Array[CellTypes.Value],
-                   dnasePath: String): RDD[(LabeledWindow, DenseVector[Double])] = {
+  /**
+   * One hot encodes sequences with dnase data
+   * @param f feature with sequence and featurized dnase
+   * @return Densevector of sequence and dnase mushed together
+   */
+  private[pipelines] def oneHotEncode(f: BaseFeature): DenseVector[Double] = {
 
-      // load cuts. TODO: are these cell type specific?
-      val cuts: RDD[Cut] = Preprocess.loadCuts(sc, dnasePath, cells)
-        .filter(!_.negativeStrand) // only featurize positive strands. This will be changed when we have channels
+      // form seq of int from bases and join with dnase
+      val intString: Seq[(Int, Double)] = f.labeledWindow.win.sequence.map(Dataset.bases(_))
+        .zip(f.features.toArray)
 
-      val dnase = new Dnase(Dataset.windowSize, Dataset.stride, sc, cuts)
-      val coverage = dnase.merge(sd).cache()
-      coverage.count
+      val seqString = intString.map { r =>
+        val out = DenseVector.zeros[Double](Dataset.alphabet.size)
+        if (r._1 != -1) {
+          out(r._1) = 1 + r._2
+        }
+        out
+      }
+      DenseVector.vertcat(seqString: _*)
+  }
 
-      // return cuts into vectors of counts
-      VectorizedDnase.featurize(sc, rdd, coverage, sd, true, false, None, false)
-        .map(r => (r.labeledWindow, r.features))
+  /**
+   * Merge dnase cuts windows
+   * @param sc SparkContext
+   * @param cells cells to get DNASE for
+   * @return
+   */
+  def mergeDnase(sc: SparkContext,
+                 rdd: RDD[LabeledWindow],
+                 sd: SequenceDictionary,
+                 cells: Array[CellTypes.Value],
+                 dnase: AlignmentRecordRDD,
+                 subselectNegatives: Boolean = true): RDD[BaseFeature] = {
 
-    }
-    /**
-     * Saves predictions and labeled windows as a FeatureRDD.
-     * @param labeledWindows RDD of windows and labels
-     * @param predictions RDD of double predictions
-     * @param sd SequenceDictionary required to create FeatureRDD
-     * @param path path to save FeatureRDD
-     */
-    def saveAsFeatures(labeledWindows: RDD[LabeledWindow],
-                       predictions: RDD[Double],
-                       sd: SequenceDictionary,
-                       path: String): Unit = {
-      val features =
-        labeledWindows.zip(predictions)
-          .map(r => {
-            Feature.newBuilder()
-              .setPhase(r._1.label)
-              .setScore(r._2)
-              .setContigName(r._1.win.region.referenceName)
-              .setStart(r._1.win.region.start)
-              .setEnd(r._1.win.region.end)
-              .build()
-          })
+    // return cuts into vectors of counts
+    VectorizedDnase.featurize(sc, rdd, dnase, sd, subselectNegatives, false, None, false)
+      .map(r => BaseFeature(r.labeledWindow, r.features.slice(0, Dataset.windowSize))) // slice off just positives
 
-      val featureRDD = FeatureRDD(features, sd)
-      featureRDD.save(path, false)
-    }
+  }
 
+  /**
+   * Saves predictions and labeled windows as a FeatureRDD.
+   * @param labeledWindows RDD of windows and labels
+   * @param predictions RDD of double predictions
+   * @param sd SequenceDictionary required to create FeatureRDD
+   * @param path path to save FeatureRDD
+   */
+  def saveAsFeatures(labeledWindows: RDD[LabeledWindow],
+                     predictions: RDD[Double],
+                     sd: SequenceDictionary,
+                     path: String): Unit = {
+    val features =
+      labeledWindows.zip(predictions)
+        .map(r => {
+          Feature.newBuilder()
+            .setPhase(r._1.label)
+            .setScore(r._2)
+            .setContigName(r._1.win.region.referenceName)
+            .setStart(r._1.win.region.start)
+            .setEnd(r._1.win.region.end)
+            .build()
+        })
+
+    val featureRDD = FeatureRDD(features, sd)
+    featureRDD.save(path, false)
+  }
 }
