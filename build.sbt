@@ -7,7 +7,7 @@ name := "endive"
 version := "0.1"
 
 
-scalaVersion := "2.10.5"
+scalaVersion := "2.10.6"
 
 parallelExecution in Test := false
 

@@ -32,7 +32,7 @@ import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{ SequenceDictionary }
-import org.bdgenomics.adam.rdd.features.FeatureRDD
+import org.bdgenomics.adam.rdd.feature.FeatureRDD
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.formats.avro._
