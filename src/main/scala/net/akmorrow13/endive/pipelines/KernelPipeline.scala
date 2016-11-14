@@ -32,7 +32,7 @@ import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{ SequenceDictionary }
-import org.bdgenomics.adam.rdd.feature.FeatureRDD
+import org.bdgenomics.adam.rdd.features.FeatureRDD
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.formats.avro._
@@ -98,9 +98,18 @@ object KernelPipeline  extends Serializable with Logging {
       sys.exit(-1)
     }
 
+    // create sequence dictionary, used to save files
+    val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+    val sd: SequenceDictionary = reference.sequences
+
+
     // load data for a specific transcription factor
-    val allData: RDD[LabeledWindow] =
+    var allData: RDD[LabeledWindow] =
       LabeledWindowLoader(dataPath, sc).setName("_All data").cache()
+
+    // sample data
+    allData = EndiveUtils.subselectRandomSamples(sc, allData, sd)
+    println("Sampled LabeledWindows", allData.count)
 
     // extract tfs and cells for this label file
     val tfs = allData.map(_.win.getTf).distinct.collect()
@@ -124,14 +133,6 @@ object KernelPipeline  extends Serializable with Logging {
       (train, test)
     }
 
-    // create sequence dictionary, used to save files
-    val sd: SequenceDictionary =
-      if (referencePath != null) {
-        val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-        reference.sequences
-      } else null
-
-
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
 
@@ -140,7 +141,11 @@ object KernelPipeline  extends Serializable with Logging {
 
     // generate approximation features
     val trainApprox = featurize(train, W, kmerSize)
+	.cache()
     val testApprox = featurize(test, W, kmerSize)
+	.cache()
+
+    println(trainApprox.count, testApprox.count)
 
     val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.01)
       .fit(trainApprox.map(_.features), trainApprox.map(_.labeledWindow.label))
