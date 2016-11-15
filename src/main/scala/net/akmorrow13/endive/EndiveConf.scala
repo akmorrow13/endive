@@ -61,6 +61,11 @@ class EndiveConf extends Serializable {
   @BeanProperty var saveTrainPredictions: String = null
   @BeanProperty var saveTestPredictions: String = null
 
+  /* Default prediction parameters */
+  @BeanProperty var lambda: Double = 10000
+  @BeanProperty var epochs: Int = 4
+
+
 }
 
 object EndiveConf {

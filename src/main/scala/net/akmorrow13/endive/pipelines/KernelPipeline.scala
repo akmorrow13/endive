@@ -23,9 +23,11 @@ import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils._
 import nodes.learning._
 import nodes.util._
-
 import com.github.fommil.netlib.BLAS
 import nodes.akmorrow13.endive.featurizers.KernelApproximator
+import nodes.images.LabelExtractor
+import nodes.learning.{BlockLinearMapper, BlockLeastSquaresEstimator}
+import nodes.util.{Cacher, MaxClassifier, ClassLabelIndicatorsFromIntLabels}
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
@@ -43,7 +45,8 @@ import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
 import java.io.{File, BufferedWriter, FileWriter}
-import org.bdgenomics.adam.rdd.ADAMContext._
+
+import workflow.PipelineDataset
 
 
 object KernelPipeline  extends Serializable with Logging {
@@ -87,7 +90,7 @@ object KernelPipeline  extends Serializable with Logging {
     // set parameters
     val seed = 0
     val kmerSize = 8
-    val approxDim = 4000
+    val approxDim = 4096
     val alphabetSize = Dataset.alphabet.size
 
     val dataPath = conf.aggregatedSequenceOutput
@@ -145,17 +148,34 @@ object KernelPipeline  extends Serializable with Logging {
     val testApprox = featurize(test, W, kmerSize)
 	.cache()
 
+    val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
+      new Cacher[DenseVector[Double]]
+
+    val trainFeatures = trainApprox.map(_.features)
+    val trainLabels = labelExtractor(trainApprox.map(_.labeledWindow.label))
+
+    val testFeatures = testApprox.map(_.features)
+    val testLabels = labelExtractor(testApprox.map(_.labeledWindow.label))
+
     println(trainApprox.count, testApprox.count)
 
-    val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.01)
-      .fit(trainApprox.map(_.features), trainApprox.map(_.labeledWindow.label))
 
-    val trainPredictions = predictor(trainApprox.map(_.features))
+//    val predictor = (featurize(W, kmerSize)) andThen
+//      (new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda), trainFeatures, trainLabels) andThen
+//      MaxClassifier andThen
+//      new Cacher[Int]
+
+    val predictor = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels.get)
+
+
+    val trainPredictions = MaxClassifier(predictor(trainFeatures)).map(_.toDouble)
+
     val evalTrain = new BinaryClassificationMetrics(trainPredictions.zip(trainApprox.map(_.labeledWindow.label.toDouble)))
     println("Train Results: \n ")
     Metrics.printMetrics(evalTrain)
 
-    val testPredictions = predictor(testApprox.map(_.features))
+
+    val testPredictions = MaxClassifier(predictor(testFeatures)).map(_.toDouble)
     val evalTest = new BinaryClassificationMetrics(testPredictions.zip(testApprox.map(_.labeledWindow.label.toDouble)))
     println("Test Results: \n ")
     Metrics.printMetrics(evalTest)
