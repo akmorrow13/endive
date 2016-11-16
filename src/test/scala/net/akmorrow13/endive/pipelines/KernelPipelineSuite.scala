@@ -39,6 +39,8 @@ class KernelPipelineSuite extends EndiveFunSuite {
     val conf: EndiveConf = new EndiveConf()
     conf.setAggregatedSequenceOutput(windowPath)
     conf.setReference(referencePath)
+    conf.setDim(100)
+    conf.setSample(false)
     conf.setSaveTrainPredictions(outputFile)
 
     // run pipeline
@@ -46,7 +48,7 @@ class KernelPipelineSuite extends EndiveFunSuite {
 
     // load back in training predictions and verify results
     val features = sc.loadFeatures(outputFile)
-    assert(features.rdd.count == 8)
+    assert(features.rdd.count == 7)
   }
 
 
@@ -91,7 +93,7 @@ class KernelPipelineSuite extends EndiveFunSuite {
     val dnase = DenseVector(0.0,9.0,10.0,3.0)
     val window = Window(TranscriptionFactors.ARID3A,
                     CellTypes.A549, region, sequence)
-    val encoded = KernelPipeline.oneHotEncode(BaseFeature(LabeledWindow(window, 1), dnase))
+    val encoded = KernelPipeline.oneHotEncodeDnase(BaseFeature(LabeledWindow(window, 1), dnase))
 
     assert(encoded.length == sequence.length * Dataset.alphabet.size)
     assert(encoded(0) == 1)

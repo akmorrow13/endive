@@ -57,14 +57,18 @@ class EndiveConf extends Serializable {
   @BeanProperty var kmerLength: Int = 8
   @BeanProperty var sequenceLength: Int = 100
 
+  /* Kernel approximation feature parameters */
+  @BeanProperty var dim: Int = 4096
+
   /* Save predictions */
   @BeanProperty var saveTrainPredictions: String = null
   @BeanProperty var saveTestPredictions: String = null
 
-  /* Default prediction parameters */
+  /* Default prediction parameters for block solve */
   @BeanProperty var lambda: Double = 10000
   @BeanProperty var epochs: Int = 4
 
+  @BeanProperty var sample: Boolean = true
 
 }
 

@@ -18,6 +18,7 @@ package net.akmorrow13.endive.pipelines
 import breeze.linalg._
 import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.featurizers.RandomDistribution
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils._
@@ -46,7 +47,8 @@ import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
 import java.io.{File, BufferedWriter, FileWriter}
 
-import workflow.PipelineDataset
+import org.apache.spark.mllib.stat.{MultivariateStatisticalSummary, Statistics}
+import org.apache.spark.mllib.linalg.Vectors
 
 
 object KernelPipeline  extends Serializable with Logging {
@@ -90,7 +92,7 @@ object KernelPipeline  extends Serializable with Logging {
     // set parameters
     val seed = 0
     val kmerSize = 8
-    val approxDim = 4096
+    val approxDim = conf.dim
     val alphabetSize = Dataset.alphabet.size
 
     val dataPath = conf.aggregatedSequenceOutput
@@ -108,11 +110,15 @@ object KernelPipeline  extends Serializable with Logging {
 
     // load data for a specific transcription factor
     var allData: RDD[LabeledWindow] =
-      LabeledWindowLoader(dataPath, sc).setName("_All data").cache()
+      LabeledWindowLoader(dataPath, sc).setName("_All data")
+        .filter(_.label >= 0)
+        .cache()
 
-    // sample data
-    allData = EndiveUtils.subselectRandomSamples(sc, allData, sd)
-    println("Sampled LabeledWindows", allData.count)
+    if (conf.sample) {
+      // sample data
+      allData = EndiveUtils.subselectRandomSamples(sc, allData, sd)
+      println("Sampled LabeledWindows", allData.count)
+    }
 
     // extract tfs and cells for this label file
     val tfs = allData.map(_.win.getTf).distinct.collect()
@@ -137,10 +143,11 @@ object KernelPipeline  extends Serializable with Logging {
     }
 
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
-    val gaussian = new Gaussian(0, 1)
+//    val gaussian = new Gaussian(0, 1)
+    val gaussian = RandomDistribution.gaussian(train.map(r => oneHotEncode(r)))
 
     // generate random matrix
-    val W = 0.1 * DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
+    val W = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
 
     // generate approximation features
     val trainApprox = featurize(train, W, kmerSize)
@@ -151,7 +158,7 @@ object KernelPipeline  extends Serializable with Logging {
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
 
-    val trainFeatures = trainApprox.map(_.features)
+    val trainFeatures: RDD[DenseVector[Double]] = trainApprox.map(_.features)
     val trainLabels = labelExtractor(trainApprox.map(_.labeledWindow.label))
 
     val testFeatures = testApprox.map(_.features)
@@ -159,22 +166,24 @@ object KernelPipeline  extends Serializable with Logging {
 
     println(trainApprox.count, testApprox.count)
 
-
-//    val predictor = (featurize(W, kmerSize)) andThen
-//      (new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda), trainFeatures, trainLabels) andThen
-//      MaxClassifier andThen
-//      new Cacher[Int]
-
+    // run least squares
     val predictor = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels.get)
 
 
+    // train metrics
     val trainPredictions = MaxClassifier(predictor(trainFeatures)).map(_.toDouble)
+
+    val prarr = trainPredictions.mapPartitions(iter => Array(iter.size).iterator, true).collect
+    prarr.foreach(r => println(r))
+    val approxarr = trainApprox.mapPartitions(iter => Array(iter.size).iterator, true).collect
+    approxarr.foreach(r => println(r))
+
 
     val evalTrain = new BinaryClassificationMetrics(trainPredictions.zip(trainApprox.map(_.labeledWindow.label.toDouble)))
     println("Train Results: \n ")
     Metrics.printMetrics(evalTrain)
 
-
+    // test metrics
     val testPredictions = MaxClassifier(predictor(testFeatures)).map(_.toDouble)
     val evalTest = new BinaryClassificationMetrics(testPredictions.zip(testApprox.map(_.labeledWindow.label.toDouble)))
     println("Test Results: \n ")
@@ -216,18 +225,7 @@ object KernelPipeline  extends Serializable with Logging {
 
     matrix.map(f => {
       val kx = (kernelApprox({
-        val BASEPAIRMAP = Map('N' -> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
-        val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
-
-        val intString: Seq[Int] = f.win.sequence.map(BASEPAIRMAP(_))
-        val seqString = intString.map { bp =>
-          val out = DenseVector.zeros[Double](4)
-          if (bp != -1) {
-            out(bp) = 1
-          }
-          out
-        }
-        DenseVector.vertcat(seqString: _*)
+        oneHotEncode(f)
       }))
       BaseFeature(f, kx)
     })
@@ -262,10 +260,24 @@ object KernelPipeline  extends Serializable with Logging {
     val dnaseRDD = mergeDnase(sc, rdd, sd, cells, dnase)
 
     dnaseRDD.map(f => {
-      val kx = (kernelApprox(oneHotEncode(f)))
+      val kx = (kernelApprox(oneHotEncodeDnase(f)))
       BaseFeature(f.labeledWindow, kx)
     })
 
+  }
+
+  private[pipelines] def oneHotEncode(f: LabeledWindow): DenseVector[Double] = {
+    val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
+
+    val intString: Seq[Int] = f.win.sequence.map(Dataset.bases(_))
+    val seqString = intString.map { bp =>
+      val out = DenseVector.zeros[Double](4)
+      if (bp != -1) {
+        out(bp) = 1
+      }
+      out
+    }
+    DenseVector.vertcat(seqString: _*)
   }
 
   /**
@@ -273,7 +285,7 @@ object KernelPipeline  extends Serializable with Logging {
    * @param f feature with sequence and featurized dnase
    * @return Densevector of sequence and dnase mushed together
    */
-  private[pipelines] def oneHotEncode(f: BaseFeature): DenseVector[Double] = {
+  private[pipelines] def oneHotEncodeDnase(f: BaseFeature): DenseVector[Double] = {
 
       // form seq of int from bases and join with dnase
       val intString: Seq[(Int, Double)] = f.labeledWindow.win.sequence.map(Dataset.bases(_))
