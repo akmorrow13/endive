@@ -237,10 +237,6 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     assert(infile.count == 98)
     val train = infile.map(f => f.split(" ")).map(f => (f(2), f.last.toInt))
 
-    infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq.100Lines")).filter(f => f(0) == 'A')
-    assert(infile.count == 99)
-    val test = infile.map(f => f.split("\t")).map(f => (f(2), f.last.toInt))
-
     val ngramSize = 8
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = ngramSize)
@@ -263,104 +259,7 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     assert(trainApprox.count == 98)
     //verify that the two outputs are extremely similar given the same random matrix
     assert(norm(trainApprox.first._1) - norm(pythonScriptOutput) < 0.0000000001)
-
-    val testApprox = test.map(f => (kernelApprox({
-      val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
-      val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
-
-      val intString:Seq[Int] = f._1.map(BASEPAIRMAP(_))
-      val seqString = intString.map { bp =>
-        val out = DenseVector.zeros[Double](4)
-        if (bp != -1) {
-          out(bp) = 1
-        }
-        out
-      }
-      DenseVector.vertcat(seqString:_*)
-    }), f._2))
-
-    //99 lines of data in file after column names are removed
-    assert(testApprox.count == 99)
-
-    val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.01)
-      .fit(trainApprox.keys, trainApprox.values)
-
-    val modelTestUsingTrainData = predictor(trainApprox.keys)
-    val evalTrain = new BinaryClassificationMetrics(modelTestUsingTrainData.zip(trainApprox.values.map(_.toDouble)))
-    println("\nTrain Results: ")
-    Metrics.printMetrics(evalTrain)
-
-    val predictionOnTestData = predictor(testApprox.keys)
-    val evalTest = new BinaryClassificationMetrics(predictionOnTestData.zip(testApprox.values.map(_.toDouble)))
-    println("\nTest Results: ")
-    Metrics.printMetrics(evalTest)
-    trainPRC = evalTrain.areaUnderPR()
-    testPRC = evalTest.areaUnderPR()
-    trainROC = evalTrain.areaUnderROC()
-    testROC = evalTest.areaUnderROC()
-  }
-
-  sparkTest("Test that we can use the serialized model that we saved") {
-    val inp = new ObjectInputStream(new FileInputStream("/Users/DevinPetersohn/Downloads/testSerializedModelOutput"))
-    val predictor = inp.readObject().asInstanceOf[LogisticRegressionModel[DenseVector[Double]]]
-    inp.close()
-
-    var infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq.100Lines")).filter(f => f(0) == 'A')
-    assert(infile.count == 98)
-    val train = infile.map(f => f.split(" ")).map(f => (f(2), f.last.toInt))
-
-    infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq.100Lines")).filter(f => f(0) == 'A')
-    assert(infile.count == 99)
-    val test = infile.map(f => f.split("\t")).map(f => (f(2), f.last.toInt))
-
-    val ngramSize = 8
-    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
-    val kernelApprox = new KernelApproximator(Wtest, Math.cos, ngramSize = ngramSize)
-
-    val trainApprox = train.map(f => (kernelApprox({
-      val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
-      val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
-
-      val intString:Seq[Int] = f._1.map(BASEPAIRMAP(_))
-      val seqString = intString.map { bp =>
-        val out = DenseVector.zeros[Double](4)
-        if (bp != -1) {
-          out(bp) = 1
-        }
-        out
-      }
-      DenseVector.vertcat(seqString:_*)
-    }), f._2))
-
-    val testApprox = test.map(f => (kernelApprox({
-      val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
-      val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
-
-      val intString:Seq[Int] = f._1.map(BASEPAIRMAP(_))
-      val seqString = intString.map { bp =>
-        val out = DenseVector.zeros[Double](4)
-        if (bp != -1) {
-          out(bp) = 1
-        }
-        out
-      }
-      DenseVector.vertcat(seqString:_*)
-    }), f._2))
-
-    val modelTestUsingTrainData = predictor(trainApprox.keys)
-    val evalTrain = new BinaryClassificationMetrics(modelTestUsingTrainData.zip(trainApprox.values.map(_.toDouble)))
-    println("\nTrain Results: ")
-    Metrics.printMetrics(evalTrain)
-
-    val predictionOnTestData = predictor(testApprox.keys)
-    val evalTest = new BinaryClassificationMetrics(predictionOnTestData.zip(testApprox.values.map(_.toDouble)))
-    println("\nTest Results: ")
-    Metrics.printMetrics(evalTest)
-
-    assert(evalTrain.areaUnderPR() == trainPRC)
-    assert(evalTest.areaUnderPR() == testPRC)
-    assert(evalTrain.areaUnderROC() == trainROC)
-    assert(evalTest.areaUnderROC() == testROC)
+    
   }
 
 }
