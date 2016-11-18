@@ -18,6 +18,7 @@ class DnaseSuite extends EndiveFunSuite {
               .build()
 
     val cuts = Dnase.generateCuts(ar, cellType, id).toList
+
     assert(cuts.head.getStart == 10L && cuts.head.getEnd == 11L)
     assert(cuts.last.getStart == 20L && cuts.last.getEnd == 21L)
 
@@ -41,7 +42,5 @@ class DnaseSuite extends EndiveFunSuite {
     assert(cuts.last.getStart == 19L && cuts.last.getEnd == 20L)
 
   }
-
-
 }
 

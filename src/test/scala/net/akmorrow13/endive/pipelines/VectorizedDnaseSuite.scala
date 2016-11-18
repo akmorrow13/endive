@@ -20,8 +20,6 @@ import net.akmorrow13.endive.EndiveFunSuite
 import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils.{Window, LabeledWindow}
-import org.apache.spark.SparkContext
-import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ReferenceRegion, ReferencePosition, SequenceRecord, SequenceDictionary}
 import org.bdgenomics.adam.rdd.read.AlignedReadRDD
 import org.bdgenomics.formats.avro.{AlignmentRecord, Strand}

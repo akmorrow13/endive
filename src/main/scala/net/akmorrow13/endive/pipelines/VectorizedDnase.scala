@@ -184,6 +184,7 @@ object VectorizedDnase extends Serializable  {
                  motifs: Option[List[Motif]] = None,
                  doCentipede: Boolean = true): RDD[BaseFeature] = {
 
+
     // get cell types in the current dataset
     val chromosomes = Chromosomes.toVector
 
@@ -228,8 +229,7 @@ object VectorizedDnase extends Serializable  {
         (filteredRDD, None)
       }
 
-    val cutsAndWindows = windowsWithDnase.map(f => (f.win.getRegion,f))
-      .leftOuterJoin(regionsAndCuts)
+    val cutsAndWindows = windowsWithDnase.map(f => (f.win.getRegion,f)).leftOuterJoin(regionsAndCuts)
       .map(f => (f._2._1, f._2._2.getOrElse(Iterator()).toIterator))
     println("Cuts and Windows Count: " + cutsAndWindows.count)
 
