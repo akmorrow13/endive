@@ -16,18 +16,21 @@
 package net.akmorrow13.endive.processing
 
 import java.io.{InputStreamReader, BufferedReader, File}
-
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.apache.hadoop.fs._
 import org.apache.hadoop.conf._
+import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.rdd.read.{AlignedReadRDD, AlignmentRecordRDD}
+
 
 object Preprocess {
 
   /**
    * Loads tsv file
-   * @param sc SparkContext
+    *
+    * @param sc SparkContext
    * @param filePath tsv filepath to load
    * @param headerTag tags in first row, if any, that should be excluded from load
    * @return RDD of rows from tsv file
@@ -41,7 +44,8 @@ object Preprocess {
 
   /**
    * Loads tsv file
-   * @param sc SparkContext
+    *
+    * @param sc SparkContext
    * @param filePath tsv filepath to load
    * @param headerTag tags in first row, if any, that should be excluded from load
    * @return RDD of rows from tsv file
@@ -57,7 +61,8 @@ object Preprocess {
   /**
    * Loads labels from all a chipseq label file
    * flatmaps all cell types into an individual datapoint
-   * @param sc
+    *
+    * @param sc
    * @param filePath tsv file of chipseq labels
    * @return parsed files of (tf, cell type, region, score)
    */
@@ -109,7 +114,8 @@ object Preprocess {
   /**
    * Used to load in gene reference file
    * should be a gtf file
-   * @param sc
+    *
+    * @param sc
    * @param filePath
    * @return
    */
@@ -127,7 +133,8 @@ object Preprocess {
 
   /**
    * Maps attributes in gtf file for gtf files delimited with ';'
-   * @param rdd
+    *
+    * @param rdd
    * @return
    */
   private def mapAttributes(rdd: RDD[Array[String]]): RDD[(ReferenceRegion, String, String, String)] = {
@@ -243,7 +250,8 @@ object Preprocess {
 
   /**
    * gets a list of file names in a directory
-   * @param sc
+    *
+    * @param sc
    * @param directory
    * @return Array of filenames
    */
@@ -294,13 +302,49 @@ object Preprocess {
     data
   }
 
-    def extractLabel(s: String): Int = {
+  def extractLabel(s: String): Int = {
     s match {
       case "A" => -1 // ambiguous
       case "U" => 0  // unbound
       case "B" => 1  // bound
       case _ => throw new IllegalArgumentException(s"Illegal label ${s}")
     }
+  }
+
+  /**
+   * Parses folder of dnase files that load into AlignmentRecordRDDs. File
+   * naming convention for individual adam files is alignmentcuts.DNASE.<CELLTYPE_NAME>.adam
+   * @param sc Spark Context
+   * @param dnasePath path containing individual adam files for each cell Type
+   * @param cellTypes cell types to be loaded
+   */
+  def loadDnase(sc: SparkContext,
+                dnasePath: String,
+                cellTypes: Array[CellTypes.Value]): AlignmentRecordRDD = {
+
+    val cellStrings = cellTypes.map(_.toString)
+
+    val fs: FileSystem = FileSystem.get(new Configuration())
+
+    // read all bams in file and save positive coverage
+    val status: Array[FileStatus] = fs.listStatus(new Path(dnasePath))
+      .filter(i => i.getPath.getName.endsWith(".adam") // verify ADAM file
+        && cellStrings.contains(i.getPath.getName.split('.')(2))) // extract relevent celltype
+
+
+    val (coverage, sequences) =
+      status.map(i => {
+        val filePath: String = i.getPath.toString
+        val fileName = i.getPath.getName
+        val cell = fileName.split('.')(2)
+        println(s"processing file ${fileName} for cellType ${cell} from ${dnasePath}")
+
+        // get positive strand coverage
+        val alignments = sc.loadAlignments(filePath)
+        (alignments.rdd, alignments.sequences)
+      }).reduce((r1, r2) =>  (r1._1.union(r2._1), r1._2 ++ r2._2))
+
+    AlignedReadRDD(coverage, sequences, null)
   }
 
 }
@@ -313,7 +357,7 @@ object Preprocess {
  * @param expected_count
  * @param TPM: transcripts per million
  * @param FPKM: fragments per kilobase of exon per million reads mapped
- */
+*/
 case class RNARecord(region: ReferenceRegion, geneId: String, length: Double, effective_length: Double,	expected_count: Double,	TPM: Double,	FPKM: Double) {
   override def toString: String = {
     s"${region.referenceName},${region.start},${region.end},${geneId},${length},${effective_length},${expected_count},${TPM},${FPKM}"

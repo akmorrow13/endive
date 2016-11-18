@@ -18,6 +18,7 @@ package net.akmorrow13.endive.pipelines
 import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.metrics.Metrics
+import net.akmorrow13.endive.processing.{CellTypes, Chromosomes}
 import net.akmorrow13.endive.utils._
 import nodes.learning.LogisticRegressionEstimator
 
@@ -37,8 +38,7 @@ object NoSeqBaseModel extends Serializable  {
    * A very basic dataset creation pipeline that *doesn't* featurize the data
    * but creates a csv of (Window, Label)
    *
-   *
-   * @param args
+    * @param args
    */
   def main(args: Array[String]) = {
 
@@ -147,9 +147,9 @@ object NoSeqBaseModel extends Serializable  {
     ** featurize data wth motifs
     *  Bins that do overlap DNASE peaks are scored using a linear classifier with a log loss function
     *  Linear Classifier Input features:
-          - Known motifs: -log2(motif score) region summary statistics
-          - Max, 0.99%, 0.95%, 0.75%, 0.50%, mean
-          - max DNASE fold change across each bin
+    * - Known motifs: -log2(motif score) region summary statistics
+    * - Max, 0.99%, 0.95%, 0.75%, 0.50%, mean
+    * - max DNASE fold change across each bin
     *************************************/
   def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], sd: SequenceDictionary, filter: Boolean = true): RDD[BaseFeature] = {
 

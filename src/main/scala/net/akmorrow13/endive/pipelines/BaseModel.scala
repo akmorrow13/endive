@@ -15,27 +15,20 @@
  */
 package net.akmorrow13.endive.pipelines
 
-import java.io.File
 import breeze.linalg.DenseVector
-import evaluation.BinaryClassifierEvaluator
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.{MotifScorer, Motif}
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.utils._
-import net.akmorrow13.endive.processing.Dataset
 import nodes.learning.LogisticRegressionEstimator
 import nodes.util.ClassLabelIndicatorsFromIntLabels
 
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
-import org.apache.spark.mllib.linalg.Vectors
-import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceRecord, SequenceDictionary, ReferenceRegion}
-import org.bdgenomics.adam.util.TwoBitFile
-import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
@@ -47,8 +40,7 @@ object BaseModel extends Serializable  {
    * A very basic dataset creation pipeline that *doesn't* featurize the data
    * but creates a csv of (Window, Label)
    *
-   *
-   * @param args
+    * @param args
    */
   def main(args: Array[String]) = {
 
@@ -97,7 +89,7 @@ object BaseModel extends Serializable  {
     val folds = cellTypes.size
 
     // deepbind does not have creb1 scores so we will hold out for now
-    val foldsData: RDD[BaseFeature] = featurize(sc, fullMatrix, tfs, conf.motifDBPath, None, sd)
+    val foldsData: RDD[BaseFeature] = featurize(sc, fullMatrix, tfs, conf.motifDBPath, sd)
           .setName("foldsData")
           .cache()
     println(s"joined with motifs ${foldsData.count}")
@@ -161,14 +153,13 @@ object BaseModel extends Serializable  {
     ** featurize data wth motifs
     *  Bins that do overlap DNASE peaks are scored using a linear classifier with a log loss function
     *  Linear Classifier Input features:
-          - Known motifs: -log2(motif score) region summary statistics
-          - Max, 0.99%, 0.95%, 0.75%, 0.50%, mean
-          - max DNASE fold change across each bin
+    * - Known motifs: -log2(motif score) region summary statistics
+    * - Max, 0.99%, 0.95%, 0.75%, 0.50%, mean
+    * - max DNASE fold change across each bin
     *************************************/
   def featurize(sc: SparkContext, rdd: RDD[LabeledWindow],
                 tfs: Array[TranscriptionFactors.Value],
                 motifDB: String,
-                deepbindPath: Option[String] = None,
                 sd:SequenceDictionary): RDD[BaseFeature] = {
     val motif = new MotifScorer(sc, sd)
 

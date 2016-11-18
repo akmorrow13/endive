@@ -40,7 +40,7 @@ class RNAseq(geneReference: String, @transient sc: SparkContext) {
 
       val filteredTranscripts: List[Transcript] = genesB.value.filter(p => p.geneId == geneId) // filter out relevent genes
 
-      filteredTranscripts.map(t => (RNARecord(t.region, geneId, length, effective_length, expected_count, tpm, fpkm)))
+      filteredTranscripts.map(t => RNARecord(t.region, geneId, length, effective_length, expected_count, tpm, fpkm))
     })
     records.map(r => (cellType, r))
   }

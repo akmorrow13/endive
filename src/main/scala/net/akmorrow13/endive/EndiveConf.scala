@@ -1,6 +1,6 @@
 package net.akmorrow13.endive
 
-import net.akmorrow13.endive.processing.{CellTypes, Chromosomes, Dataset}
+import net.akmorrow13.endive.processing.{Chromosomes, CellTypes}
 
 import scala.reflect.{BeanProperty, ClassTag}
 
@@ -56,11 +56,25 @@ class EndiveConf extends Serializable {
   /* Featurization parameters */
   @BeanProperty var kmerLength: Int = 8
   @BeanProperty var sequenceLength: Int = 100
+
+  /* Kernel approximation feature parameters */
+  @BeanProperty var dim: Int = 4096
+
+  /* Save predictions */
+  @BeanProperty var saveTrainPredictions: String = null
+  @BeanProperty var saveTestPredictions: String = null
+
+  /* Default prediction parameters for block solve */
+  @BeanProperty var lambda: Double = 10000
+  @BeanProperty var epochs: Int = 4
+
+  @BeanProperty var sample: Boolean = true
+
 }
 
 object EndiveConf {
   def validate(conf: EndiveConf) {
-    /* Add line for required arugments here to validate 
+    /* Add line for required arugments here to validate
      * TODO: This is a kludge but idk what else to do
      */
 

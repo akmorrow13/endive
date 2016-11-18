@@ -16,7 +16,8 @@ class RNAseqSuite extends EndiveFunSuite {
 
   sparkTest("should extract genes from gtf file") {
     val genes = Preprocess.loadTranscripts(sc, genePath)
-    assert(genes.count == 27) // 62 transcripts in file
+    assert(genes.count == 27)
   }
 
 }
+

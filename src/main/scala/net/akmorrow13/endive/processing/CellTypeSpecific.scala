@@ -1,6 +1,5 @@
 package net.akmorrow13.endive.processing
 
-import net.akmorrow13.endive.processing.PeakRecord
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
 import net.akmorrow13.endive.utils.{LabeledWindow, Window}
@@ -35,6 +34,7 @@ class CellTypeSpecific(@transient windowSize: Int,
 
   /**
    * merges sequences with overlapping dnase regions
+ *
    * @param in Window of sequences specified by cell type and transcription factor
    * @return new window with dnase regions
    */
@@ -76,6 +76,7 @@ object CellTypeSpecific {
 
   /**
    * Joins datasets on ReferenceRegion and cell type
+ *
    * @param rdd1
    * @param rdd2
    * @tparam T
@@ -105,6 +106,7 @@ object CellTypeSpecific {
 
   /**
    * return all sliding windows overlapping the specified region
+ *
    * @param region Region to divide
    * @return list of divided smaller region
    */

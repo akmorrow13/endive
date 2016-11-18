@@ -21,28 +21,19 @@ import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.processing.CellTypes
 import net.akmorrow13.endive.utils._
 import nodes.learning._
-import nodes.nlp._
-import nodes.stats.TermFrequency
-import nodes.util.CommonSparseFeatures
 import nodes.util.{Identity, Cacher, ClassLabelIndicatorsFromIntLabels, TopKClassifier, MaxClassifier, VectorCombiner}
-import utils.{Image, MatrixUtils, Stats, ImageMetadata, LabeledImage, RowMajorArrayVectorizedImage, ChannelMajorArrayVectorizedImage}
 import workflow.{Pipeline, Transformer}
 import com.github.fommil.netlib.BLAS
-import evaluation.BinaryClassifierEvaluator
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
-import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
-import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.formats.avro._
 import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
-import scala.util.Random
 
 object StrawmanPipeline extends Serializable with Logging {
 

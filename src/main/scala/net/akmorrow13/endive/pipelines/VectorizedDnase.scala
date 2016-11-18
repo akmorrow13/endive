@@ -19,6 +19,7 @@ import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
+import net.akmorrow13.endive.processing.{Chromosomes, CellTypes}
 import net.akmorrow13.endive.utils._
 import nodes.learning.LogisticRegressionEstimator
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
@@ -28,6 +29,8 @@ import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.formats.avro.{AlignmentRecord, Strand}
+import org.bdgenomics.adam.rdd.InnerBroadcastRegionJoin
+import org.bdgenomics.formats.avro.Strand
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
@@ -40,8 +43,7 @@ object VectorizedDnase extends Serializable  {
    * A very basic dataset creation pipeline that *doesn't* featurize the data
    * but creates a csv of (Window, Label)
    *
-   *
-   * @param args
+    * @param args
    */
   def main(args: Array[String]) = {
 
@@ -163,20 +165,25 @@ object VectorizedDnase extends Serializable  {
 
   /**
    * Featurize with full calcuated dnase coverage
-   * @param sc SparkContext
+    *
+    * @param sc SparkContext
    * @param rdd RDD of labeledWindow
    * @param coverage point coverage
    * @param sd SequenceDictionary
    * @param subselectNegatives whether or not to subselect the dataset
+   * @param filterRegionsByDnasePeaks: if true, does not featurize raw dnase with now peaks and thresholds these
+   *      features to 0
    * @return
    */
   def featurize(sc: SparkContext,
-                rdd: RDD[LabeledWindow],
-                coverage: AlignmentRecordRDD,
-                sd: SequenceDictionary,
-                scale: Option[Int] = None,
-                subselectNegatives: Boolean = true,
-                 motifs: Option[List[Motif]] = None): RDD[BaseFeature] = {
+                 rdd: RDD[LabeledWindow],
+                 coverage: AlignmentRecordRDD,
+                 sd: SequenceDictionary,
+                 subselectNegatives: Boolean = true,
+                 filterRegionsByDnasePeaks: Boolean = false,
+                 motifs: Option[List[Motif]] = None,
+                 doCentipede: Boolean = true): RDD[BaseFeature] = {
+
 
     // get cell types in the current dataset
     val chromosomes = Chromosomes.toVector
@@ -192,12 +199,6 @@ object VectorizedDnase extends Serializable  {
       else
         rdd
 
-
-    // filter windows into regions with and without relaxed dnase peaks
-    val windowsWithoutDnase = filteredRDD.filter(_.win.dnase.size == 0)
-
-    val windowsWithDnase = filteredRDD.filter(_.win.dnase.size > 0)
-    println("Coverage: " + coverage.rdd.count)
 
     val regionsAndCuts: RDD[(ReferenceRegion, Iterable[AlignmentRecord])] = coverage.rdd.flatMap (r => if(r.getStart%windowJump == 0) { //occurs in windowSize/windowJump number of windows
                                                                                   for {
@@ -217,22 +218,45 @@ object VectorizedDnase extends Serializable  {
                                                                               ).groupByKey
 
 
+    // filter windows into regions with and without relaxed dnase peaks
+    val (windowsWithDnase, windowsWithoutDnase) =
+      if (filterRegionsByDnasePeaks) {
+        // filter windows into regions with and without relaxed dnase peaks
+        val windowsWithDnase = filteredRDD.filter(_.win.dnase.size > 0)
+        val windowsWithoutDnase = filteredRDD.filter(_.win.dnase.size == 0)
+        (windowsWithDnase, Some(windowsWithoutDnase))
+      } else {
+        (filteredRDD, None)
+      }
+
     val cutsAndWindows = windowsWithDnase.map(f => (f.win.getRegion,f)).leftOuterJoin(regionsAndCuts)
       .map(f => (f._2._1, f._2._2.getOrElse(Iterator()).toIterator))
     println("Cuts and Windows Count: " + cutsAndWindows.count)
 
-    val centipedeWindows = featurizePositives(cutsAndWindows, scale, motifs)
+    // featurize datapoints to vector of numbers
+    val vectorizedWindows = featurizePositives(cutsAndWindows, motifs, doCentipede)
 
-    // put back in windows without relaxed dnase
-    val featureLength = centipedeWindows.first.features.length
-    windowsWithoutDnase.map(r => BaseFeature(r, DenseVector.zeros(featureLength))).union(centipedeWindows)
+    if( windowsWithoutDnase.isDefined) {
+      // put back in windows without relaxed dnase
+      val featureLength = vectorizedWindows.first.features.length
+
+      windowsWithoutDnase.get.map(r => BaseFeature(r, DenseVector.zeros(featureLength))).union(vectorizedWindows)
+
+    }
+    else vectorizedWindows
 
   }
 
-
+  /**
+   * Featurizes cuts from dnase to vectors of numbers covering 200 bp windows
+   * @param cutsAndWindows cuts and windows to vectorize
+   * @param doCentipede Whether or not to concolve using msCentipede algorithm
+   * @param motifs
+   * @return
+   */
   def featurizePositives(cutsAndWindows: RDD[(LabeledWindow, Iterator[AlignmentRecord])],
-                scale: Option[Int] = None,
-                motifs: Option[List[Motif]] = None): RDD[BaseFeature] = {
+                motifs: Option[List[Motif]] = None,
+                doCentipede: Boolean = true): RDD[BaseFeature] = {
 
     // filter windows into regions with and without relaxed dnase peaks
 
@@ -250,7 +274,6 @@ object VectorizedDnase extends Serializable  {
           if (motifs.isDefined) { // if motif is defined center at most probable motif
           // format motifs to map on tf
           val tfmotifs = motifs.get.filter(_.label == window.win.tf.toString)
-          println("tfmotifs length", tfmotifs.length)
           val center =
             if (tfmotifs.length == 0) {
               println(s"no motifs for tf ${window.win.tf.toString}. Parsing from center")
@@ -273,28 +296,25 @@ object VectorizedDnase extends Serializable  {
           } else
             (window.win.region.start, window.win.region.end)
 
+        val positivePositions = DenseVector.zeros[Int](Dataset.windowSize)
+        val negativePositions = DenseVector.zeros[Int](Dataset.windowSize)
 
-        val positivePositions: Array[Int] = (start until end)
-          .map(r => {
-            // get forward counts for cell type and position r
-            windowed._2.filter(rec => rec.getStart == r
-              && !rec.getReadNegativeStrand
-              && rec.getAttributes == cellType.toString).length
-          }).toArray
-
-        val negativePositions: Array[Int] = (start until end)
-          .map(r => {
-            // get reverse counts for cell type and position r
-            windowed._2.filter(rec => rec.getStart == r
-              && rec.getReadNegativeStrand
-              && rec.getAttributes == cellType.toString).length
-          }).toArray
+        windowed._2.toArray.foreach(rec => {
+          if (rec.getReadNegativeStrand)
+            negativePositions((rec.getStart - start).toInt) += 1
+          else
+            positivePositions((rec.getStart - start).toInt) += 1
+        })
 
         val positions =
-          Dnase.msCentipede(positivePositions, scale) ++ Dnase.msCentipede(negativePositions, scale)
+          if (doCentipede)
+            DenseVector.vertcat(Dnase.msCentipede(positivePositions)
+              , Dnase.msCentipede(negativePositions))
+          else DenseVector.vertcat(positivePositions
+              , negativePositions).map(_.toDouble)
 
         // positions should be size of window
-        BaseFeature(window, DenseVector(positions))
+        BaseFeature(window, positions)
       })
     centipedeWindows
   }

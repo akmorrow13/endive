@@ -17,6 +17,7 @@ package net.akmorrow13.endive.pipelines
 
 import java.io.File
 import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.processing.{Chromosomes, CellTypes, TranscriptionFactors}
 import net.akmorrow13.endive.processing.Sequence
 import net.akmorrow13.endive.utils._
 import org.apache.hadoop.conf.Configuration
@@ -44,8 +45,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
    * A very basic dataset creation pipeline that *doesn't* featurize the data
    * but creates a csv of (Window, Label)
    *
-   *
-   * @param args
+    * @param args
    */
   def main(args: Array[String]) = {
     if (args.size < 1) {

@@ -24,6 +24,9 @@ object Dataset extends Logging {
   val heldOutChrs = List(Chromosomes.chr1, Chromosomes.chr8, Chromosomes.chr21)
   val heldOutTypes = List(CellTypes.K562, CellTypes.PC3, CellTypes.liver, CellTypes.inducedpluripotentstemcell)
 
+  // actual base pairs that are used
+  val alphabet = Map('A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
+
 }
 
 object TranscriptionFactors extends Enumeration with Serializable {

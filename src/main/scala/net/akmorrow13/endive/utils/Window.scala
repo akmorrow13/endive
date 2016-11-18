@@ -1,9 +1,7 @@
 package net.akmorrow13.endive.utils
 
-import java.io.ByteArrayOutputStream
 import net.akmorrow13.endive.processing._
 import org.bdgenomics.adam.models.ReferenceRegion
-import scala.util.{ Try, Success, Failure }
 
 /**
  * required to standardize cell type names
