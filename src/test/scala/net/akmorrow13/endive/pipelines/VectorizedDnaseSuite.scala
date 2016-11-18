@@ -22,6 +22,7 @@ import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils.{Window, LabeledWindow}
 import org.bdgenomics.adam.models.{ReferenceRegion, ReferencePosition, SequenceRecord, SequenceDictionary}
 import org.bdgenomics.adam.rdd.read.AlignedReadRDD
+import org.bdgenomics.formats.avro
 import org.bdgenomics.formats.avro.{AlignmentRecord, Strand}
 
 class VectorizedDnaseSuite extends EndiveFunSuite {
@@ -30,6 +31,30 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
 
   val chr = "chr1"
   val sd = new SequenceDictionary(Vector(SequenceRecord(chr, 7000)))
+
+  sparkTest("verify featurization correctly joins data") {
+    val win1 = LabeledWindow(Window(TranscriptionFactors.EGR1, CellTypes.A549, ReferenceRegion(chr, 1L, 200L),"A"*200), 1)
+    val win2 = LabeledWindow(Window(TranscriptionFactors.EGR1, CellTypes.A549, ReferenceRegion(chr, 50L, 250L),"G"*200), 1)
+
+    val windows = sc.parallelize(Seq(win1, win2))
+    val coverageAlignments = Seq(AlignmentRecord.newBuilder()
+                                  .setStart(60L)
+                                  .setEnd(61L)
+                                  .setContigName(chr)
+                                  .setReadMapped(true)
+                                  .build,
+                                AlignmentRecord.newBuilder()
+                                  .setStart(3L)
+                                  .setEnd(4L)
+                                  .setContigName(chr)
+                                  .setReadMapped(true)
+                                  .build)
+    val coverage = AlignedReadRDD(sc.parallelize(coverageAlignments), sd, null)
+
+    val result = VectorizedDnase.featurize(sc, windows, coverage, sd, false, false, None, false).collect()
+    assert(result.length == 2)
+    assert(result(1).features.sum > 1)
+  }
 
   sparkTest("msCentipede at full scale") {
     val scale = Some(0)
@@ -64,7 +89,6 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
     val results = VectorizedDnase.featurize(sc, rdd, coverage, sd, false, false,
                   Some(motifs), false)
     val features = results.first.features
-    val featureLength = features.length
     assert(features.slice(features.length/2, features.length).sum == 0)
   }
 

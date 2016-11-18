@@ -19,21 +19,18 @@ import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
-import net.akmorrow13.endive.processing.{Chromosomes, CellTypes}
+import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils._
 import nodes.learning.LogisticRegressionEstimator
-import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
-import org.bdgenomics.formats.avro.{AlignmentRecord, Strand}
-import org.bdgenomics.adam.rdd.InnerBroadcastRegionJoin
-import org.bdgenomics.formats.avro.Strand
+import org.bdgenomics.formats.avro.AlignmentRecord
+import org.bdgenomics.adam.rdd.LeftOuterShuffleRegionJoin
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
-import net.akmorrow13.endive.processing._
 import org.bdgenomics.adam.rdd.ADAMContext._
 
 
@@ -185,13 +182,6 @@ object VectorizedDnase extends Serializable  {
                  doCentipede: Boolean = true): RDD[BaseFeature] = {
 
 
-    // get cell types in the current dataset
-    val chromosomes = Chromosomes.toVector
-
-    // set size of dnase region to featurize
-    val windowSize = 200
-    val windowJump = 50
-
     // perform optional negative sampling
     val filteredRDD =
       if (subselectNegatives)
@@ -199,24 +189,21 @@ object VectorizedDnase extends Serializable  {
       else
         rdd
 
+    // this is a hack to force LeftOuterShuffleRegionJoin work.
+    // We must force all reads to be mapped
+    val mappedCoverage = coverage.transform(r => r.map(ar => {
+      ar.setReadMapped(true)
+      ar
+    }))
 
-    val regionsAndCuts: RDD[(ReferenceRegion, Iterable[AlignmentRecord])] = coverage.rdd.flatMap (r => if(r.getStart%windowJump == 0) { //occurs in windowSize/windowJump number of windows
-                                                                                  for {
-                                                                                    i <- 0 to windowSize/windowJump
-                                                                                    if((r.getStart / windowJump) * windowJump - (i * windowJump) > 0)
-                                                                                  } yield
-                                                                                      (ReferenceRegion(r.getContigName, (r.getStart / windowJump) * windowJump - (i * windowJump),
-                                                                                        (r.getStart / windowJump) * windowJump - (i * windowJump) + windowSize),r)
-                                                                                } else { //occurs in windowSize/windowJump - 1 number of windows
-                                                                                  for {
-                                                                                    i <- 0 to windowSize/windowJump - 1
-                                                                                    if((r.getStart / windowJump) * windowJump - (i * windowJump) > 0)
-                                                                                  } yield
-                                                                                      (ReferenceRegion(r.getContigName, (r.getStart / windowJump) * windowJump - (i * windowJump),
-                                                                                        (r.getStart / windowJump) * windowJump - (i * windowJump) + windowSize),r)
-                                                                                }
-                                                                              ).groupByKey
+    val cutsAndWindows: RDD[(LabeledWindow, Iterable[AlignmentRecord])] =
+      LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, rdd.partitions.length, sc)
+        .partitionAndJoin(filteredRDD.keyBy(_.win.region), mappedCoverage.rdd.keyBy(r => ReferenceRegion(r)))
+        .filter(_._2.isDefined)
+        .groupBy(_._1)
+        .map(r => (r._1, r._2.map(_._2.get)))
 
+    val res = cutsAndWindows.map(r => (r._1, r._2.toList)).collect
 
     // filter windows into regions with and without relaxed dnase peaks
     val (windowsWithDnase, windowsWithoutDnase) =
@@ -229,22 +216,18 @@ object VectorizedDnase extends Serializable  {
         (filteredRDD, None)
       }
 
-    val cutsAndWindows = windowsWithDnase.map(f => (f.win.getRegion,f)).leftOuterJoin(regionsAndCuts)
-      .map(f => (f._2._1, f._2._2.getOrElse(Iterator()).toIterator))
     println("Cuts and Windows Count: " + cutsAndWindows.count)
 
     // featurize datapoints to vector of numbers
     val vectorizedWindows = featurizePositives(cutsAndWindows, motifs, doCentipede)
 
-    if( windowsWithoutDnase.isDefined) {
+    if (windowsWithoutDnase.isDefined) {
       // put back in windows without relaxed dnase
       val featureLength = vectorizedWindows.first.features.length
 
       windowsWithoutDnase.get.map(r => BaseFeature(r, DenseVector.zeros(featureLength))).union(vectorizedWindows)
 
-    }
-    else vectorizedWindows
-
+    } else vectorizedWindows
   }
 
   /**
@@ -254,7 +237,7 @@ object VectorizedDnase extends Serializable  {
    * @param motifs
    * @return
    */
-  def featurizePositives(cutsAndWindows: RDD[(LabeledWindow, Iterator[AlignmentRecord])],
+  def featurizePositives(cutsAndWindows: RDD[(LabeledWindow, Iterable[AlignmentRecord])],
                 motifs: Option[List[Motif]] = None,
                 doCentipede: Boolean = true): RDD[BaseFeature] = {
 

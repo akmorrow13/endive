@@ -89,9 +89,10 @@ object KernelPipeline  extends Serializable with Logging {
     val alphabetSize = Dataset.alphabet.size
 
     val dataPath = conf.aggregatedSequenceOutput
+    val dnasePath = conf.dnase
     val referencePath = conf.reference
 
-    if (dataPath == null || referencePath == null) {
+    if (dataPath == null || referencePath == null || dnasePath == null) {
       println("Error: no data or reference path")
       sys.exit(-1)
     }
@@ -123,7 +124,7 @@ object KernelPipeline  extends Serializable with Logging {
     cells.foreach(println)
 
     // divvy up into train and test
-    val (train, test) = {
+    val (testCell, train, test) = {
       val first = allData.first
       val referenceName = first.win.getRegion.referenceName
       val cell = first.win.cellType
@@ -132,7 +133,7 @@ object KernelPipeline  extends Serializable with Logging {
       val train = allData.filter(r => (r.win.getRegion.referenceName != referenceName && r.win.cellType != cell))
       val test = allData.filter(r => (r.win.getRegion.referenceName == referenceName && r.win.cellType == cell))
 
-      (train, test)
+      (cell, train, test)
     }
 
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
@@ -142,9 +143,9 @@ object KernelPipeline  extends Serializable with Logging {
     val W = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
 
     // generate approximation features
-    val trainApprox = featurize(train, W, kmerSize)
-	.cache()
-    val testApprox = featurize(test, W, kmerSize)
+    val trainApprox = featurizeWithDnase(sc, train, W, sd, kmerSize, cells.filter(!_.equals(testCell)), dnasePath)
+	  .cache()
+    val testApprox = featurizeWithDnase(sc, test, W, sd, kmerSize, Array(testCell), dnasePath)
 	.cache()
 
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
