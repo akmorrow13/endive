@@ -121,9 +121,9 @@ object GlassmanPipeline  extends Serializable with Logging {
       var train = foldsData(i)._1.map(x => x._2)
       val test = foldsData(i)._2.map(x => x._2)
 
-      var XTrain:RDD[DenseVector[Double]] = train.map(x => KernelApproximator.denseFeaturize(x.win.sequence)).setName("XTrain").cache()
+      var XTrain:RDD[DenseVector[Double]] = train.map(x => KernelApproximator.stringToVector(x.win.sequence)).setName("XTrain").cache()
 
-      val XTest:RDD[DenseVector[Double]] = test.map(x => KernelApproximator.denseFeaturize(x.win.sequence)).setName("XTest").cache()
+      val XTest:RDD[DenseVector[Double]] = test.map(x => KernelApproximator.stringToVector(x.win.sequence)).setName("XTest").cache()
 
 
       XTrain.count()

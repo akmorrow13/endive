@@ -38,7 +38,6 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
     val window = sc.parallelize(Seq(DenseVector(1,1,1,1,1,1,1,1)))
     val result = Dnase.centipedeRDD(window)
     val first = result.first
-    assert(first.length == 1)
     assert(first(0) == 8.0)
   }
 
@@ -65,7 +64,7 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
     val motifs = Motif.parseYamlMotifs(motifPath)
 
     val results = VectorizedDnase.featurize(sc, rdd, coverage, sd, false, false,
-                  Some(motifs))
+                  Some(motifs), false)
     val features = results.first.features
     val featureLength = features.length
     assert(features.slice(features.length/2, features.length).sum == 0)

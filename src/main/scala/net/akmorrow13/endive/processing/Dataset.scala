@@ -27,8 +27,6 @@ object Dataset extends Logging {
   // actual base pairs that are used
   val alphabet = Map('A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
 
-  val bases = Map('N' -> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
-
 }
 
 object TranscriptionFactors extends Enumeration with Serializable {

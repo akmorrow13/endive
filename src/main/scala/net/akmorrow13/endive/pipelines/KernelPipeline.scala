@@ -22,33 +22,26 @@ import net.akmorrow13.endive.featurizers.RandomDistribution
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils._
-import nodes.learning._
-import nodes.util._
 import com.github.fommil.netlib.BLAS
 import nodes.akmorrow13.endive.featurizers.KernelApproximator
-import nodes.images.LabelExtractor
-import nodes.learning.{BlockLinearMapper, BlockLeastSquaresEstimator}
+import nodes.learning.{ BlockLeastSquaresEstimator}
 import nodes.util.{Cacher, MaxClassifier, ClassLabelIndicatorsFromIntLabels}
 import org.apache.log4j.{Level, Logger}
-import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.{ SequenceDictionary }
+import org.bdgenomics.adam.models.SequenceDictionary
 import org.bdgenomics.adam.rdd.feature.FeatureRDD
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.formats.avro._
 import org.bdgenomics.utils.io.LocalFileByteAccess
-import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
-import java.io.{File, BufferedWriter, FileWriter}
+import java.io.File
 
-import org.apache.spark.mllib.stat.{MultivariateStatisticalSummary, Statistics}
-import org.apache.spark.mllib.linalg.Vectors
 
 
 object KernelPipeline  extends Serializable with Logging {
@@ -143,8 +136,7 @@ object KernelPipeline  extends Serializable with Logging {
     }
 
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
-//    val gaussian = new Gaussian(0, 1)
-    val gaussian = RandomDistribution.gaussian(train.map(r => oneHotEncode(r)))
+    val gaussian = new Gaussian(0, 1)
 
     // generate random matrix
     val W = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
@@ -225,7 +217,7 @@ object KernelPipeline  extends Serializable with Logging {
 
     matrix.map(f => {
       val kx = (kernelApprox({
-        oneHotEncode(f)
+        KernelApproximator.stringToVector(f.win.sequence)
       }))
       BaseFeature(f, kx)
     })
@@ -263,22 +255,8 @@ object KernelPipeline  extends Serializable with Logging {
       val kx = (kernelApprox(oneHotEncodeDnase(f)))
       BaseFeature(f.labeledWindow, kx)
     })
-
   }
 
-  private[pipelines] def oneHotEncode(f: LabeledWindow): DenseVector[Double] = {
-    val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
-
-    val intString: Seq[Int] = f.win.sequence.map(Dataset.bases(_))
-    val seqString = intString.map { bp =>
-      val out = DenseVector.zeros[Double](4)
-      if (bp != -1) {
-        out(bp) = 1
-      }
-      out
-    }
-    DenseVector.vertcat(seqString: _*)
-  }
 
   /**
    * One hot encodes sequences with dnase data
@@ -288,7 +266,7 @@ object KernelPipeline  extends Serializable with Logging {
   private[pipelines] def oneHotEncodeDnase(f: BaseFeature): DenseVector[Double] = {
 
       // form seq of int from bases and join with dnase
-      val intString: Seq[(Int, Double)] = f.labeledWindow.win.sequence.map(Dataset.bases(_))
+      val intString: Seq[(Int, Double)] = f.labeledWindow.win.sequence.map(r => Dataset.alphabet.get(r).getOrElse(-1))
         .zip(f.features.toArray)
 
       val seqString = intString.map { r =>

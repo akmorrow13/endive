@@ -7,14 +7,11 @@ import workflow.Transformer
 import breeze.numerics._
 import net.akmorrow13.endive.processing.Dataset
 
-
-
-/* This only works for small alphabet size, use sparse matrix later */
 class KernelApproximator(filters: DenseMatrix[Double],
                          nonLin: Double => Double = (x: Double) => x ,
                          offset:Option[DenseVector[Double]] = None,
                          ngramSize: Int = 8,
-                         alphabetSize: Int = Dataset.bases.size,
+                         alphabetSize: Int = Dataset.alphabet.size,
                          seqSize: Int = Dataset.windowSize)
   extends Transformer[DenseVector[Double], DenseVector[Double]] with Serializable {
 
@@ -27,19 +24,17 @@ class KernelApproximator(filters: DenseMatrix[Double],
   }
 
   def apply(in: DenseVector[Double]): DenseVector[Double]= {
-    val ngramMat = null//new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
-    convolve(in, ngramMat, filters, nonLin, offset)
+    convolve(in, filters, nonLin, offset)
   }
 
   def convolve(seq: DenseVector[Double],
-    ngramMat: DenseMatrix[Double],
     filters: DenseMatrix[Double],
     nonLin: Double => Double,
     offset: Option[DenseVector[Double]],
     alphabetSize: Int = 4): DenseVector[Double] = {
 
     /* Make the ngram */
-    val ngrams: DenseMatrix[Double] = KernelApproximator.makeNgrams(seq, ngramMat, ngramSize)
+    val ngrams: DenseMatrix[Double] = KernelApproximator.makeNgrams(seq, ngramSize)
     /* Actually do the convolution */
     val convRes: DenseMatrix[Double] = ngrams * filters.t
 
@@ -70,19 +65,44 @@ class KernelApproximator(filters: DenseMatrix[Double],
     outSize: Int,
     alphabetSize: Int = 4): Iterator[DenseVector[Double]] = {
       val ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
-      seq.map(convolve(_, ngramMat, filters, nonLin, offset, alphabetSize))
+      seq.map(convolve(_, filters, nonLin, offset, alphabetSize))
     }
   }
 
+
+/**
+ * Helper functions for kernel approximation
+ */
 object KernelApproximator  {
 
+  /**
+   * Converts matrix of ngrams (densevectors of length alphabetsize * stringlength)
+   * to strings
+   * @param ngramMat matrix of densevectors, where each row encodes a string
+   * @return array of strings, where each string is from a row in ngramMat
+   */
+  def vectorsToStrings(ngramMat: DenseMatrix[Double]): Array[String] =  {
+    val ngramStrings:Array[String] = new Array[String](ngramMat.rows)
 
-  def denseFeaturize(in: String): DenseVector[Double] = {
+    Array.range(0, ngramMat.rows).map(i => {
+      ngramStrings(i) = vectorToString(ngramMat(i, ::).t.toDenseVector)
+    })
+
+    ngramStrings
+  }
+
+  /**
+   * Converts string of length l to 4xl length densevector
+   *
+   * @param in string to convert
+   * @return DenseVector encoding string
+   */
+  def stringToVector(in: String): DenseVector[Double] = {
     /* Identity featurizer */
 
     val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
 
-    val intString:Seq[Int] = in.map(Dataset.bases(_))
+    val intString:Seq[Int] = in.map(r => Dataset.alphabet.get(r).getOrElse(-1))
     val seqString = intString.map { bp =>
       val out = DenseVector.zeros[Double](4)
       if (bp != -1) {
@@ -93,26 +113,41 @@ object KernelApproximator  {
     DenseVector.vertcat(seqString:_*)
   }
 
+  /**
+   * Conversts a 4*b length vector to an string of A,T,G,C,N
+   * Node that each 4 doubles encodes 1 Char, eg 0.0 0.0 0.0 0.0 => N
+   *
+   * @param in DenseVector encoding sequence string
+   * @return DNA string
+   */
   def vectorToString(in: DenseVector[Double]): String = {
 
-    val BASEPAIRREVMAP = Array('A', 'T', 'C', 'G')
-    val alphabetSize = Dataset.alphabet.size
-    var i = 0
-    var str = ""
+    val BASEPAIRREVMAP = Dataset.alphabet.map(_._1).toArray
 
-    while (i < in.size) {
-      val charVector = in(i until i+alphabetSize)
-      if (charVector == DenseVector.zeros[Double](alphabetSize)) {
-        str += "N"
-      } else {
-        val bp = BASEPAIRREVMAP(argmax(charVector))
-        str += bp
-      }
-      i += alphabetSize
-    }
-    str
+    val alphabetSize = Dataset.alphabet.size // number of bases
+    val stringSize = in.size / alphabetSize  // final size of string
+    var i = 0
+    val strArr = new Array[Char](stringSize)
+
+    Array.range(0, stringSize)
+      .map(i => {
+        val charVector = in(i*alphabetSize until i*alphabetSize+alphabetSize)
+        if (charVector == DenseVector.zeros[Double](alphabetSize)) {
+          strArr(i) = 'N'
+        } else {
+          val bp = BASEPAIRREVMAP(argmax(charVector))
+          strArr(i) = bp
+        }
+      })
+    strArr.mkString
   }
 
+  /**
+   * Computes aggregate norm over matrix
+   *
+   * @param X Dense Matrix
+   * @return final norm
+   */
   def computeConvolutionalNorm(X: DenseMatrix[Double]): Double =  {
     var i = 0
     var norm = 0.0
@@ -130,21 +165,17 @@ object KernelApproximator  {
     sqrt(norm)
   }
 
-  def convertNgramsToStrings(ngramMat: DenseMatrix[Double], outSize:Int ): Array[String] =  {
-    var i = 0
-    val ngramStrings:Array[String] = new Array[String](outSize)
-    while (i < outSize) {
-      val ngramString = vectorToString(ngramMat(i, ::).t.toDenseVector)
-      ngramStrings(i) = ngramString
-      i += 1
-    }
-    ngramStrings
-  }
-
+  /**
+   * Computes ngrams from sequence
+   *
+   * @param seq densevector encoding string
+   * @param ngramSize size of ngrams
+   * @param alphabetSize number of characters in alphabet (default is 4)
+   * @return ngrams
+   */
   def makeNgrams(seq: DenseVector[Double],
-                  ngramMat: DenseMatrix[Double],
                   ngramSize: Int,
-                  alphabetSize: Int = 4): DenseMatrix[Double] = {
+                  alphabetSize: Int = Dataset.alphabet.size): DenseMatrix[Double] = {
 
     /* The length of seq is alphabet size times sequence length */
     val numSymbols = seq.size/alphabetSize
