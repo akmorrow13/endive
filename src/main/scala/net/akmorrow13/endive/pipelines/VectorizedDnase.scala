@@ -200,10 +200,9 @@ object VectorizedDnase extends Serializable  {
       LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, rdd.partitions.length, sc)
         .partitionAndJoin(filteredRDD.keyBy(_.win.region), mappedCoverage.rdd.keyBy(r => ReferenceRegion(r)))
         .filter(_._2.isDefined)
+        .repartition(100)
         .groupBy(_._1)
         .map(r => (r._1, r._2.map(_._2.get)))
-
-    val res = cutsAndWindows.map(r => (r._1, r._2.toList)).collect
 
     // filter windows into regions with and without relaxed dnase peaks
     val (windowsWithDnase, windowsWithoutDnase) =
@@ -221,13 +220,19 @@ object VectorizedDnase extends Serializable  {
     // featurize datapoints to vector of numbers
     val vectorizedWindows = featurizePositives(cutsAndWindows, motifs, doCentipede)
 
-    if (windowsWithoutDnase.isDefined) {
-      // put back in windows without relaxed dnase
-      val featureLength = vectorizedWindows.first.features.length
+    val ret = 
+      if (windowsWithoutDnase.isDefined) {
+        // put back in windows without relaxed dnase
+        val featureLength = vectorizedWindows.first.features.length
 
-      windowsWithoutDnase.get.map(r => BaseFeature(r, DenseVector.zeros(featureLength))).union(vectorizedWindows)
+        windowsWithoutDnase.get.map(r => BaseFeature(r, DenseVector.zeros(featureLength))).union(vectorizedWindows)
 
-    } else vectorizedWindows
+      } else vectorizedWindows
+
+
+    println("saving basefeatures as object file")
+    ret.saveAsObjectFile("/data/anv/DREAMDATA/aggregated/baseFeature_obj_EGR1")
+    ret
   }
 
   /**

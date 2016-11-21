@@ -106,7 +106,8 @@ object KernelPipeline  extends Serializable with Logging {
     var allData: RDD[LabeledWindow] =
       LabeledWindowLoader(dataPath, sc).setName("_All data")
         .filter(_.label >= 0)
-        .cache()
+  	.repartition(30) 
+    	.cache()
 
     if (conf.sample) {
       // sample data
