@@ -32,6 +32,8 @@ class EndiveConf extends Serializable {
   @BeanProperty var heldoutChr: Int = 1
   @BeanProperty var heldOutCells: Int = 1
 
+  @BeanProperty var predictionsOutput: String = "/tmp"
+
 
   /* data sources*/
   @BeanProperty var labelsPathArray: Array[String] = Array()
@@ -58,7 +60,7 @@ class EndiveConf extends Serializable {
   @BeanProperty var sequenceLength: Int = 100
 
   /* Kernel approximation feature parameters */
-  @BeanProperty var dim: Int = 4096
+  @BeanProperty var dim: Int = 256
 
   /* Save predictions */
   @BeanProperty var saveTrainPredictions: String = null
@@ -66,7 +68,7 @@ class EndiveConf extends Serializable {
 
   /* Default prediction parameters for block solve */
   @BeanProperty var lambda: Double = 10000
-  @BeanProperty var epochs: Int = 4
+  @BeanProperty var epochs: Int = 1
 
   @BeanProperty var sample: Boolean = true
 

@@ -40,6 +40,9 @@ import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
+import nodes.learning.LogisticRegressionEstimator
+import java.io._
+
 import java.io.File
 
 
@@ -106,14 +109,9 @@ object KernelPipeline  extends Serializable with Logging {
     var allData: RDD[LabeledWindow] =
       LabeledWindowLoader(dataPath, sc).setName("_All data")
         .filter(_.label >= 0)
-  	.repartition(30) 
+  	.repartition(384)
     	.cache()
 
-    if (conf.sample) {
-      // sample data
-      allData = EndiveUtils.subselectRandomSamples(sc, allData, sd)
-      println("Sampled LabeledWindows", allData.count)
-    }
 
     // extract tfs and cells for this label file
     val tfs = allData.map(_.win.getTf).distinct.collect()
@@ -131,8 +129,13 @@ object KernelPipeline  extends Serializable with Logging {
       val cell = first.win.cellType
 
       // hold out a (chromosome, celltype) pair for test
-      val train = allData.filter(r => (r.win.getRegion.referenceName != referenceName && r.win.cellType != cell))
+      var train = allData.filter(r => (r.win.getRegion.referenceName != referenceName && r.win.cellType != cell))
       val test = allData.filter(r => (r.win.getRegion.referenceName == referenceName && r.win.cellType == cell))
+
+      // sample data
+      train = EndiveUtils.subselectRandomSamples(sc, train, sd)
+      println("Sampled train LabeledWindows", train.count)
+      println("unSampled test LabeledWindows", test.count)
 
       (cell, train, test)
     }
@@ -144,62 +147,48 @@ object KernelPipeline  extends Serializable with Logging {
     val W = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
 
     // generate approximation features
-    val trainApprox = featurizeWithDnase(sc, train, W, sd, kmerSize, cells.filter(!_.equals(testCell)), dnasePath)
+    val trainApprox = featurize(train, W, kmerSize)
 	  .cache()
-    val testApprox = featurizeWithDnase(sc, test, W, sd, kmerSize, Array(testCell), dnasePath)
-	.cache()
+    val testApprox = featurize(test, W, kmerSize)
+	  .cache()
 
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
 
-    val trainFeatures: RDD[DenseVector[Double]] = trainApprox.map(_.features)
-    val trainLabels = labelExtractor(trainApprox.map(_.labeledWindow.label))
+    val trainFeatures: RDD[DenseVector[Double]] = trainApprox.map(_.features).cache()
+    val trainLabels = labelExtractor(trainApprox.map(_.labeledWindow.label)).get
 
-    val testFeatures = testApprox.map(_.features)
-    val testLabels = labelExtractor(testApprox.map(_.labeledWindow.label))
+    val testFeatures = testApprox.map(_.features).cache()
+    val testLabels = labelExtractor(testApprox.map(_.labeledWindow.label)).get
 
     println(trainApprox.count, testApprox.count)
 
+
     // run least squares
-    val predictor = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels.get)
 
+    val model = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels)
 
-    // train metrics
-    val trainPredictions = MaxClassifier(predictor(trainFeatures)).map(_.toDouble)
+    val trainPredictions:RDD[Double] = model(trainFeatures).map(x => x(1))
+    val testPredictions:RDD[Double] = model(testFeatures).map(x => x(1))
 
-    val prarr = trainPredictions.mapPartitions(iter => Array(iter.size).iterator, true).collect
-    prarr.foreach(r => println(r))
-    val approxarr = trainApprox.mapPartitions(iter => Array(iter.size).iterator, true).collect
-    approxarr.foreach(r => println(r))
+    trainPredictions.count()
+    testPredictions.count()
 
+    val trainScalarLabels = trainLabels.map(x => if(x(1) == 1) 1 else 0)
+    val testScalarLabels = testLabels.map(x => if(x(1) ==1) 1 else 0)
 
-    val evalTrain = new BinaryClassificationMetrics(trainPredictions.zip(trainApprox.map(_.labeledWindow.label.toDouble)))
-    println("Train Results: \n ")
-    Metrics.printMetrics(evalTrain)
+    val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").collect()
+    val zippedTestPreds = testScalarLabels.zip(testPredictions).map(x => s"${x._1},${x._2}").collect()
 
-    // test metrics
-    val testPredictions = MaxClassifier(predictor(testFeatures)).map(_.toDouble)
-    val evalTest = new BinaryClassificationMetrics(testPredictions.zip(testApprox.map(_.labeledWindow.label.toDouble)))
-    println("Test Results: \n ")
-    Metrics.printMetrics(evalTest)
+    val trainFile = new File(conf.predictionsOutput + "/trainPreds.csv")
+    var bw = new BufferedWriter(new FileWriter(trainFile))
+    bw.write(zippedTrainPreds.mkString("\n"))
+    bw.close()
 
-    // save train predictions as FeatureRDD if specified
-    if (conf.saveTrainPredictions != null) {
-      if (sd == null) {
-        println("Error: need referencePath to save output train predictions")
-      } else {
-        saveAsFeatures(trainApprox.map(_.labeledWindow), trainPredictions, sd, conf.saveTrainPredictions)
-      }
-    }
-
-    // save test predictions as FeatureRDD if specified
-    if (conf.saveTestPredictions != null) {
-      if (sd == null) {
-        println("Error: need referencePath to save output train predictions")
-      } else {
-        saveAsFeatures(testApprox.map(_.labeledWindow), testPredictions, sd, conf.saveTestPredictions)
-      }
-    }
+    val testFile = new File(conf.predictionsOutput + "/testPreds.csv")
+    bw = new BufferedWriter(new FileWriter(testFile))
+    bw.write(zippedTestPreds.mkString("\n"))
+    bw.close()
   }
 
   /**
@@ -244,7 +233,7 @@ object KernelPipeline  extends Serializable with Logging {
                          dnasePath: String): RDD[BaseFeature] = {
 
     val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize)
-
+    println("DNASE PATH IS " + dnasePath)
     // load cuts from AlignmentREcordRDD. filter out only cells of interest
     val dnase = Preprocess.loadDnase(sc, dnasePath, cells)
       .transform(rdd =>
