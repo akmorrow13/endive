@@ -73,8 +73,11 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     // create new sequence with reference path
     val referencePath = conf.reference
 
-    // load dnase path for all files
-    val dnasePath = conf.dnase
+    // load dnase path for all narrowpeak files
+    val dnasePath = conf.dnaseNarrow
+
+    // load dnase paths for all dnase mabs
+    val dnaseBamsPath = conf.dnaseBams
 
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
@@ -83,10 +86,9 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
     val fs: FileSystem = FileSystem.get(new Configuration())
-    val dnaseStatus = fs.listStatus(new Path(dnasePath))
+    val dnaseNarrowStatus = fs.listStatus(new Path(dnasePath))
 
     val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
-    
     train
 	.setName("Raw Train Data").cache()
 
@@ -96,7 +98,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     cellTypes.foreach(println)
 
     // Load DNase data of (cell type, peak record)
-    val dnaseFiles = dnaseStatus.filter(r => {
+    val dnaseFiles = dnaseNarrowStatus.filter(r => {
       val cellType = Dataset.filterCellTypeName(r.getPath.getName.split('.')(1))
       cellTypes.map(_.toString).contains(cellType)
     })

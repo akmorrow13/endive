@@ -40,7 +40,8 @@ class EndiveConf extends Serializable {
   @BeanProperty var predictionOutputPath: String = null
   @BeanProperty var modelTest: String = "true"
   /* dnase data */
-  @BeanProperty var dnase: String = null
+  @BeanProperty var dnaseNarrow: String = null
+  @BeanProperty var dnaseBams: String = null
   @BeanProperty var useRawDnase: Boolean = false
   // location to RDD for list of (region, counts from files) for forward strands
   @BeanProperty var dnasePositives: String = null
