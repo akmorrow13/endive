@@ -32,7 +32,13 @@ class EndiveConf extends Serializable {
   @BeanProperty var heldoutChr: Int = 1
   @BeanProperty var heldOutCells: Int = 1
 
+  @BeanProperty var gamma: Double = 1.0
+  @BeanProperty var seed: Int = 0
+  @BeanProperty var readFiltersFromDisk: Boolean = false
   @BeanProperty var predictionsOutput: String = "/tmp"
+  @BeanProperty var numPartitions: Int = 400
+  @BeanProperty var negativeSamplingFreq: Double = 0.001
+  @BeanProperty var filtersPath: String  = "/tmp/filters.csv"
 
 
   /* data sources*/
@@ -41,6 +47,8 @@ class EndiveConf extends Serializable {
   @BeanProperty var cutmapOutputPath: String = null
   @BeanProperty var predictionOutputPath: String = null
   @BeanProperty var modelTest: String = "true"
+
+
   /* dnase data */
   @BeanProperty var dnase: String = null
   @BeanProperty var useRawDnase: Boolean = false

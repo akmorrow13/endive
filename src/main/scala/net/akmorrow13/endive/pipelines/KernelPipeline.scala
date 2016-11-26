@@ -109,7 +109,7 @@ object KernelPipeline  extends Serializable with Logging {
     var allData: RDD[LabeledWindow] =
       LabeledWindowLoader(dataPath, sc).setName("_All data")
         .filter(_.label >= 0)
-  	.repartition(384)
+  	.repartition(conf.numPartitions)
     	.cache()
 
 
@@ -133,18 +133,40 @@ object KernelPipeline  extends Serializable with Logging {
       val test = allData.filter(r => (r.win.getRegion.referenceName == referenceName && r.win.cellType == cell))
 
       // sample data
-      train = EndiveUtils.subselectRandomSamples(sc, train, sd)
+      train = EndiveUtils.subselectRandomSamples(sc, train, sd, conf.negativeSamplingFreq, conf.seed)
       println("Sampled train LabeledWindows", train.count)
       println("unSampled test LabeledWindows", test.count)
 
       (cell, train, test)
     }
 
-    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
-    val gaussian = new Gaussian(0, 1)
 
-    // generate random matrix
-    val W = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
+    // either generate filters or load from disk
+
+    val W =
+    if (conf.readFiltersFromDisk) {
+
+      val numFilters = scala.io.Source.fromFile(conf.filtersPath).getLines.size
+      val dataDimension = scala.io.Source.fromFile(conf.filtersPath).getLines.next.split(",").size
+
+
+      // Make sure read in filter params are consistent with our world view
+      assert(numFilters == approxDim)
+      assert(dataDimension ==  kmerSize * alphabetSize)
+
+      val WRaw = scala.io.Source.fromFile(conf.filtersPath).getLines.toArray.flatMap(_.split(",")).map(_.toDouble)
+      val W:DenseMatrix[Double] = new DenseMatrix(approxDim, kmerSize * alphabetSize, WRaw)
+      W
+    } else {
+      // Only gaussian filter generation is supported (for now)
+
+      implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+      val gaussian = new Gaussian(0, 1) 
+
+      // generate random matrix
+      val W:DenseMatrix[Double] = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian) * conf.gamma
+      W
+    }
 
     // generate approximation features
     val trainApprox = featurize(train, W, kmerSize)

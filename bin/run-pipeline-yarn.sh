@@ -54,10 +54,10 @@ export CPATH=/home/eecs/vaishaal/gcc-build/include
 "$SPARK_SUBMIT" \
   --master $MASTER \
   --class $CLASS \
-  --num-executors  16 \
+  --num-executors  $SPARK_NUM_EXECUTORS \
   --driver-memory 60g \
   --executor-memory 20g \
-  --executor-cores 8 \
+  --executor-cores $SPARK_EXECUTOR_CORES \
   --driver-class-path $JARFILE:$ASSEMBLYJAR:$HOME/hadoop/conf \
   --driver-library-path /opt/amp/gcc/lib64:/opt/amp/openblas/lib:$FWDIR/lib \
   --conf spark.executor.extraLibraryPath=/opt/amp/openblas/lib:$FWDIR/lib \
