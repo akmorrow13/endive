@@ -196,13 +196,30 @@ object VectorizedDnase extends Serializable  {
       ar
     }))
 
-    val cutsAndWindows: RDD[(LabeledWindow, Iterable[AlignmentRecord])] =
-      LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, rdd.partitions.length, sc)
-        .partitionAndJoin(filteredRDD.keyBy(_.win.region), mappedCoverage.rdd.keyBy(r => ReferenceRegion(r)))
+   filteredRDD.cache()
+   filteredRDD.count
+   val filteredCoverage = mappedCoverage.transform(r => r.filter(_.start >= 0 ))
+   filteredCoverage.rdd.cache()
+   filteredCoverage.rdd.count
+
+    val cutsAndWindows: RDD[(LabeledWindow, Option[AlignmentRecord])] =
+      LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, 390, sc)
+        .partitionAndJoin(filteredRDD.keyBy(_.win.region), filteredCoverage.rdd.keyBy(r => ReferenceRegion(r)))
         .filter(_._2.isDefined)
-        .repartition(100)
+        .setName("cutsAndWindows")
+	.cache()
+
+    filteredCoverage.rdd.unpersist()
+    filteredRDD.unpersist()
+
+    val groupedWindows = cutsAndWindows
         .groupBy(_._1)
         .map(r => (r._1, r._2.map(_._2.get)))
+	.setName("groupedWindows") 
+	.cache()
+
+    println("Cuts and Windows Count: " + groupedWindows.count)
+    cutsAndWindows.unpersist()
 
     // filter windows into regions with and without relaxed dnase peaks
     val (windowsWithDnase, windowsWithoutDnase) =
@@ -215,10 +232,8 @@ object VectorizedDnase extends Serializable  {
         (filteredRDD, None)
       }
 
-    println("Cuts and Windows Count: " + cutsAndWindows.count)
-
     // featurize datapoints to vector of numbers
-    val vectorizedWindows = featurizePositives(cutsAndWindows, motifs, doCentipede)
+    val vectorizedWindows = featurizePositives(groupedWindows, motifs, doCentipede)
 
     val ret = 
       if (windowsWithoutDnase.isDefined) {

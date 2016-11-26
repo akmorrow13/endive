@@ -247,9 +247,6 @@ object KernelPipeline  extends Serializable with Logging {
 
     // load cuts from AlignmentREcordRDD. filter out only cells of interest
     val dnase = Preprocess.loadDnase(sc, dnasePath, cells)
-      .transform(rdd =>
-        rdd.filter(r => !r.getReadNegativeStrand) // only featurize positive strands.
-      )                                           // This will be changed when we have channels
 
     val dnaseRDD = mergeDnase(sc, rdd, sd, cells, dnase)
 
