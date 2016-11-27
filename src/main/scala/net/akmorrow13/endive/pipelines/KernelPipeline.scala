@@ -85,6 +85,7 @@ object KernelPipeline  extends Serializable with Logging {
     // set parameters
     val seed = 0
     val kmerSize = 8
+    val dnaseSize = 100
     val approxDim = conf.dim
     val alphabetSize = Dataset.alphabet.size
 
@@ -139,13 +140,16 @@ object KernelPipeline  extends Serializable with Logging {
     val gaussian = new Gaussian(0, 1)
 
     // generate random matrix
-    val W = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
+    val dnaseMax = train.map(r => r.win.dnase.max).max().toInt
+    println("dnaseMax", dnaseMax)
+    val W_sequence = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
+    val W_dnase = DenseMatrix.rand(approxDim, dnaseSize * dnaseMax, gaussian)
 
     // generate approximation features
-    val trainApprox = featurizeWithDnase(sc, train, W, sd, kmerSize)
+    val trainApprox = featurizeWithDnase(sc, train, sd, W_sequence, kmerSize)
 	  .cache()
-    val testApprox = featurizeWithDnase(sc, test, W, sd, kmerSize)
-	.cache()
+    val testApprox = featurizeWithDnase(sc, test, sd, W_sequence, kmerSize)
+	  .cache()
 
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
@@ -229,28 +233,44 @@ object KernelPipeline  extends Serializable with Logging {
    * are appended to the one hot sequence encoding. For example, if positive 1 has A with DNASE count of 3 positive
    * strands, the encoding is 0003.
    *
+   * @param sc: Spark Context
    * @param rdd: data matrix with sequences
-   * @param W: random matrix
-   * @param kmerSize: length of kmers to be created
+   * @param sd: Sequence Dictionary
+   * @param kmerSize size of kmers
+   * @param W_sequence random matrix for sequence
+   * @param W_dnase random matrix for dnase
+   * @param dnaseSize size of dnase
+   * @return
    */
   def featurizeWithDnase(sc: SparkContext,
                          rdd: RDD[LabeledWindow],
-                         W: DenseMatrix[Double],
                          sd: SequenceDictionary,
-                         kmerSize: Int): RDD[BaseFeature] = {
+                         W_sequence: DenseMatrix[Double],
+                         kmerSize: Int,
+                         W_dnase: Option[DenseMatrix[Double]] = None,
+                         dnaseSize: Option[Int] = None): RDD[BaseFeature] = {
 
-    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize)
+    val kernelApprox_seq = new KernelApproximator(W_sequence, Math.cos, ngramSize = kmerSize)
 
-    // load cuts from AlignmentRecordRDD. filter out only cells of interest
-//    val dnase = Preprocess.loadDnase(sc, dnasePath, cells)
-//    val dnaseRDD = mergeDnase(sc, rdd, sd, cells, dnase)
+    if (W_dnase.isDefined && dnaseSize.isDefined) {
+      val kernelApprox_dnase = new KernelApproximator(W_dnase.get, Math.cos, ngramSize = dnaseSize.get)
+      rdd.map(f => {
+        val k_seq = kernelApprox_seq(KernelApproximator.stringToVector(f.win.sequence))
+        val k_dnase_pos = kernelApprox_dnase(f.win.dnase.slice(0, Dataset.windowSize))
+        // TODO: include
+        // val k_dnase_neg = kernelApprox_dnase(f.win.dnase.slice(Dataset.windowSize, f.win.dnase.length))
 
-    rdd.map(f => {
-      val kx = (kernelApprox(oneHotEncodeDnase(f)))
-      BaseFeature(f, kx)
-    })
+        BaseFeature(f, DenseVector.vertcat(k_seq, k_dnase_pos))
+      })
+    } else {
+      rdd.map(f => {
+        val kx = kernelApprox_seq(oneHotEncodeDnase(f))
+        BaseFeature(f, kx)
+      })
+    }
+
+
   }
-
 
   /**
    * One hot encodes sequences with dnase data
