@@ -72,7 +72,9 @@ class KernelPipelineSuite extends EndiveFunSuite {
 
     val dnaseRDD = AlignedReadRDD(sc.parallelize(Seq(dnase)), getSequenceDictionary, null)
 
-    val merged = KernelPipeline.mergeDnase(sc, windows, getSequenceDictionary, cells, dnaseRDD, false)
+    val merged =
+          VectorizedDnase.featurize(sc, windows, dnaseRDD, getSequenceDictionary, false, false, None, false)
+            .map(r => LabeledWindow(r.win.setDnase(r.win.dnase.slice(0, Dataset.windowSize)), r.label)) // slice off just positives
       .filter(_.win.getRegion.overlaps(filteredRegion))
       .sortBy(_.win.region)
       .collect

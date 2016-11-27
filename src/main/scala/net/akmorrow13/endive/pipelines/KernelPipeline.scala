@@ -85,6 +85,7 @@ object KernelPipeline  extends Serializable with Logging {
     // set parameters
     val seed = 0
     val kmerSize = 8
+    val dnaseSize = 100
     val approxDim = conf.dim
     val alphabetSize = Dataset.alphabet.size
 
@@ -103,17 +104,9 @@ object KernelPipeline  extends Serializable with Logging {
 
 
     // load data for a specific transcription factor
-    var allData: RDD[LabeledWindow] =
+    val allData: RDD[LabeledWindow] =
       LabeledWindowLoader(dataPath, sc).setName("_All data")
-        .filter(_.label >= 0)
-  	.repartition(30) 
-    	.cache()
-
-    if (conf.sample) {
-      // sample data
-      allData = EndiveUtils.subselectRandomSamples(sc, allData, sd)
-      println("Sampled LabeledWindows", allData.count)
-    }
+      	.cache()
 
     // extract tfs and cells for this label file
     val tfs = allData.map(_.win.getTf).distinct.collect()
@@ -131,7 +124,13 @@ object KernelPipeline  extends Serializable with Logging {
       val cell = first.win.cellType
 
       // hold out a (chromosome, celltype) pair for test
-      val train = allData.filter(r => (r.win.getRegion.referenceName != referenceName && r.win.cellType != cell))
+      var train = allData.filter(r => (r.win.getRegion.referenceName != referenceName && r.win.cellType != cell))
+      if (conf.sample) {
+        // sample data
+        train = EndiveUtils.subselectRandomSamples(sc, train, sd)
+        println("Sampled train", train.count)
+      }
+
       val test = allData.filter(r => (r.win.getRegion.referenceName == referenceName && r.win.cellType == cell))
 
       (cell, train, test)
@@ -141,13 +140,16 @@ object KernelPipeline  extends Serializable with Logging {
     val gaussian = new Gaussian(0, 1)
 
     // generate random matrix
-    val W = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
+    val dnaseMax = train.map(r => r.win.dnase.max).max().toInt
+    println("dnaseMax", dnaseMax)
+    val W_sequence = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
+    val W_dnase = DenseMatrix.rand(approxDim, dnaseSize * dnaseMax, gaussian)
 
     // generate approximation features
-    val trainApprox = featurizeWithDnase(sc, train, W, sd, kmerSize, cells.filter(!_.equals(testCell)), dnasePath)
+    val trainApprox = featurizeWithDnase(sc, train, sd, W_sequence, kmerSize)
 	  .cache()
-    val testApprox = featurizeWithDnase(sc, test, W, sd, kmerSize, Array(testCell), dnasePath)
-	.cache()
+    val testApprox = featurizeWithDnase(sc, test, sd, W_sequence, kmerSize)
+	  .cache()
 
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
@@ -231,31 +233,44 @@ object KernelPipeline  extends Serializable with Logging {
    * are appended to the one hot sequence encoding. For example, if positive 1 has A with DNASE count of 3 positive
    * strands, the encoding is 0003.
    *
+   * @param sc: Spark Context
    * @param rdd: data matrix with sequences
-   * @param W: random matrix
-   * @param kmerSize: length of kmers to be created
+   * @param sd: Sequence Dictionary
+   * @param kmerSize size of kmers
+   * @param W_sequence random matrix for sequence
+   * @param W_dnase random matrix for dnase
+   * @param dnaseSize size of dnase
+   * @return
    */
   def featurizeWithDnase(sc: SparkContext,
                          rdd: RDD[LabeledWindow],
-                         W: DenseMatrix[Double],
                          sd: SequenceDictionary,
+                         W_sequence: DenseMatrix[Double],
                          kmerSize: Int,
-                         cells: Array[CellTypes.Value],
-                         dnasePath: String): RDD[BaseFeature] = {
+                         W_dnase: Option[DenseMatrix[Double]] = None,
+                         dnaseSize: Option[Int] = None): RDD[BaseFeature] = {
 
-    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize)
+    val kernelApprox_seq = new KernelApproximator(W_sequence, Math.cos, ngramSize = kmerSize)
 
-    // load cuts from AlignmentREcordRDD. filter out only cells of interest
-    val dnase = Preprocess.loadDnase(sc, dnasePath, cells)
+    if (W_dnase.isDefined && dnaseSize.isDefined) {
+      val kernelApprox_dnase = new KernelApproximator(W_dnase.get, Math.cos, ngramSize = dnaseSize.get)
+      rdd.map(f => {
+        val k_seq = kernelApprox_seq(KernelApproximator.stringToVector(f.win.sequence))
+        val k_dnase_pos = kernelApprox_dnase(f.win.dnase.slice(0, Dataset.windowSize))
+        // TODO: include
+        // val k_dnase_neg = kernelApprox_dnase(f.win.dnase.slice(Dataset.windowSize, f.win.dnase.length))
 
-    val dnaseRDD = mergeDnase(sc, rdd, sd, cells, dnase)
+        BaseFeature(f, DenseVector.vertcat(k_seq, k_dnase_pos))
+      })
+    } else {
+      rdd.map(f => {
+        val kx = kernelApprox_seq(oneHotEncodeDnase(f))
+        BaseFeature(f, kx)
+      })
+    }
 
-    dnaseRDD.map(f => {
-      val kx = (kernelApprox(oneHotEncodeDnase(f)))
-      BaseFeature(f, kx)
-    })
+
   }
-
 
   /**
    * One hot encodes sequences with dnase data
@@ -266,7 +281,7 @@ object KernelPipeline  extends Serializable with Logging {
 
       // form seq of int from bases and join with dnase
       val intString: Seq[(Int, Double)] = f.win.sequence.map(r => Dataset.alphabet.get(r).getOrElse(-1))
-        .zip(f.win.dnase.toArray)
+        .zip(f.win.dnase.slice(0, Dataset.windowSize).toArray) // slice off just positives
 
       val seqString = intString.map { r =>
         val out = DenseVector.zeros[Double](Dataset.alphabet.size)
@@ -276,25 +291,6 @@ object KernelPipeline  extends Serializable with Logging {
         out
       }
       DenseVector.vertcat(seqString: _*)
-  }
-
-  /**
-   * Merge dnase cuts windows
-   * @param sc SparkContext
-   * @param cells cells to get DNASE for
-   * @return
-   */
-  def mergeDnase(sc: SparkContext,
-                 rdd: RDD[LabeledWindow],
-                 sd: SequenceDictionary,
-                 cells: Array[CellTypes.Value],
-                 dnase: AlignmentRecordRDD,
-                 subselectNegatives: Boolean = true): RDD[LabeledWindow] = {
-
-    // return cuts into vectors of counts
-    VectorizedDnase.featurize(sc, rdd, dnase, sd, subselectNegatives, false, None, false)
-      .map(r => LabeledWindow(r.win.setDnase(r.win.dnase.slice(0, Dataset.windowSize)), r.label)) // slice off just positives
-
   }
 
   /**
