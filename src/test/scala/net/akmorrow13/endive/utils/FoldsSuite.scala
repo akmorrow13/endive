@@ -22,7 +22,7 @@ class FoldsSuite extends EndiveFunSuite {
     val windowsAll  = (0 until NUM_SAMPLES).map { x =>
       ((0 until NUM_CHROMOSOMES).map { cr =>
         (0 until NUM_CELL_TYPES).map { cellType =>
-        LabeledWindow(Window(tf, CellTypes.apply(cellType), ReferenceRegion("chr" + cr, 0, 100), sequence, None, None), 0)
+        LabeledWindow(Window(tf, CellTypes.apply(cellType), ReferenceRegion("chr" + cr, 0, 100), sequence, 0, None, None), 0)
         }
       }).flatten
     }
@@ -67,7 +67,7 @@ class FoldsSuite extends EndiveFunSuite {
     val windowsAll  = (0 until NUM_SAMPLES).map { x =>
       ((0 until NUM_CHROMOSOMES).map { cr =>
         (0 until NUM_CELL_TYPES).map { cellType =>
-        LabeledWindow(Window(tf, CellTypes.apply(cellType), ReferenceRegion("chr" + cr, 0, 100), sequence, None, None), 0)
+        LabeledWindow(Window(tf, CellTypes.apply(cellType), ReferenceRegion("chr" + cr, 0, 100), sequence, 0, None, None), 0)
         }
       }).flatten
     }

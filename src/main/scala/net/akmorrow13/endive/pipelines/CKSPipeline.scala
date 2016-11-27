@@ -62,7 +62,7 @@ object CSKPipeline extends Serializable  {
     val referencePath = conf.reference
     // load chip seq labels from any number of files
     val labelsPathArray = conf.labels.split(" ")
-    val dnasePath = conf.dnase
+    val dnasePath = conf.dnaseNarrow
     val motifPath = conf.motifDBPath
     val cutmapInputPath = conf.cutmapInputPath
     val cutmapOutputPath = conf.cutmapOutputPath

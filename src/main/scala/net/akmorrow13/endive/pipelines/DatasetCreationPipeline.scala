@@ -74,7 +74,7 @@ object DatasetCreationPipeline extends Serializable  {
     val labelsPath = conf.labels
     if (labelsPath == null)
       throw new Exception("chipseq labels not defined")
-    val dnasePath = conf.dnase
+    val dnasePath = conf.dnaseNarrow
     if (dnasePath == null)
       throw new Exception("dnasePath not defined")
     

@@ -114,7 +114,8 @@ class MotifScorer(@transient sc: SparkContext,
       .map(r => {
         val motifs = r._2._2
         LabeledWindow(Window(r._2._1.win.getTf, r._2._1.win.getCellType,
-          r._2._1.win.getRegion, r._2._1.win.getSequence, Some(r._2._1.win.getDnase), Some(r._2._1.win.getRnaseq), motifs), r._2._1.label)
+          r._2._1.win.getRegion, r._2._1.win.getSequence, r._2._1.win.dnasePeakCount,
+          Some(r._2._1.win.getDnase), Some(r._2._1.win.getRnaseq), motifs), r._2._1.label)
       })
     x
   }

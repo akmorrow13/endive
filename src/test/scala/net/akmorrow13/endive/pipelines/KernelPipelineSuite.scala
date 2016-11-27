@@ -73,17 +73,17 @@ class KernelPipelineSuite extends EndiveFunSuite {
     val dnaseRDD = AlignedReadRDD(sc.parallelize(Seq(dnase)), getSequenceDictionary, null)
 
     val merged = KernelPipeline.mergeDnase(sc, windows, getSequenceDictionary, cells, dnaseRDD, false)
-      .filter(_.labeledWindow.win.getRegion.overlaps(filteredRegion))
-      .sortBy(_.labeledWindow.win.region)
+      .filter(_.win.getRegion.overlaps(filteredRegion))
+      .sortBy(_.win.region)
       .collect
 
     // assert dnase was correctly inserted in vectors
     assert(merged.length == 2)
-    assert(merged.head.features.sum > 0)
-    assert(merged.head.features(180) == 1.0)
+    assert(merged.head.win.dnase.sum > 0)
+    assert(merged.head.win.dnase(180) == 1.0)
 
-    assert(merged.last.features.sum > 0)
-    assert(merged.last.features(30) == 1.0)
+    assert(merged.last.win.dnase.sum > 0)
+    assert(merged.last.win.dnase(30) == 1.0)
 
   }
 
@@ -92,8 +92,8 @@ class KernelPipelineSuite extends EndiveFunSuite {
     val sequence = "ATCG"
     val dnase = DenseVector(0.0,9.0,10.0,3.0)
     val window = Window(TranscriptionFactors.ARID3A,
-                    CellTypes.A549, region, sequence)
-    val encoded = KernelPipeline.oneHotEncodeDnase(BaseFeature(LabeledWindow(window, 1), dnase))
+                    CellTypes.A549, region, sequence, 1, Some(dnase))
+    val encoded = KernelPipeline.oneHotEncodeDnase(LabeledWindow(window, 1))
 
     assert(encoded.length == sequence.length * Dataset.alphabet.size)
     assert(encoded(0) == 1)

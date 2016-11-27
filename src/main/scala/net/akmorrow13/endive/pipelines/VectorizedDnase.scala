@@ -25,7 +25,7 @@ import nodes.learning.LogisticRegressionEstimator
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
+import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.formats.avro.AlignmentRecord
 import org.bdgenomics.adam.rdd.LeftOuterShuffleRegionJoin
@@ -72,7 +72,7 @@ object VectorizedDnase extends Serializable  {
     val referencePath = conf.reference
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
-    val dnasePath = conf.dnase
+    val dnasePath = conf.dnaseBams
 
     // load in 1 transcription factor
     /*
@@ -92,7 +92,7 @@ object VectorizedDnase extends Serializable  {
     cellTypes.toArray.foreach(println)
     
     // load dnase file (contains all cell types)
-    val dnase = sc.loadAlignments(conf.dnase)
+    val dnase = sc.loadAlignments(dnasePath)
 
 
     println("TOTAL FOLDS " + folds.size)
@@ -116,31 +116,31 @@ object VectorizedDnase extends Serializable  {
       println("TEST SIZE IS " + test.count())
 
       // training features
-      val xTrainPositives = train.filter(r => r.features.findAll(_ > 0).size > 0).map(_.features)
+      val xTrainPositives = train.map(_.win.dnase).filter(r => r.findAll(_ > 0).size > 0)
         .setName("XTrainPositives").cache()
-      val xTrainNegatives = train.map(_.features).filter(r => r.findAll(_ > 0).size == 0)
+      val xTrainNegatives = train.map(_.win.dnase).filter(r => r.findAll(_ > 0).size == 0)
         .setName("XTrainNegatives").cache()
       println("training positives and negatives", xTrainPositives.count, xTrainNegatives.count)
 
       // testing features
-      val xTestPositives: RDD[DenseVector[Double]] = test.map(_.features).filter(r => r.findAll(_ > 0).size > 0)
+      val xTestPositives: RDD[DenseVector[Double]] = test.map(_.win.dnase).filter(r => r.findAll(_ > 0).size > 0)
   .setName("XTestPositives").cache()
-      val xTestNegatives: RDD[DenseVector[Double]] = test.map(_.features).filter(r => r.findAll(_ > 0).size == 0)
+      val xTestNegatives: RDD[DenseVector[Double]] = test.map(_.win.dnase).filter(r => r.findAll(_ > 0).size == 0)
   .setName("XTestNegatives").cache()
       println("testing positives and negatives", xTestPositives.count, xTestNegatives.count)
  
       // training labels
-      val yTrainPositives = train.filter(r => r.features.findAll(_ > 0).size > 0).map(_.labeledWindow.label)
+      val yTrainPositives = train.filter(r => r.win.dnase.findAll(_ > 0).size > 0).map(_.label)
         .setName("yTrainPositive").cache()
-      val yTrainNegatives = train.filter(r => r.features.findAll(_ > 0).size == 0).map(_.labeledWindow.label)
+      val yTrainNegatives = train.filter(r => r.win.dnase.findAll(_ > 0).size == 0).map(_.label)
         .setName("yTrainNegative").cache()
       val yTrain = yTrainPositives.union(yTrainNegatives).map(_.toDouble)
       
       // testing labels
 
-      val yTestPositives = test.filter(r => r.features.findAll(_ > 0).size > 0).map(_.labeledWindow.label)
+      val yTestPositives = test.filter(r => r.win.dnase.findAll(_ > 0).size > 0).map(_.label)
         .setName("yTestPositive").cache()
-      val yTestNegatives = test.filter(r => r.features.findAll(_ > 0).size == 0).map(_.labeledWindow.label)
+      val yTestNegatives = test.filter(r => r.win.dnase.findAll(_ > 0).size == 0).map(_.label)
         .setName("yTestNegative").cache()
       val yTest = yTestPositives.union(yTestNegatives).map(_.toDouble)
 
@@ -158,6 +158,51 @@ object VectorizedDnase extends Serializable  {
       Metrics.printMetrics(evalTest)
 
     }
+  }
+
+  def joinWithDnaseBams(sc: SparkContext,
+                        sd: SequenceDictionary,
+                        filteredRDD: RDD[LabeledWindow],
+                        coverage: AlignmentRecordRDD): RDD[LabeledWindow] = {
+
+    // this is a hack to force LeftOuterShuffleRegionJoin work.
+    // We must force all reads to be mapped
+    val mappedCoverage = coverage.transform(r => r.map(ar => {
+      ar.setReadMapped(true)
+      ar
+    }).filter(_.start >= 0 ))
+
+    filteredRDD.cache()
+    filteredRDD.count
+    mappedCoverage.rdd.cache()
+    mappedCoverage.rdd.count
+
+    val cutsAndWindows: RDD[(LabeledWindow, Option[AlignmentRecord])] =
+      LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, filteredRDD.partitions.length, sc)
+        .partitionAndJoin(filteredRDD.keyBy(_.win.region), mappedCoverage.rdd.keyBy(r => ReferenceRegion(r)))
+        .filter(_._2.isDefined)
+        .repartition(1000)
+        .setName("cutsAndWindows")
+        .cache()
+
+    mappedCoverage.rdd.unpersist()
+    filteredRDD.unpersist()
+
+    val groupedWindows: RDD[(LabeledWindow, Iterable[AlignmentRecord])] = cutsAndWindows
+      .groupBy(r => (r._1.win.region, r._1.win.getCellType, r._1.win.getTf))
+      .map(r => {
+        val x = r._2.toList
+        (x.head._1, x.map(_._2.get).toIterable)
+      })
+      .setName("groupedWindows")
+      .cache()
+
+    println("Cuts and Windows Count: " + groupedWindows.count)
+    cutsAndWindows.unpersist()
+
+    // featurize datapoints to vector of numbers
+    featurizePositives(groupedWindows, None, false)
+
   }
 
   /**
@@ -179,7 +224,7 @@ object VectorizedDnase extends Serializable  {
                  subselectNegatives: Boolean = true,
                  filterRegionsByDnasePeaks: Boolean = false,
                  motifs: Option[List[Motif]] = None,
-                 doCentipede: Boolean = true): RDD[BaseFeature] = {
+                 doCentipede: Boolean = true): RDD[LabeledWindow] = {
 
 
     // perform optional negative sampling
@@ -189,65 +234,8 @@ object VectorizedDnase extends Serializable  {
       else
         rdd
 
-    // this is a hack to force LeftOuterShuffleRegionJoin work.
-    // We must force all reads to be mapped
-    val mappedCoverage = coverage.transform(r => r.map(ar => {
-      ar.setReadMapped(true)
-      ar
-    }))
+    joinWithDnaseBams(sc, sd, filteredRDD, coverage)
 
-   filteredRDD.cache()
-   filteredRDD.count
-   val filteredCoverage = mappedCoverage.transform(r => r.filter(_.start >= 0 ))
-   filteredCoverage.rdd.cache()
-   filteredCoverage.rdd.count
-
-    val cutsAndWindows: RDD[(LabeledWindow, Option[AlignmentRecord])] =
-      LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, 390, sc)
-        .partitionAndJoin(filteredRDD.keyBy(_.win.region), filteredCoverage.rdd.keyBy(r => ReferenceRegion(r)))
-        .filter(_._2.isDefined)
-        .setName("cutsAndWindows")
-	.cache()
-
-    filteredCoverage.rdd.unpersist()
-    filteredRDD.unpersist()
-
-    val groupedWindows = cutsAndWindows
-        .groupBy(_._1)
-        .map(r => (r._1, r._2.map(_._2.get)))
-	.setName("groupedWindows") 
-	.cache()
-
-    println("Cuts and Windows Count: " + groupedWindows.count)
-    cutsAndWindows.unpersist()
-
-    // filter windows into regions with and without relaxed dnase peaks
-    val (windowsWithDnase, windowsWithoutDnase) =
-      if (filterRegionsByDnasePeaks) {
-        // filter windows into regions with and without relaxed dnase peaks
-        val windowsWithDnase = filteredRDD.filter(_.win.dnase.size > 0)
-        val windowsWithoutDnase = filteredRDD.filter(_.win.dnase.size == 0)
-        (windowsWithDnase, Some(windowsWithoutDnase))
-      } else {
-        (filteredRDD, None)
-      }
-
-    // featurize datapoints to vector of numbers
-    val vectorizedWindows = featurizePositives(groupedWindows, motifs, doCentipede)
-
-    val ret = 
-      if (windowsWithoutDnase.isDefined) {
-        // put back in windows without relaxed dnase
-        val featureLength = vectorizedWindows.first.features.length
-
-        windowsWithoutDnase.get.map(r => BaseFeature(r, DenseVector.zeros(featureLength))).union(vectorizedWindows)
-
-      } else vectorizedWindows
-
-
-    println("saving basefeatures as object file")
-    ret.saveAsObjectFile("/data/anv/DREAMDATA/aggregated/baseFeature_obj_EGR1")
-    ret
   }
 
   /**
@@ -259,7 +247,7 @@ object VectorizedDnase extends Serializable  {
    */
   def featurizePositives(cutsAndWindows: RDD[(LabeledWindow, Iterable[AlignmentRecord])],
                 motifs: Option[List[Motif]] = None,
-                doCentipede: Boolean = true): RDD[BaseFeature] = {
+                doCentipede: Boolean = true): RDD[LabeledWindow] = {
 
     // filter windows into regions with and without relaxed dnase peaks
 
@@ -267,26 +255,25 @@ object VectorizedDnase extends Serializable  {
     val dnaseFeatureCount = 200
     val flanking = dnaseFeatureCount/2
 
-    val centipedeWindows: RDD[BaseFeature] =
-      cutsAndWindows.map(windowed => {
-        val window: LabeledWindow = windowed._1
-        val cellType = window.win.cellType
+    val centipedeWindows: RDD[LabeledWindow] =
+      cutsAndWindows.map(window => {
+        val cellType = window._1.win.cellType
 
         // where to center motif?
         val (start, end) =
           if (motifs.isDefined) { // if motif is defined center at most probable motif
           // format motifs to map on tf
-          val tfmotifs = motifs.get.filter(_.label == window.win.tf.toString)
+          val tfmotifs = motifs.get.filter(_.label == window._1.win.tf.toString)
           val center =
             if (tfmotifs.length == 0) {
-              println(s"no motifs for tf ${window.win.tf.toString}. Parsing from center")
-              window.win.sequence.length/2
+              println(s"no motifs for tf ${window._1.win.tf.toString}. Parsing from center")
+              window._1.win.sequence.length/2
             } else {
               // get max motif location
                 tfmotifs.map(motif => {
                   val motifLength = motif.length
                   // slide length, take index of max probabilitiy
-                  window.win.sequence
+                  window._1.win.sequence
                     .sliding(motifLength)
                     .map(r => motif.sequenceProbability(r))
                     .zipWithIndex
@@ -294,15 +281,15 @@ object VectorizedDnase extends Serializable  {
                 }).maxBy(_._1)._2
             }
 
-            (window.win.region.start + center  - flanking,
-              window.win.region.start + center + flanking) //determines size of dnase footprint region
+            (window._1.win.region.start + center  - flanking,
+              window._1.win.region.start + center + flanking) //determines size of dnase footprint region
           } else
-            (window.win.region.start, window.win.region.end)
+            (window._1.win.region.start, window._1.win.region.end)
 
         val positivePositions = DenseVector.zeros[Int](Dataset.windowSize)
         val negativePositions = DenseVector.zeros[Int](Dataset.windowSize)
 
-        windowed._2.toArray.foreach(rec => {
+        window._2.toList.foreach(rec => {
           if (rec.getReadNegativeStrand)
             negativePositions((rec.getStart - start).toInt) += 1
           else
@@ -317,7 +304,7 @@ object VectorizedDnase extends Serializable  {
               , negativePositions).map(_.toDouble)
 
         // positions should be size of window
-        BaseFeature(window, positions)
+        LabeledWindow(window._1.win.setDnase(positions), window._1.label)
       })
     centipedeWindows
   }

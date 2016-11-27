@@ -89,7 +89,7 @@ object KernelPipeline  extends Serializable with Logging {
     val alphabetSize = Dataset.alphabet.size
 
     val dataPath = conf.aggregatedSequenceOutput
-    val dnasePath = conf.dnase
+    val dnasePath = conf.dnaseNarrow
     val referencePath = conf.reference
 
     if (dataPath == null || referencePath == null || dnasePath == null) {
@@ -252,7 +252,7 @@ object KernelPipeline  extends Serializable with Logging {
 
     dnaseRDD.map(f => {
       val kx = (kernelApprox(oneHotEncodeDnase(f)))
-      BaseFeature(f.labeledWindow, kx)
+      BaseFeature(f, kx)
     })
   }
 
@@ -262,11 +262,11 @@ object KernelPipeline  extends Serializable with Logging {
    * @param f feature with sequence and featurized dnase
    * @return Densevector of sequence and dnase mushed together
    */
-  private[pipelines] def oneHotEncodeDnase(f: BaseFeature): DenseVector[Double] = {
+  private[pipelines] def oneHotEncodeDnase(f: LabeledWindow): DenseVector[Double] = {
 
       // form seq of int from bases and join with dnase
-      val intString: Seq[(Int, Double)] = f.labeledWindow.win.sequence.map(r => Dataset.alphabet.get(r).getOrElse(-1))
-        .zip(f.features.toArray)
+      val intString: Seq[(Int, Double)] = f.win.sequence.map(r => Dataset.alphabet.get(r).getOrElse(-1))
+        .zip(f.win.dnase.toArray)
 
       val seqString = intString.map { r =>
         val out = DenseVector.zeros[Double](Dataset.alphabet.size)
@@ -289,11 +289,11 @@ object KernelPipeline  extends Serializable with Logging {
                  sd: SequenceDictionary,
                  cells: Array[CellTypes.Value],
                  dnase: AlignmentRecordRDD,
-                 subselectNegatives: Boolean = true): RDD[BaseFeature] = {
+                 subselectNegatives: Boolean = true): RDD[LabeledWindow] = {
 
     // return cuts into vectors of counts
     VectorizedDnase.featurize(sc, rdd, dnase, sd, subselectNegatives, false, None, false)
-      .map(r => BaseFeature(r.labeledWindow, r.features.slice(0, Dataset.windowSize))) // slice off just positives
+      .map(r => LabeledWindow(r.win.setDnase(r.win.dnase.slice(0, Dataset.windowSize)), r.label)) // slice off just positives
 
   }
 
