@@ -172,13 +172,15 @@ object VectorizedDnase extends Serializable  {
       ar
     }).filter(_.start >= 0 ))
 
-    filteredRDD.cache()
+    filteredRDD.setName("filteredRDD").cache()
     filteredRDD.count
-    mappedCoverage.rdd.cache()
+    mappedCoverage.rdd.setName("mappedCoverage").cache()
     mappedCoverage.rdd.count
 
+   println(s"joining with ${filteredRDD.partitions.length} partitions in VectorizedDnase")
+
     val cutsAndWindows: RDD[(LabeledWindow, Option[AlignmentRecord])] =
-      LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, filteredRDD.partitions.length, sc)
+      LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, 200, sc)
         .partitionAndJoin(filteredRDD.keyBy(_.win.region), mappedCoverage.rdd.keyBy(r => ReferenceRegion(r)))
         .filter(_._2.isDefined)
         .repartition(1000)
@@ -228,7 +230,7 @@ object VectorizedDnase extends Serializable  {
 
 
     // perform optional negative sampling
-    val filteredRDD =
+    var filteredRDD =
       if (subselectNegatives)
         EndiveUtils.subselectSamples(sc, rdd, sd, partition = false)
       else

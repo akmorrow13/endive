@@ -133,7 +133,6 @@ object DatasetCreationPipeline extends Serializable  {
   def getSequenceDictionary(referencePath: String): SequenceDictionary = {
     val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
     val seqRecords = reference.sequences.records
-		.filter(r => Chromosomes.toVector.contains(r.name))
     new SequenceDictionary(seqRecords)
   }
 
