@@ -3,7 +3,6 @@ package net.akmorrow13.endive
 import net.akmorrow13.endive.processing.{Chromosomes, CellTypes}
 
 import scala.beans.BeanProperty
-import scala.reflect.BeanProperty
 import scala.reflect.{BeanProperty, ClassTag}
 
 class EndiveConf extends Serializable {

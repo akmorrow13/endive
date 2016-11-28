@@ -17,8 +17,8 @@ package net.akmorrow13.endive.pipelines
 
 import breeze.linalg._
 import breeze.stats.distributions._
+import evaluation.BinaryClassificationMetrics
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.featurizers.RandomDistribution
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils._
@@ -27,11 +27,10 @@ import nodes.akmorrow13.endive.featurizers.KernelApproximator
 import nodes.learning.{BlockLinearMapper, BlockLeastSquaresEstimator}
 import nodes.util.{Cacher, MaxClassifier, ClassLabelIndicatorsFromIntLabels}
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.SequenceDictionary
-import org.bdgenomics.adam.rdd.features.FeatureRDD
+import org.bdgenomics.adam.rdd.feature.FeatureRDD
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.formats.avro._
@@ -41,6 +40,9 @@ import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
 import java.io.File
+
+
+import nodes.stats.{CosineRandomFeatures, StandardScaler}
 
 class KernelPipeline(configFilepath: String) {
   val prediction = KernelPipeline(configFilepath)
@@ -160,20 +162,6 @@ object KernelPipeline extends EndiveLearningPipeline with Serializable with Logg
     // run least squares
     val predictor = loadModel(conf.modelPath).getOrElse(generateModel(conf, allData, referenceName, cell, W, kmerSize, sd))
 
-    // test metrics
-    val testPredictions = MaxClassifier(predictor(testFeatures)).map(_.toDouble)
-    val evalTest = new BinaryClassificationMetrics(testPredictions.zip(testApprox.map(_.labeledWindow.label.toDouble)))
-    println("Test Results: \n ")
-    Metrics.printMetrics(evalTest)
-
-    // save test predictions as FeatureRDD if specified
-    if (conf.saveTestPredictions != null) {
-      if (sd == null) {
-        println("Error: need referencePath to save output train predictions")
-      } else {
-        saveAsFeatures(testApprox.map(_.labeledWindow), testPredictions, sd, conf.saveTestPredictions)
-      }
-    }
   }
 
   def runPrediction(sc: SparkContext, conf: EndiveConf): RDD[Double] = {
@@ -242,35 +230,42 @@ object KernelPipeline extends EndiveLearningPipeline with Serializable with Logg
   }
 
   def generateModel(conf: EndiveConf, allData: RDD[LabeledWindow], referenceName: String, cell: CellTypes.Value, W: DenseMatrix[Double], kmerSize: Int, sd: SequenceDictionary): BlockLinearMapper = {
+
     val train = allData.filter(r => r.win.getRegion.referenceName != referenceName && r.win.cellType != cell)
+
     val trainApprox = featurize(train, W, kmerSize)
     val trainFeatures: RDD[DenseVector[Double]] = trainApprox.map(_.features)
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
     val trainLabels = labelExtractor(trainApprox.map(_.labeledWindow.label))
+
     val predictor = new BlockLeastSquaresEstimator(conf.dim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels.get)
     val trainPredictions = MaxClassifier(predictor(trainFeatures)).map(_.toDouble)
 
-    val prarr = trainPredictions.mapPartitions(iter => Array(iter.size).iterator, true).collect
-    prarr.foreach(r => println(r))
-    val approxarr = trainApprox.mapPartitions(iter => Array(iter.size).iterator, true).collect
-    approxarr.foreach(r => println(r))
-
-    // save train predictions as FeatureRDD if specified
-    if (conf.saveTrainPredictions != null) {
-      if (sd == null) {
-        println("Error: need referencePath to save output train predictions")
-      } else {
-        saveAsFeatures(trainApprox.map(_.labeledWindow), trainPredictions, sd, conf.saveTrainPredictions)
-      }
-    }
-
     saveModel(conf.modelPath, predictor)
-
-    val evalTrain = new BinaryClassificationMetrics(trainPredictions.zip(trainApprox.map(_.labeledWindow.label.toDouble)))
-    println("Train Results: \n ")
-    Metrics.printMetrics(evalTrain)
     predictor
+  }
+
+  /**
+   * Takes a region of the genome and one hot enodes sequences (eg A = 0001). If DNASE is enabled positive strands
+   * are appended to the one hot sequence encoding. For example, if positive 1 has A with DNASE count of 3 positive
+   * strands, the encoding is 0003.
+   *
+   * @param matrix: data matrix with sequences
+   * @param W: random matrix
+   * @param kmerSize: length of kmers to be created
+   */
+  def featurizeStrings(matrix: Array[String],
+                W: DenseMatrix[Double],
+                kmerSize: Int): Array[DenseVector[Double]] = {
+
+    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize)
+
+    matrix.map(f => {
+      kernelApprox({
+        KernelApproximator.stringToVector(f)
+      })
+    })
   }
 
   /**

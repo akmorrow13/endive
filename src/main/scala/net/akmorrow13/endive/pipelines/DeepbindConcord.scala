@@ -23,6 +23,7 @@ import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils._
 import nodes.learning._
+import nodes.util.{Cacher, ClassLabelIndicatorsFromIntLabels, MaxClassifier}
 import org.apache.commons.math3.random.MersenneTwister
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
@@ -33,7 +34,7 @@ import org.yaml.snakeyaml.constructor.Constructor
 import pipelines.Logging
 
 
-object DeepbindConcord extends Serializable with Logging {
+object DeepbindConcord extends EndiveLearningPipeline with Serializable with Logging {
 
   /**
    * A very basic pipeline that *doesn't* featurize the data
@@ -74,11 +75,13 @@ object DeepbindConcord extends Serializable with Logging {
     // set parameters
     val seed = 0
     val kmerSize = 8
-    val approxDim = 4096
     val alphabetSize = Dataset.alphabet.size
 
-    val trainPath = "/data/anv/DREAMDATA/deepbind/EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq"
-    val testPath = "/data/anv/DREAMDATA/deepbind/EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq"
+//    val trainPath = "/data/anv/DREAMDATA/deepbind/EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq"
+//    val testPath = "/data/anv/DREAMDATA/deepbind/EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq"
+
+    val trainPath = "/Users/akmorrow/ADAM/endive/src/test/resources/EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq.100Lines"
+    val testPath = "/Users/akmorrow/ADAM/endive/src/test/resources/EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq.100Lines"
 
     // extract tfs and cells for this label file
     val tf = TranscriptionFactors.EGR1
@@ -104,7 +107,7 @@ object DeepbindConcord extends Serializable with Logging {
     val gaussian = new Gaussian(0, 1)
 
     // generate random matrix
-    val W = 0.1 * DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
+    val W = 0.1 * DenseMatrix.rand(conf.dim, kmerSize * alphabetSize, gaussian)
 
     // generate approximation features
     val trainApprox = KernelPipeline.featurize(train, W, kmerSize)
@@ -114,16 +117,22 @@ object DeepbindConcord extends Serializable with Logging {
 
     println(trainApprox.count, testApprox.count)
 
-    val predictor = LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.01)
-      .fit(trainApprox.map(_.features), trainApprox.map(_.labeledWindow.label))
+    // threshold labels, required for BlockLeastSquaresEstimator
+    val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
+      new Cacher[DenseVector[Double]]
+    val trainLabels = labelExtractor(trainApprox.map(_.labeledWindow.label))
 
-    val trainPredictions = predictor(trainApprox.map(_.features))
-    val evalTrain = new BinaryClassificationMetrics(trainPredictions.zip(trainApprox.map(_.labeledWindow.label.toDouble)))
+    val predictor = new BlockLeastSquaresEstimator(conf.dim, conf.epochs, conf.lambda).fit(trainApprox.map(_.features), trainLabels.get)
+
+    saveModel(conf.modelPath, predictor)
+
+    val trainPredictions = MaxClassifier(predictor(trainApprox.map(_.features)))
+    val evalTrain = new BinaryClassificationMetrics(trainPredictions.map(_.toDouble).zip(trainApprox.map(_.labeledWindow.label.toDouble)))
     println("Train Results: \n ")
     Metrics.printMetrics(evalTrain)
 
-    val testPredictions = predictor(testApprox.map(_.features))
-    val evalTest = new BinaryClassificationMetrics(testPredictions.zip(testApprox.map(_.labeledWindow.label.toDouble)))
+    val testPredictions = MaxClassifier(predictor(testApprox.map(_.features)))
+    val evalTest = new BinaryClassificationMetrics(testPredictions.map(_.toDouble).zip(testApprox.map(_.labeledWindow.label.toDouble)))
     println("Test Results: \n ")
     Metrics.printMetrics(evalTest)
 
