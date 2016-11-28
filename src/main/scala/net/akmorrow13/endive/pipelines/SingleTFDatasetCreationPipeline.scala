@@ -89,7 +89,6 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     val fs: FileSystem = FileSystem.get(new Configuration())
     val dnaseNarrowStatus = fs.listStatus(new Path(dnaseNarrowPath))
 
-/*
     val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
  
     train
@@ -107,16 +106,6 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     // save sequences
     println("Now saving sequences to disk")
     sequences.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + "onlySequences/" + tf)
-
-    val sequences: RDD[LabeledWindow] =
-      LabeledWindowLoader(labelsPath, sc).setName("sequences")
-     	.cache()
-    sequences.count()
-
-    val tf = sequences.first.win.getTf
-    println(s"celltypes for tf ${tf}:")
-    val cellTypes = sequences.map(_.win.getCellType).distinct.collect
-    cellTypes.foreach(println)
 
     var fullMatrix: RDD[LabeledWindow] =
       if (dnaseNarrowPath != null) {
@@ -145,20 +134,6 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     // save sequences with narrow peak
     println("Now saving sequences with peak to disk")
     fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + "sequencesAndPeakCounts/" + tf)
-
-*/
-
-//TODO
-    var fullMatrix: RDD[LabeledWindow] =
-      LabeledWindowLoader(labelsPath, sc).setName("fullMatrix")
-        .cache()
-    fullMatrix.count()
-
-    val tf = fullMatrix.first.win.getTf
-    println(s"celltypes for tf ${tf}:")
-    val cellTypes = fullMatrix.map(_.win.getCellType).distinct.collect
-    cellTypes.foreach(println)
-// TODO   
 
     // join with dnase bams, if present
     fullMatrix =

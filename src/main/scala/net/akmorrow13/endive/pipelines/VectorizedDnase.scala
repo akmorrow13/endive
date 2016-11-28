@@ -173,19 +173,18 @@ object VectorizedDnase extends Serializable  {
     }).filter(_.start >= 0 ))
 
     filteredRDD.setName("filteredRDD").cache()
-    filteredRDD.count
+    println("rdd count", filteredRDD.count)
     mappedCoverage.rdd.setName("mappedCoverage").cache()
     mappedCoverage.rdd.count
 
-   println(s"joining with ${filteredRDD.partitions.length} partitions in VectorizedDnase")
-
     val cutsAndWindows: RDD[(LabeledWindow, Option[AlignmentRecord])] =
-      LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, 200, sc)
+      LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, 2000000, sc)
         .partitionAndJoin(filteredRDD.keyBy(_.win.region), mappedCoverage.rdd.keyBy(r => ReferenceRegion(r)))
         .filter(_._2.isDefined)
-        .repartition(1000)
         .setName("cutsAndWindows")
         .cache()
+
+    println(s"Final partition count: ${cutsAndWindows.partitions.length}")
 
     mappedCoverage.rdd.unpersist()
     filteredRDD.unpersist()

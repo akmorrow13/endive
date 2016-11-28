@@ -104,7 +104,6 @@ object DeepbindConcord extends Serializable with Logging {
           val w = Window(tf, cell, null, parts(2))
           LabeledWindow(w, parts(3).toInt)
         })
-			
     val test = sc.textFile(testPath)
       .filter(!_.contains("FoldID"))
       .map(r => {

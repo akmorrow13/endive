@@ -132,7 +132,7 @@ object CSKPipeline extends Serializable  {
     val gaussian = new Gaussian(0, 1)
     val approxDim = 4000
     val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
-    val kernelApprox = new KernelApproximator(W, nonLin = Math.cos, ngramSize = ngramSize)
+    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize, Dataset.alphabet.size)
     //val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, subselectNegatives = false, motifs=Some(motifs))
     //featurized.map(f => (f.labeledWindow,f.features))
     //val featurized = windowsRDD.map(f => BaseFeature(f, denseFeaturize(f.win.getSequence)))
