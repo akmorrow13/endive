@@ -17,7 +17,7 @@ package net.akmorrow13.endive.pipelines
 
 import java.io.File
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.processing.Dataset.{Chromosomes, CellTypes, TranscriptionFactors}
+import net.akmorrow13.endive.processing.{Chromosomes, CellTypes, TranscriptionFactors}
 import net.akmorrow13.endive.utils._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem}
@@ -132,7 +132,7 @@ object DatasetCreationPipeline extends Serializable  {
 
   def getSequenceDictionary(referencePath: String): SequenceDictionary = {
     val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-    val seqRecords = reference.seqRecords.toVector.map(r => SequenceRecord(r._1, r._2.dnaSize))
+    val seqRecords = reference.sequences.records
 		.filter(r => Chromosomes.toVector.contains(r.name))
     new SequenceDictionary(seqRecords)
   }

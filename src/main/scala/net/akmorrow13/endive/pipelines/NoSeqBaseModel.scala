@@ -18,7 +18,7 @@ package net.akmorrow13.endive.pipelines
 import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.metrics.Metrics
-import net.akmorrow13.endive.processing.Dataset.{CellTypes, Chromosomes}
+import net.akmorrow13.endive.processing.{CellTypes, Chromosomes}
 import net.akmorrow13.endive.utils._
 import nodes.learning.LogisticRegressionEstimator
 

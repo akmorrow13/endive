@@ -1,14 +1,11 @@
 package net.akmorrow13.endive.utils
 
-import java.io.ByteArrayInputStream
-import net.akmorrow13.endive.processing.Dataset.{CellTypes, TranscriptionFactors}
 import net.akmorrow13.endive.processing._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
-import scala.util.{ Try, Success, Failure }
 
 case class DeepbindRecord(tf: TranscriptionFactors.Value, cellType: CellTypes.Value, id: String, sequence: String, label: Int)
 
@@ -50,16 +47,8 @@ object DeepbindRecordLoader {
         .map(r => stringToDeepbindRecord(r, tf, cellType))
       trainRDD = trainRDD.union(rdd)
     }
+    trainRDD
 
-    trainRDD.cache()
-      .setName("trainRDD")
-
-    val negatives = DinucleotideShuffle.getShuffledDinucletides(trainRDD.sample(true, 1))
-
-    val res = trainRDD.union(negatives)
-
-    trainRDD.unpersist()
-    res
   }
 
   private def loadTest(sc: SparkContext,
@@ -81,20 +70,10 @@ object DeepbindRecordLoader {
         .filter(_._2 < testPoints)
         .map(r => stringToDeepbindRecord(r._1, tf, cellType))
 
+      println(rdd.count)
       testRDD = testRDD.union(rdd)
     }
     testRDD
-  }
-
-  def getNegatives(positives: RDD[DeepbindRecord]): RDD[DeepbindRecord] = {
-
-    val positiveCount = positives.count
-
-    positives.sample(true, 0.5).map(r => dinucleotideShuffle(r))
-  }
-
-  def dinucleotideShuffle(positive: DeepbindRecord): DeepbindRecord = {
-    positive
   }
 
 

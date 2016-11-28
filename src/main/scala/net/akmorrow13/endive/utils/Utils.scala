@@ -1,7 +1,6 @@
 package net.akmorrow13.endive.utils
 
-import net.akmorrow13.endive.processing.Dataset.{TranscriptionFactors, CellTypes}
-import net.akmorrow13.endive.processing.Dataset
+import net.akmorrow13.endive.processing.{Dataset, TranscriptionFactors, CellTypes}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
@@ -15,45 +14,53 @@ object EndiveUtils {
   val DEFAULTSAMPLING = 0.001
 
 /* Generate folds RDD */
-def generateFoldsRDD[T: ClassTag](allData:RDD[((String, CellTypes.Value), T)], numHeldOutCellTypes: Int = 1, numHeldOutChromosomes: Int = 3, numFolds: Int = 10, sampleFreq: Option[Double] = Some(DEFAULTSAMPLING), randomSeed:Int = DEFAULTSEED) = {
-
-  @transient
-  val r = new Random(randomSeed)
-
-  val sampledData =
-    if (sampleFreq.isDefined)
-      allData.sample(false, sampleFreq.get, randomSeed)
-    else
-      allData
+def generateFoldsRDD[T: ClassTag](allData:RDD[((String, CellTypes.Value), T)],
+                                  numHeldOutCellTypes: Int = 1,
+                                  numHeldOutChromosomes: Int = 3,
+                                  numFolds: Int = 10,
+                                  sampleFreq: Option[Double] = Some(DEFAULTSAMPLING),
+                                  randomSeed:Int = DEFAULTSEED) = {
 
 
-  val cellTypesChromosomes:Set[(String, CellTypes.Value)] = sampledData.map(x => x._1).distinct().collect.toSet
-
-  /* this will work with exponentially high probability */
-  val cellTypes:Iterable[CellTypes.Value] = cellTypesChromosomes.map(_._2)
-
-  /* this will work with exponentially high probability */
-  val chromosomes:Iterable[String] = cellTypesChromosomes.map(_._1)
+    val sampledData =
+      if (sampleFreq.isDefined)
+        allData.sample(false, sampleFreq.get, randomSeed)
+      else
+        allData
 
 
-    for (i <- (0 until numFolds)) yield {
-      val holdOutCellTypes = r.shuffle(cellTypes).take(numHeldOutCellTypes).toSet
-      val holdOutChromosomes = r.shuffle(chromosomes).take(numHeldOutChromosomes).toSet
-      generateTrainTestSplit(allData, holdOutCellTypes, Some(holdOutChromosomes))
-    }
+    val cellTypesChromosomes:Set[(String, CellTypes.Value)] = sampledData.map(x => x._1).distinct().collect.toSet
+
+    /* this will work with exponentially high probability */
+    val cellTypes:Iterable[CellTypes.Value] = cellTypesChromosomes.map(_._2).toList
+
+    /* this will work with exponentially high probability */
+    val chromosomes:Iterable[String] = cellTypesChromosomes.map(_._1).toList
+
+    println("ALL CHROMOSOMES " + chromosomes.mkString(","))
+    println("ALL CELLTYPES " + cellTypes.mkString(","))
+
+    for (i <- (0 until numFolds)) yield
+        {
+        @transient
+        val r = new Random(randomSeed + i)
+
+        val holdOutCellTypes = r.shuffle(cellTypes).take(numHeldOutCellTypes).toSet
+        val holdOutChromosomes = r.shuffle(chromosomes).take(numHeldOutChromosomes).toSet
+        generateTrainTestSplit(allData, holdOutCellTypes, Some(holdOutChromosomes))
+        }
 }
 
 def generateTrainTestSplit[T: ClassTag](allData: RDD[((String, CellTypes.Value), T)], holdOutCellTypes: Set[CellTypes.Value], holdOutChromosomes: Option[Set[String]] = None) = {
         val train = allData.filter { window => !holdOutCellTypes.contains(window._1._2) && !holdOutChromosomes.getOrElse(Set()).contains(window._1._1) }
         val test = allData.filter { window => holdOutCellTypes.contains(window._1._2) && holdOutChromosomes.getOrElse(Set(window._1._1)).contains(window._1._1) } 
         (train, test)
-}
+ }
 
 
   /**
    * Filters negative samples close to true peaks with open chromatin
-    *
-    * @param sc
+   * @param sc
    * @param rdd
    * @param distance
    * @return

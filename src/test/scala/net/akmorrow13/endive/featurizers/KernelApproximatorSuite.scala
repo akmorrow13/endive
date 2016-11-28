@@ -3,31 +3,22 @@ package net.akmorrow13.endive.featurizers
 import java.io._
 
 import breeze.linalg._
-import breeze.numerics._
 import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveFunSuite
-import net.akmorrow13.endive.metrics.Metrics
-import nodes.learning.{LogisticRegressionModel, LogisticRegressionEstimator}
-import nodes.util.{Identity, Cacher, ClassLabelIndicatorsFromIntLabels, TopKClassifier, MaxClassifier, VectorCombiner}
-import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
-import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.ReferenceRegion
-import org.bdgenomics.formats.avro.{Contig, NucleotideContigFragment}
-import org.apache.commons.math3.random.MersenneTwister
-
+import net.akmorrow13.endive.processing.Dataset
 import nodes.akmorrow13.endive.featurizers.KernelApproximator
+import nodes.util.ClassLabelIndicatorsFromIntLabels
+import org.apache.commons.math3.random.MersenneTwister
 import utils.Stats
+import scala.io.Source
 
 class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
-
-  val bases = 4
 
   // fragment used for reference
   val sequenceLong = "TTGGAAAGAGGACGTGGGACTGGGATTTACTCGGCCACCAAAACACTCAC" * 4
   val sequenceLong2 = "TATCGTTTACGAGTATATTTTTTAAAGGCTCTCTCATAGAATACTGGGAC" * 4
   val sequenceShort = "ATCG"
-  val alphabetSize = 4
+  val alphabetSize = Dataset.alphabet.size
   val seed = 0
   var trainPRC = 0.0
   var testPRC = 0.0
@@ -35,85 +26,19 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
   var testROC = 0.0
   var Wtest: DenseMatrix[Double] = null
 
-
-  def denseFeaturize(in: String): DenseVector[Double] = {
-    /* Identity featurizer */
-
-   val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
-    val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
-
-    val intString:Seq[Int] = in.map(BASEPAIRMAP(_))
-    val seqString = intString.map { bp =>
-      val out = DenseVector.zeros[Double](4)
-      if (bp != -1) {
-        out(bp) = 1
-      }
-      out
-    }
-    DenseVector.vertcat(seqString:_*)
-  }
-
-  def vectorToString(in: DenseVector[Double]): String = {
-
-   val BASEPAIRREVMAP = Array('A', 'T', 'C', 'G')
-   var i = 0
-   var str = ""
-   while (i < in.size) {
-    val charVector = in(i until i+alphabetSize)
-    if (charVector == DenseVector.zeros[Double](alphabetSize)) {
-      str += "N"
-    } else {
-      val bp = BASEPAIRREVMAP(argmax(charVector))
-      str += bp
-    }
-    i += alphabetSize
-   }
-   str
-  }
-
-  def computeConvolutionalNorm(X: DenseMatrix[Double]): Double =  {
-    var i = 0
-    var norm = 0.0
-    while (i < X.rows) {
-      var j = 0
-      while (j < X.rows) {
-        val ngram1:DenseVector[Double] = X(i,::).t
-        val ngram2:DenseVector[Double] = X(j,::).t
-        val k = (ngram1.t * ngram2)
-        norm += k
-        j += 1
-      }
-      i += 1
-    }
-    sqrt(norm)
-  }
-
-  def convertNgramsToStrings(ngramMat: DenseMatrix[Double], outSize:Int ): Array[String] =  {
-    var i = 0
-    val ngramStrings:Array[String] = new Array[String](outSize)
-    while (i < outSize) {
-      val ngramString = vectorToString(ngramMat(i, ::).t.toDenseVector)
-      ngramStrings(i) = ngramString
-      i += 1
-    }
-    ngramStrings
-  }
+  // accepted error for difference between python answers
+  val error = 0.0000000001
 
 
-
-  test("Test if makeNgrams looks correct") {
+  test("Test make ngrams") {
     /* This should yield a vector of length 16 */
     val ngramSize = 1
-    val seqSize = sequenceShort.size
-    val sequenceVector:DenseVector[Double] = denseFeaturize(sequenceShort)
-    val outSize = seqSize - ngramSize + 1
+    val sequenceVector:DenseVector[Double] = KernelApproximator.stringToVector(sequenceShort)
+    val outSize = sequenceShort.length - ngramSize + 1
     val expected = Array("A","T","C","G")
 
-    var ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
-    val ngrams = KernelApproximator.makeNgrams(sequenceVector, ngramMat, ngramSize,  alphabetSize)
-    val ngramStrings = convertNgramsToStrings(ngrams, outSize)
-    println(s"INPUT SEQUENCE: ${sequenceShort}, NGRAM SIZE: ${ngramSize}")
-    println(s"NGRAMS: ${ngramStrings.mkString(",")}")
+    val ngrams = KernelApproximator.makeNgrams(sequenceVector, ngramSize)
+    val ngramStrings = KernelApproximator.vectorsToStrings(ngrams)
     assert(ngramStrings.deep == expected.deep)
   }
 
@@ -121,29 +46,22 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     /* This should yield a vector of length 16 */
     val ngramSize = 2
     val seqSize = sequenceShort.size
-    val sequenceVector:DenseVector[Double] = denseFeaturize(sequenceShort)
+    val sequenceVector:DenseVector[Double] = KernelApproximator.stringToVector(sequenceShort)
     val outSize = seqSize - ngramSize + 1
     val expected = Array("AT","TC","CG")
-    var ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
-    val ngrams = KernelApproximator.makeNgrams(sequenceVector, ngramMat, ngramSize,  alphabetSize)
-    val ngramStrings = convertNgramsToStrings(ngrams, outSize)
-    println(s"INPUT SEQUENCE: ${sequenceShort}, NGRAM SIZE: ${ngramSize}")
-    println(s"NGRAMS: ${ngramStrings.mkString(",")}")
+    val ngrams = KernelApproximator.makeNgrams(sequenceVector, ngramSize)
+    val ngramStrings = KernelApproximator.vectorsToStrings(ngrams)
     assert(ngramStrings.deep == expected.deep)
   }
 
   test("Test if makeNgrams looks correct, for 8grams") {
     val ngramSize = 8
     val seqSize = sequenceLong.size
-    val sequenceVector:DenseVector[Double] = denseFeaturize(sequenceLong)
+    val sequenceVector:DenseVector[Double] = KernelApproximator.stringToVector(sequenceLong)
     val outSize = seqSize - ngramSize + 1
     val expected = Array("TTGGAAAG", "TGGAAAGA", "GGAAAGAG", "GAAAGAGG", "AAAGAGGA", "AAGAGGAC", "AGAGGACG", "GAGGACGT", "AGGACGTG", "GGACGTGG", "GACGTGGG", "ACGTGGGA", "CGTGGGAC", "GTGGGACT", "TGGGACTG", "GGGACTGG", "GGACTGGG", "GACTGGGA", "ACTGGGAT", "CTGGGATT", "TGGGATTT", "GGGATTTA", "GGATTTAC", "GATTTACT", "ATTTACTC", "TTTACTCG", "TTACTCGG", "TACTCGGC", "ACTCGGCC", "CTCGGCCA", "TCGGCCAC", "CGGCCACC", "GGCCACCA", "GCCACCAA", "CCACCAAA", "CACCAAAA", "ACCAAAAC", "CCAAAACA", "CAAAACAC", "AAAACACT", "AAACACTC", "AACACTCA", "ACACTCAC", "CACTCACT", "ACTCACTT", "CTCACTTG", "TCACTTGG", "CACTTGGA", "ACTTGGAA", "CTTGGAAA", "TTGGAAAG", "TGGAAAGA", "GGAAAGAG", "GAAAGAGG", "AAAGAGGA", "AAGAGGAC", "AGAGGACG", "GAGGACGT", "AGGACGTG", "GGACGTGG", "GACGTGGG", "ACGTGGGA", "CGTGGGAC", "GTGGGACT", "TGGGACTG", "GGGACTGG", "GGACTGGG", "GACTGGGA", "ACTGGGAT", "CTGGGATT", "TGGGATTT", "GGGATTTA", "GGATTTAC", "GATTTACT", "ATTTACTC", "TTTACTCG", "TTACTCGG", "TACTCGGC", "ACTCGGCC", "CTCGGCCA", "TCGGCCAC", "CGGCCACC", "GGCCACCA", "GCCACCAA", "CCACCAAA", "CACCAAAA", "ACCAAAAC", "CCAAAACA", "CAAAACAC", "AAAACACT", "AAACACTC", "AACACTCA", "ACACTCAC", "CACTCACT", "ACTCACTT", "CTCACTTG", "TCACTTGG", "CACTTGGA", "ACTTGGAA", "CTTGGAAA", "TTGGAAAG", "TGGAAAGA", "GGAAAGAG", "GAAAGAGG", "AAAGAGGA", "AAGAGGAC", "AGAGGACG", "GAGGACGT", "AGGACGTG", "GGACGTGG", "GACGTGGG", "ACGTGGGA", "CGTGGGAC", "GTGGGACT", "TGGGACTG", "GGGACTGG", "GGACTGGG", "GACTGGGA", "ACTGGGAT", "CTGGGATT", "TGGGATTT", "GGGATTTA", "GGATTTAC", "GATTTACT", "ATTTACTC", "TTTACTCG", "TTACTCGG", "TACTCGGC", "ACTCGGCC", "CTCGGCCA", "TCGGCCAC", "CGGCCACC", "GGCCACCA", "GCCACCAA", "CCACCAAA", "CACCAAAA", "ACCAAAAC", "CCAAAACA", "CAAAACAC", "AAAACACT", "AAACACTC", "AACACTCA", "ACACTCAC", "CACTCACT", "ACTCACTT", "CTCACTTG", "TCACTTGG", "CACTTGGA", "ACTTGGAA", "CTTGGAAA", "TTGGAAAG", "TGGAAAGA", "GGAAAGAG", "GAAAGAGG", "AAAGAGGA", "AAGAGGAC", "AGAGGACG", "GAGGACGT", "AGGACGTG", "GGACGTGG", "GACGTGGG", "ACGTGGGA", "CGTGGGAC", "GTGGGACT", "TGGGACTG", "GGGACTGG", "GGACTGGG", "GACTGGGA", "ACTGGGAT", "CTGGGATT", "TGGGATTT", "GGGATTTA", "GGATTTAC", "GATTTACT", "ATTTACTC", "TTTACTCG", "TTACTCGG", "TACTCGGC", "ACTCGGCC", "CTCGGCCA", "TCGGCCAC", "CGGCCACC", "GGCCACCA", "GCCACCAA", "CCACCAAA", "CACCAAAA", "ACCAAAAC", "CCAAAACA", "CAAAACAC", "AAAACACT", "AAACACTC", "AACACTCA", "ACACTCAC")
-    var ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
-    val ngrams = KernelApproximator.makeNgrams(sequenceVector, ngramMat, ngramSize,  alphabetSize)
-    val ngramStrings = convertNgramsToStrings(ngrams, outSize)
-    println(ngramStrings.size)
-    println(s"INPUT SEQUENCE: ${sequenceShort}, NGRAM SIZE: ${ngramSize}")
-    println(s"NGRAMS: ${ngramStrings.mkString(",")}")
+    val ngrams = KernelApproximator.makeNgrams(sequenceVector, ngramSize)
+    val ngramStrings = KernelApproximator.vectorsToStrings(ngrams)
     assert(ngramStrings.deep == expected.deep)
   }
 
@@ -152,17 +70,14 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     val seqSize = sequenceLong.size
     val outSize = seqSize - ngramSize + 1
     val approxDim = 4000
-    val sequenceVector:DenseVector[Double] = denseFeaturize(sequenceLong)
-    val sequenceVector2:DenseVector[Double] = denseFeaturize(sequenceLong2)
-
-    val ngramMat1 = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
-    val ngramMat2 = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
+    val sequenceVector:DenseVector[Double] = KernelApproximator.stringToVector(sequenceLong)
+    val sequenceVector2:DenseVector[Double] = KernelApproximator.stringToVector(sequenceLong2)
 
 
-    val ngrams1 = KernelApproximator.makeNgrams(sequenceVector, ngramMat1, ngramSize,  alphabetSize)
-    val ngrams2 = KernelApproximator.makeNgrams(sequenceVector2, ngramMat2, ngramSize,  alphabetSize)
-   ngrams1 :/= computeConvolutionalNorm(ngrams1)
-   ngrams2 :/= computeConvolutionalNorm(ngrams2)
+    val ngrams1 = KernelApproximator.makeNgrams(sequenceVector, ngramSize)
+    val ngrams2 = KernelApproximator.makeNgrams(sequenceVector2, ngramSize)
+    ngrams1 :/= KernelApproximator.computeConvolutionalNorm(ngrams1)
+    ngrams2 :/= KernelApproximator.computeConvolutionalNorm(ngrams2)
 
     /* Linear kernel is just the dot product */
     var kxy = 0.0
@@ -228,38 +143,28 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
 
   sparkTest("Testing that output is same as paper results") {
 
-    val W = breeze.linalg.csvread(new File(resourcePath("nprandom_4000_32.csv")))
+    val W = breeze.linalg.csvread(new File(getClass.getResource("nprandom_4000_32.csv").getPath))
     assert(W.size == 128000)
-    Wtest = W
-    val pythonScriptOutput = breeze.linalg.csvread(new File(resourcePath("seq.features"))).toDenseVector
 
-    var infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq.100Lines")).filter(f => f(0) == 'A')
+    Wtest = W
+    val pythonScriptOutput = breeze.linalg.csvread(new File(getClass.getResource("seq.features").getPath)).toDenseVector
+
+    val infile = sc.textFile(getClass.getResource("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq.100Lines").getPath).filter(f => f(0) == 'A')
+
     assert(infile.count == 98)
     val train = infile.map(f => f.split(" ")).map(f => (f(2), f.last.toInt))
 
     val ngramSize = 8
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+
     val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = ngramSize)
 
-    val trainApprox = train.map(f => (kernelApprox({
-      val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
-      val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
+    val trainApprox = train.map(f => (KernelApproximator.stringToVector(f._1), f._2))
 
-      val intString:Seq[Int] = f._1.map(BASEPAIRMAP(_))
-      val seqString = intString.map { bp =>
-        val out = DenseVector.zeros[Double](4)
-        if (bp != -1) {
-          out(bp) = 1
-        }
-        out
-      }
-      DenseVector.vertcat(seqString:_*)
-    }), f._2))
     //98 records after 2 lines at top for column names
     assert(trainApprox.count == 98)
     //verify that the two outputs are extremely similar given the same random matrix
-    assert(norm(trainApprox.first._1) - norm(pythonScriptOutput) < 0.0000000001)
-    
+    assert(norm(trainApprox.first._1) - norm(pythonScriptOutput) < error)
   }
 
 }

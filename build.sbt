@@ -7,7 +7,7 @@ name := "endive"
 version := "0.1"
 
 
-scalaVersion := "2.10.5"
+scalaVersion := "2.10.6"
 
 parallelExecution in Test := false
 
@@ -41,14 +41,14 @@ fork := true
   "com.github.fommil.netlib" % "all" % "1.1.2" pomOnly(),
   "com.github.scopt" %% "scopt" % "3.3.0",
   "org.apache.parquet" % "parquet-avro" % "1.8.1",
-  "org.bdgenomics.utils" %% "utils-misc" % "0.2.7" % "test" classifier "tests",
-  "org.bdgenomics.utils" %% "utils-misc" % "0.2.7",
-  "org.bdgenomics.utils" %% "utils-cli" % "0.2.7",
-  "org.bdgenomics.utils" %% "utils-metrics" % "0.2.7" ,
-  "org.bdgenomics.adam" %% "adam-core" % "0.19.1-SNAPSHOT",
-  "org.apache.spark" % "spark-core_2.10" % sparkVersion excludeAll(excludeHadoop),
-  "org.apache.spark" % "spark-mllib_2.10" % sparkVersion excludeAll(excludeHadoop),
-  "org.apache.spark" % "spark-sql_2.10" % sparkVersion excludeAll(excludeHadoop),
+  "org.bdgenomics.utils" %% "utils-misc" % "0.2.9" % "test" classifier "tests" excludeAll(excludeHadoop, excludeSpark),
+  "org.bdgenomics.utils" %% "utils-misc" % "0.2.9" excludeAll(excludeHadoop, excludeSpark),
+  "org.bdgenomics.utils" %% "utils-cli" % "0.2.9" excludeAll(excludeHadoop, excludeSpark),
+  "org.bdgenomics.utils" %% "utils-metrics" % "0.2.9" excludeAll(excludeHadoop, excludeSpark),
+  "org.bdgenomics.adam" %% "adam-core" % "0.20.1-SNAPSHOT" excludeAll(excludeHadoop, excludeSpark),
+  "org.apache.spark" % "spark-core_2.10" % sparkVersion % "provided" excludeAll(excludeHadoop),
+  "org.apache.spark" % "spark-mllib_2.10" % sparkVersion % "provided" excludeAll(excludeHadoop),
+  "org.apache.spark" % "spark-sql_2.10" % sparkVersion % "provided" excludeAll(excludeHadoop),
   "edu.berkeley.cs.amplab" % "keystoneml_2.10" % "0.3.1-SNAPSHOT" excludeAll(excludeHadoop, excludeSpark),
   "org.yaml" % "snakeyaml" % "1.16",
   "org.apache.commons" % "commons-csv" % "1.2",
@@ -57,8 +57,8 @@ fork := true
     "net.jafama" % "jafama" % "2.1.0",
     "com.github.melrief" %% "purecsv" % "0.0.4"
     ,compilerPlugin("org.scalamacros" % "paradise" % "2.0.1" cross CrossVersion.full)
-    ,"org.apache.hadoop" % "hadoop-aws" % hadoopVersion
-    ,"org.apache.hadoop" % "hadoop-client" % hadoopVersion excludeAll(exclude1, exclude2, exclude3, exclude4, exclude5, exclude6)
+    ,"org.apache.hadoop" % "hadoop-aws" % hadoopVersion % "provided"
+    ,"org.apache.hadoop" % "hadoop-client" % hadoopVersion % "provided" excludeAll(exclude1, exclude2, exclude3, exclude4, exclude5, exclude6)
 )
 }
 

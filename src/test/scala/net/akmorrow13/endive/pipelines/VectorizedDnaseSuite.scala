@@ -15,62 +15,29 @@
  */
 package net.akmorrow13.endive.pipelines
 
+import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveFunSuite
 import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils.{Window, LabeledWindow}
-import org.apache.spark.SparkContext
-import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ReferenceRegion, ReferencePosition, SequenceRecord, SequenceDictionary}
-import org.bdgenomics.formats.avro.Strand
+import org.bdgenomics.adam.rdd.read.AlignedReadRDD
+import org.bdgenomics.formats.avro.{AlignmentRecord, Strand}
 
 class VectorizedDnaseSuite extends EndiveFunSuite {
   var labelPath = resourcePath("ARID3A.train.labels.head30.tsv")
   var motifPath = resourcePath("models.yaml")
 
+  val chr = "chr1"
+  val sd = new SequenceDictionary(Vector(SequenceRecord(chr, 7000)))
 
-//  sparkTest("should merge dnase with labeled windows") {
-//      val (labels, cellType) = Preprocess.loadLabels(sc, labelPath)
-//      val rdd = labels.map(r => LabeledWindow(Window(r._1, r._2, r._3, "N" * 200), r._4))
-//      val sd = new SequenceDictionary(Vector(SequenceRecord("chr10", 100000)))
-//      val coverage = rdd.map(r => {
-//        val countMap = Map(r.win.cellType -> 1)
-//        CutMap(ReferencePosition(r.win.region.referenceName, r.win.region.start), countMap)
-//      })
-//
-//      val baseFeatures = VectorizedDnase.featurize(sc, rdd, coverage, sd,  None, false)
-//      assert(baseFeatures.count == 29)
-//  }
-//
-//
-//  sparkTest("msCentipede scale 0") {
-//    val scale = Some(0)
-//    val window = sc.parallelize(Seq(Array(1,1,1,1,1,1,1,1)))
-//    val result = Dnase.centipedeRDD(window, scale)
-//    val first = result.first
-//    assert(first.length == 1)
-//    assert(first.head == 8.0)
-//  }
-//
-//  sparkTest("msCentipede scale 3") {
-//    //    def msCentipede(windows: RDD[Array[Int]], scale: Option[Int])  = {
-//    val window = sc.parallelize(Seq(Array(1,2,3,4,3,2,1,1)))
-//    val result = Dnase.centipedeRDD(window)
-//    val first = result.first
-//    assert(first.length == 8)
-//    assert(first.head == 17.0)
-//    assert(first(1) == 10.0/17)
-//    assert(first(2) == 3.0/10)
-//  }
-//
-//  sparkTest("msCentipede at full scale") {
-//    val scale = Some(0)
-//    val window = sc.parallelize(Seq(Array(1,1,1,1,1,1,1,1)))
-//    val result = Dnase.centipedeRDD(window, scale)
-//    val first = result.first
-//    assert(first.length == 1)
-//    assert(first.head == 8.0)
-//  }
+  sparkTest("msCentipede at full scale") {
+    val scale = Some(0)
+    val window = sc.parallelize(Seq(DenseVector(1,1,1,1,1,1,1,1)))
+    val result = Dnase.centipedeRDD(window)
+    val first = result.first
+    assert(first(0) == 8.0)
+  }
 
   sparkTest("test recentering based on motifs in featurizer") {
     val (labels, cellTypes) = Preprocess.loadLabels(sc, labelPath)
@@ -82,16 +49,20 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
       .map(r => LabeledWindow(Window(r._1, r._2, r._3, ("A" * 192 + "TTTAATTG"), Some(dnase)), r._4))
 
     val sd = new SequenceDictionary(Vector(SequenceRecord(chr, 100000)))
-    val series = (1000 until 3000).map(r => (cellType, r)).toSeq
-    val coverage = sc.parallelize(series).map(r => {
-      val countMap = Map(r._1 -> (r._2 % 5))
-      CutMap(ReferencePosition(chr, r._2, Strand.FORWARD), countMap)
-    })
+    val reads = sc.parallelize((1000 until 3000).map(r => {
+      AlignmentRecord.newBuilder()
+        .setStart(r.toLong)
+        .setEnd(r.toLong + 1)
+        .setContigName(chr)
+        .setAttributes(cellType + ":file")
+        .build()
+    }))
 
+    val coverage = new AlignedReadRDD(reads, sd, null)
     val motifs = Motif.parseYamlMotifs(motifPath)
 
-    val results = VectorizedDnase.featurize(sc, rdd, coverage, sd, None, false,
-                  Some(motifs))
+    val results = VectorizedDnase.featurize(sc, rdd, coverage, sd, false, false,
+                  Some(motifs), false)
     val features = results.first.features
     val featureLength = features.length
     assert(features.slice(features.length/2, features.length).sum == 0)

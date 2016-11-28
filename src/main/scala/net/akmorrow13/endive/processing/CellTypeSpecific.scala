@@ -1,7 +1,5 @@
 package net.akmorrow13.endive.processing
 
-import net.akmorrow13.endive.processing.Dataset.CellTypes
-import net.akmorrow13.endive.processing.PeakRecord
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
 import net.akmorrow13.endive.utils.{LabeledWindow, Window}
@@ -96,7 +94,6 @@ object CellTypeSpecific {
   def window[S: ClassTag, T: ClassTag](rdd: RDD[(ReferenceRegion, S, T)], sd: SequenceDictionary): RDD[((ReferenceRegion, S), List[T])] = {
     val stride = 50
     val windowSize = 200
-    sd.records.foreach(r => println(r.name))
     val windowed: RDD[((ReferenceRegion, S), List[T])]  = rdd
      .flatMap(d => {
       val newStart = d._1.start / stride * stride

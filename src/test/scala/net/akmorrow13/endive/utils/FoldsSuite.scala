@@ -1,7 +1,7 @@
 package net.akmorrow13.endive.utils
 
 import net.akmorrow13.endive.EndiveFunSuite
-import net.akmorrow13.endive.processing.Dataset.{CellTypes, Chromosomes, TranscriptionFactors}
+import net.akmorrow13.endive.processing.{CellTypes, Chromosomes, TranscriptionFactors}
 import org.bdgenomics.adam.models.ReferenceRegion
 
 class FoldsSuite extends EndiveFunSuite {

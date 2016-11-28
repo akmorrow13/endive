@@ -1,7 +1,9 @@
 package net.akmorrow13.endive
 
-import net.akmorrow13.endive.processing.Dataset.{Chromosomes, CellTypes}
+import net.akmorrow13.endive.processing.{Chromosomes, CellTypes}
 
+import scala.beans.BeanProperty
+import scala.reflect.BeanProperty
 import scala.reflect.{BeanProperty, ClassTag}
 
 class EndiveConf extends Serializable {
@@ -17,7 +19,7 @@ class EndiveConf extends Serializable {
   @BeanProperty var aggregatedSequenceOutput: String = null
   @BeanProperty var rnaseqOutput: String = null
   @BeanProperty var featurizedOutput: String = null
-
+  @BeanProperty var modelPath: String = ""
 
   /* location of sequence motif data */
   @BeanProperty var deepbindPath: String = null
@@ -56,6 +58,20 @@ class EndiveConf extends Serializable {
   /* Featurization parameters */
   @BeanProperty var kmerLength: Int = 8
   @BeanProperty var sequenceLength: Int = 100
+
+  /* Kernel approximation feature parameters */
+  @BeanProperty var dim: Int = 4096
+
+  /* Save predictions */
+  @BeanProperty var saveTrainPredictions: String = null
+  @BeanProperty var saveTestPredictions: String = null
+
+  /* Default prediction parameters for block solve */
+  @BeanProperty var lambda: Double = 10000
+  @BeanProperty var epochs: Int = 4
+
+  @BeanProperty var sample: Boolean = true
+
 }
 
 object EndiveConf {

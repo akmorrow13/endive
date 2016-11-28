@@ -6,7 +6,6 @@ import breeze.stats.distributions.{Gaussian, ThreadLocalRandomGenerator, RandBas
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.Motif
 import net.akmorrow13.endive.metrics.Metrics
-import net.akmorrow13.endive.processing.Dataset.{CellTypes, Chromosomes}
 import net.akmorrow13.endive.utils._
 import nodes.akmorrow13.endive.featurizers.KernelApproximator
 import nodes.learning.LogisticRegressionEstimator
@@ -28,11 +27,11 @@ object CSKPipeline extends Serializable  {
   val alphabetSize = 4
 
   /**
-    * A very basic dataset creation pipeline that *doesn't* featurize the data
-    * but creates a csv of (Window, Label)
-    *
-    * @param args
-    */
+   * A very basic dataset creation pipeline that *doesn't* featurize the data
+   * but creates a csv of (Window, Label)
+   *
+   * @param args
+   */
   def main(args: Array[String]) = {
 
     if (args.length < 1) {
@@ -95,39 +94,38 @@ object CSKPipeline extends Serializable  {
     }
 
     val windowsRDD = data.setName("windowsRDD").cache()
-/*
-    val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
-    val cellTypes = chrCellTypes.map(_._2)
-
-    /************************************
-      *  Prepare dnase data
-      **********************************/
-    var aggregatedCuts: RDD[CutMap] = sc.emptyRDD[CutMap]
-    try {
-      aggregatedCuts = sc.objectFile(cutmapInputPath)
-      aggregatedCuts.count
-    } catch {
-      case e @ (_: org.apache.hadoop.mapred.InvalidInputException | _: java.lang.NullPointerException) => {
-        val keyedCuts = Preprocess.loadCuts(sc, dnasePath, cellTypes.toArray)
-          .keyBy(r => (r.region, r.getCellType))
-          .partitionBy(GenomicRegionPartitioner(1000, sd))
-        keyedCuts.count
-        val cuts = keyedCuts.map(_._2)
-        cuts.count
-        val dnase = new Dnase(windowSize, stride, sc, cuts)
-        aggregatedCuts = dnase.merge(sd).cache()
-        aggregatedCuts.count
+    /*
+        val chrCellTypes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
+        val cellTypes = chrCellTypes.map(_._2)
+        /************************************
+          *  Prepare dnase data
+          **********************************/
+        var aggregatedCuts: RDD[CutMap] = sc.emptyRDD[CutMap]
         try {
-          aggregatedCuts.saveAsObjectFile(cutmapOutputPath)
-          println("Wrote cutmap to " + cutmapOutputPath)
+          aggregatedCuts = sc.objectFile(cutmapInputPath)
+          aggregatedCuts.count
         } catch {
-          case e @ (_: java.lang.NullPointerException | _: java.lang.IllegalArgumentException) => {
-            println("To store Cutmap, add {cutmapOutputPath} to conf file")
+          case e @ (_: org.apache.hadoop.mapred.InvalidInputException | _: java.lang.NullPointerException) => {
+            val keyedCuts = Preprocess.loadCuts(sc, dnasePath, cellTypes.toArray)
+              .keyBy(r => (r.region, r.getCellType))
+              .partitionBy(GenomicRegionPartitioner(1000, sd))
+            keyedCuts.count
+            val cuts = keyedCuts.map(_._2)
+            cuts.count
+            val dnase = new Dnase(windowSize, stride, sc, cuts)
+            aggregatedCuts = dnase.merge(sd).cache()
+            aggregatedCuts.count
+            try {
+              aggregatedCuts.saveAsObjectFile(cutmapOutputPath)
+              println("Wrote cutmap to " + cutmapOutputPath)
+            } catch {
+              case e @ (_: java.lang.NullPointerException | _: java.lang.IllegalArgumentException) => {
+                println("To store Cutmap, add {cutmapOutputPath} to conf file")
+              }
+            }
           }
         }
-      }
-    }
-*/
+    */
     val seed = 14567
     val ngramSize = 8
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
@@ -157,13 +155,13 @@ object CSKPipeline extends Serializable  {
       })
     }))
     val folds: IndexedSeq[(RDD[((String, CellTypes.Value), BaseFeature)], RDD[((String, CellTypes.Value), BaseFeature)])] =
-    if(modelTest) {
-      /* First one chromesome and one celltype per fold (leave 1 out) */
+      if(modelTest) {
+        /* First one chromesome and one celltype per fold (leave 1 out) */
         EndiveUtils.generateFoldsRDD(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds, sampleFreq = None)
-    } else{
-      //We have to wrap this in a vector because we want to reuse as much logic as possible.
-      IndexedSeq(EndiveUtils.generateTrainTestSplit(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), Dataset.heldOutTypes.toSet))
-    }
+      } else{
+        //We have to wrap this in a vector because we want to reuse as much logic as possible.
+        IndexedSeq(EndiveUtils.generateTrainTestSplit(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), Dataset.heldOutTypes.toSet))
+      }
 
     for (i <- (0 until folds.size)) {
       val r = new java.util.Random()

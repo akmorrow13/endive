@@ -1,7 +1,7 @@
 package net.akmorrow13.endive.utils
 
 import net.akmorrow13.endive.EndiveFunSuite
-import net.akmorrow13.endive.processing.Dataset.{CellTypes, TranscriptionFactors}
+import net.akmorrow13.endive.processing.{CellTypes, TranscriptionFactors}
 import net.akmorrow13.endive.processing.PeakRecord
 import org.bdgenomics.adam.models.ReferenceRegion
 

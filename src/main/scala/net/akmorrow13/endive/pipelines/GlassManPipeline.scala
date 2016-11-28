@@ -19,7 +19,7 @@ import breeze.linalg._
 import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.processing.Sequence
-import net.akmorrow13.endive.processing.Dataset.{TranscriptionFactors, CellTypes}
+import net.akmorrow13.endive.processing.{Dataset, TranscriptionFactors, CellTypes}
 import net.akmorrow13.endive.utils._
 import net.jafama.FastMath
 import nodes.learning._
@@ -84,46 +84,6 @@ object GlassmanPipeline  extends Serializable with Logging {
     }
   }
 
-  def denseFeaturize(in: String): DenseVector[Double] = {
-    /* Identity featurizer */
-
-   val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
-    val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
-
-    val intString:Seq[Int] = in.map(BASEPAIRMAP(_))
-    val seqString = intString.map { bp =>
-      val out = DenseVector.zeros[Double](4)
-      if (bp != -1) {
-        out(bp) = 1
-      }
-      out
-    }
-    DenseVector.vertcat(seqString:_*)
-  }
-
-  def vectorToString(in: DenseVector[Double], alphabetSize: Int): String = {
-
-   val BASEPAIRREVMAP = Array('A', 'T', 'C', 'G')
-   var i = 0
-   var str = ""
-   while (i < in.size) {
-    val charVector = in(i until i+alphabetSize)
-    if (charVector == DenseVector.zeros[Double](alphabetSize)) {
-      str += "N"
-    } else {
-      val bp = BASEPAIRREVMAP(argmax(charVector))
-      str += bp
-    }
-    i += alphabetSize
-   }
-   str
-  }
-
-
-
-
-
-
   def run(sc: SparkContext, conf: EndiveConf) {
     val dataTxtRDD:RDD[String] = sc.textFile(conf.aggregatedSequenceOutput, minPartitions=600)
 
@@ -138,7 +98,8 @@ object GlassmanPipeline  extends Serializable with Logging {
     println("FILTERED NUM NEGATIVES " + filteredData.filter(_.label == 0).count())
     println("DATA LOADED filtered AND REPARTIONED")
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
-    val foldsData = EndiveUtils.generateFoldsRDD(filteredData.keyBy(r => (r.win.region.referenceName, r.win.cellType)), numFolds = 5, numHeldOutChromosomes = 5, numHeldOutCellTypes = 2, randomSeed = 3)
+    val foldsData = EndiveUtils.generateFoldsRDD(filteredData.keyBy(r => (r.win.region.referenceName, r.win.cellType)),
+      numFolds = 5, numHeldOutChromosomes = 5, numHeldOutCellTypes = 2, randomSeed = 3)
     val cellTypeFeaturizer = Transformer.apply[LabeledWindow, Int](x => x.win.cellType.id) andThen new ClassLabelIndicatorsFromIntLabels(CellTypes.toVector.size)
     foldsData.map(_._1.count())
     foldsData.map(_._2.count())
@@ -156,38 +117,34 @@ object GlassmanPipeline  extends Serializable with Logging {
     for (i <- (0 until 4)) {
 
       println("Fold " + i)
-      //println("HELD OUT CELL TYPES " + foldsData(i)._3.mkString(","))
-      //println("HELD OUT CHROMOSOMES " + foldsData(i)._4.mkString(","))
-      //val foldId = "EGR1_fold_" + i + "_" + foldsData(i)._3.mkString("-") + "_" + foldsData(i)._4.mkString("-")
-      //println("Fold Id IS " + foldId)
 
       var train = foldsData(i)._1.map(x => x._2)
       val test = foldsData(i)._2.map(x => x._2)
 
-      var XTrain:RDD[DenseVector[Double]] = train.map(x => denseFeaturize(x.win.sequence)).setName("XTrain").cache()
+      var XTrain:RDD[DenseVector[Double]] = train.map(x => KernelApproximator.stringToVector(x.win.sequence)).setName("XTrain").cache()
 
-      val XTest:RDD[DenseVector[Double]] = test.map(x => denseFeaturize(x.win.sequence)).setName("XTest").cache()
+      val XTest:RDD[DenseVector[Double]] = test.map(x => KernelApproximator.stringToVector(x.win.sequence)).setName("XTest").cache()
 
 
       XTrain.count()
       XTest.count()
 
-      val yTrain = train.map(_.label).setName("yTrain").cache()
-      val yTest = test.map(_.label).setName("yTest").cache()
-
-      println("Collecting matrices")
-      val XTrainLocal:DenseMatrix[Double] = MatrixUtils.rowsToMatrix(XTrain.collect())
-      val XTestLocal:DenseMatrix[Double] = MatrixUtils.rowsToMatrix(XTest.collect())
-
-      val yTrainLocal:DenseMatrix[Double] = convert(DenseVector(yTrain.collect()).toDenseMatrix, Double)
-      val yTestLocal:DenseMatrix[Double] = convert(DenseVector(yTest.collect()).toDenseMatrix, Double)
-
-      //val XTrainFile  = new File(s"/home/eecs/vaishaal/endive-data/${foldId}_Train.csv")
-      //val XTestFile = new File(s"/home/eecs/vaishaal/endive-data/${foldId}_Test.csv")
-
-      //val yTrainFile = new File(s"/home/eecs/vaishaal/endive-data/${foldId}_TrainLabels.csv")
-      //val yTestFile = new File(s"/home/eecs/vaishaal/endive-data/${foldId}_TestLabels.csv")
-
+//      val yTrain = train.map(_.label).setName("yTrain").cache()
+//      val yTest = test.map(_.label).setName("yTest").cache()
+//
+//      println("Collecting matrices")
+//      val XTrainLocal:DenseMatrix[Double] = MatrixUtils.rowsToMatrix(XTrain.collect())
+//      val XTestLocal:DenseMatrix[Double] = MatrixUtils.rowsToMatrix(XTest.collect())
+//
+//      val yTrainLocal:DenseMatrix[Double] = convert(DenseVector(yTrain.collect()).toDenseMatrix, Double)
+//      val yTestLocal:DenseMatrix[Double] = convert(DenseVector(yTest.collect()).toDenseMatrix, Double)
+//
+//      val XTrainFile  = new File(s"/home/eecs/vaishaal/endive-data/${foldId}_Train.csv")
+//      val XTestFile = new File(s"/home/eecs/vaishaal/endive-data/${foldId}_Test.csv")
+//
+//      val yTrainFile = new File(s"/home/eecs/vaishaal/endive-data/${foldId}_TrainLabels.csv")
+//      val yTestFile = new File(s"/home/eecs/vaishaal/endive-data/${foldId}_TestLabels.csv")
+//
 //      csvwrite(XTrainFile, XTrainLocal)
 //      csvwrite(XTestFile, XTestLocal)
 //      csvwrite(yTrainFile, yTrainLocal)
