@@ -43,9 +43,6 @@ echo "Using SPARK_SUBMIT=$SPARK_SUBMIT"
 
 echo "RUNNING ON THE CLUSTER" 
 # TODO: Figure out a way to pass in either a conf file / flags to spark-submit
-KEYSTONE_MEM=${KEYSTONE_MEM:-1g}
-KEYSTONE_MEM=120g
-export KEYSTONE_MEM
 
 export LD_LIBRARY_PATH=/home/eecs/vaishaal/gcc-build/lib64:/home/eecs/vaishaal/gcc-build/lib:/home/eecs/vaishaal/openblas-install/lib
 export CPATH=/home/eecs/vaishaal/gcc-build/include
@@ -56,7 +53,7 @@ export CPATH=/home/eecs/vaishaal/gcc-build/include
   --class $CLASS \
   --num-executors  $SPARK_NUM_EXECUTORS \
   --driver-memory 60g \
-  --executor-memory 20g \
+  --executor-memory $KEYSTONE_MEM \
   --executor-cores $SPARK_EXECUTOR_CORES \
   --driver-class-path $JARFILE:$ASSEMBLYJAR:$HOME/hadoop/conf \
   --driver-library-path /opt/amp/gcc/lib64:/opt/amp/openblas/lib:$FWDIR/lib \
