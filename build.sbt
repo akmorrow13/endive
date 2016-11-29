@@ -102,5 +102,8 @@ mergeStrategy in assembly <<= (mergeStrategy in assembly) { (old) =>
 
 assemblyOption in assembly := (assemblyOption in assembly).value.copy(includeScala = false, includeDependency = false)
 
+publishMavenStyle := true
+
+publishTo := Some(Resolver.file("file",  new File(Path.userHome.absolutePath+"/.m2/repository")))
 
 test in assembly := {}

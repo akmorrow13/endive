@@ -21,9 +21,10 @@ abstract class EndiveLearningPipeline {
       writer.close()
     }
   }
+
   def loadModel(filepath: String): Option[BlockLinearMapper] = {
     try {
-      val inp = new ObjectInputStream(new FileInputStream("/Users/DevinPetersohn/Downloads/testSerializedModelOutput"))
+      val inp = new ObjectInputStream(new FileInputStream(filepath))
       val predictor = inp.readObject().asInstanceOf[BlockLinearMapper]
       inp.close()
       Some(predictor)

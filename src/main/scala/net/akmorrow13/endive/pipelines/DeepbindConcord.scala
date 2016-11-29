@@ -77,11 +77,8 @@ object DeepbindConcord extends EndiveLearningPipeline with Serializable with Log
     val kmerSize = 8
     val alphabetSize = Dataset.alphabet.size
 
-//    val trainPath = "/data/anv/DREAMDATA/deepbind/EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq"
-//    val testPath = "/data/anv/DREAMDATA/deepbind/EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq"
-
-    val trainPath = "/Users/akmorrow/ADAM/endive/src/test/resources/EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq.100Lines"
-    val testPath = "/Users/akmorrow/ADAM/endive/src/test/resources/EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq.100Lines"
+    val trainPath = "/data/anv/DREAMDATA/deepbind/EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq"
+    val testPath = "/data/anv/DREAMDATA/deepbind/EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_B.seq"
 
     // extract tfs and cells for this label file
     val tf = TranscriptionFactors.EGR1
