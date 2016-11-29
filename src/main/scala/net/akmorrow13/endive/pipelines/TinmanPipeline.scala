@@ -130,7 +130,7 @@ object TinmanPipeline extends Serializable with Logging {
       NGramsFeaturizer(6 to 7) andThen
       TermFrequency(x => 1.0) andThen
       (CommonSparseFeatures[Seq[String]](1024), train) andThen
-      Transformer.apply[SparseVector[Double], DenseVector[Double]](x => x.toDenseVector) andThen Cacher[DenseVector[Double]]()
+      Transformer.apply[SparseVector[Double], DenseVector[Double]](x => x.toDenseVector)
 
 
       val predictor = Pipeline.gather[LabeledWindow, DenseVector[Double]] {
@@ -138,13 +138,13 @@ object TinmanPipeline extends Serializable with Logging {
        } andThen Transformer.apply[Seq[DenseVector[Double]], DenseVector[Double]](x => x.reduce(DenseVector.vertcat(_,_))) andThen (LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.1), train, yTrain)
 
 
-      val yPredTrain = predictor(train).get()
+      val yPredTrain = predictor(train)
       val evalTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
       println("Train Results: \n ")
       printMetrics(evalTrain)
 
 
-      val yPredTest = predictor(test).get()
+      val yPredTest = predictor(test)
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
       println("Test Results: \n ")
       printMetrics(evalTest)

@@ -239,7 +239,7 @@ object KernelPipeline extends EndiveLearningPipeline with Serializable with Logg
       new Cacher[DenseVector[Double]]
     val trainLabels = labelExtractor(trainApprox.map(_.labeledWindow.label))
 
-    val predictor = new BlockLeastSquaresEstimator(conf.dim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels.get)
+    val predictor = new BlockLeastSquaresEstimator(conf.dim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels)
     val trainPredictions = MaxClassifier(predictor(trainFeatures)).map(_.toDouble)
 
     saveModel(conf.modelPath, predictor)

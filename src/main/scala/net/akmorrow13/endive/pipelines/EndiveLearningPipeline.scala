@@ -5,7 +5,6 @@ import breeze.linalg.DenseMatrix
 import breeze.stats.distributions.Gaussian
 import nodes.learning.BlockLinearMapper
 import nodes.util.MaxClassifier
-import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.formats.avro.Feature
 
@@ -41,6 +40,11 @@ abstract class EndiveLearningPipeline {
  */
 case class ModelServer(filePath: String, dim: Int = 4096) {
 
+  // predictor
+  val inp = new ObjectInputStream(new FileInputStream(filePath))
+  val predictor = inp.readObject().asInstanceOf[BlockLinearMapper]
+  inp.close()
+
   def name = filePath
   // generate random matrix
   val gaussian = new Gaussian(0, 1)
@@ -57,13 +61,6 @@ case class ModelServer(filePath: String, dim: Int = 4096) {
 
     // featurization step
     val trainApprox = KernelPipeline.featurizeStrings(testSequences, W, 8)
-
-    // predictor
-
-    val inp = new ObjectInputStream(new FileInputStream(filePath))
-    val predictor = inp.readObject().asInstanceOf[BlockLinearMapper]
-    inp.close()
-
 
     trainApprox.map(r => MaxClassifier(predictor(r))).zip(regions)
       .map(r => {

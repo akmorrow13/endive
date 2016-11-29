@@ -33,7 +33,7 @@ object Kmer {
     val featurizer = Tokenizer("") andThen NGramsFeaturizer[String](Seq(k))
 
     // extract all 8mers in each training point
-    val results: RDD[Seq[String]] = featurizer(sequences).get.map(s => s.map(r => r.seq.reduce((x,y) => (x + y))))
+    val results: RDD[Seq[String]] = featurizer(sequences).map(s => s.map(r => r.seq.reduce((x,y) => (x + y))))
 
     // count all kmers
     countKmers(results, k, maxDistance)

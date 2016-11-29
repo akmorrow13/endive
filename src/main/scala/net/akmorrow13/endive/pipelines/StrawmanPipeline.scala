@@ -115,7 +115,7 @@ object StrawmanPipeline extends Serializable with Logging {
 
       println("Building Pipeline")
       val sequenceFeaturizer =
-      Transformer.apply[LabeledWindow, DenseVector[Double]](x => denseFeaturize(x.win.sequence)) andThen Cacher[DenseVector[Double]]()
+      Transformer.apply[LabeledWindow, DenseVector[Double]](x => denseFeaturize(x.win.sequence))
 
 
       val predictor = Pipeline.gather[LabeledWindow, DenseVector[Double]] {
@@ -123,13 +123,13 @@ object StrawmanPipeline extends Serializable with Logging {
        } andThen Transformer.apply[Seq[DenseVector[Double]], DenseVector[Double]](x => x.reduce(DenseVector.vertcat(_,_))) andThen (LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.1), train, yTrain)
 
 
-      val yPredTrain = predictor(train).get()
+      val yPredTrain = predictor(train)
       val evalTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
       println("Train Results: \n ")
       Metrics.printMetrics(evalTrain)
 
 
-      val yPredTest = predictor(test).get()
+      val yPredTest = predictor(test)
       val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
       println("Test Results: \n ")
       Metrics.printMetrics(evalTest)

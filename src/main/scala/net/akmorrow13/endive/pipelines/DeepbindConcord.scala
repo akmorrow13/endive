@@ -119,7 +119,7 @@ object DeepbindConcord extends EndiveLearningPipeline with Serializable with Log
       new Cacher[DenseVector[Double]]
     val trainLabels = labelExtractor(trainApprox.map(_.labeledWindow.label))
 
-    val predictor = new BlockLeastSquaresEstimator(conf.dim, conf.epochs, conf.lambda).fit(trainApprox.map(_.features), trainLabels.get)
+    val predictor = new BlockLeastSquaresEstimator(conf.dim, conf.epochs, conf.lambda).fit(trainApprox.map(_.features), trainLabels)
 
     saveModel(conf.modelPath, predictor)
 
