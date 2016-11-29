@@ -22,6 +22,7 @@ import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils.{Window, LabeledWindow}
 import org.bdgenomics.adam.models.{ReferenceRegion, ReferencePosition, SequenceRecord, SequenceDictionary}
 import org.bdgenomics.adam.rdd.read.AlignedReadRDD
+import org.bdgenomics.formats.avro
 import org.bdgenomics.formats.avro.{AlignmentRecord, Strand}
 
 class VectorizedDnaseSuite extends EndiveFunSuite {
@@ -30,6 +31,31 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
 
   val chr = "chr1"
   val sd = new SequenceDictionary(Vector(SequenceRecord(chr, 7000)))
+
+  sparkTest("verify featurization correctly joins data") {
+    val region1 = ReferenceRegion(chr, 1L, 200L)
+    val win1 = LabeledWindow(Window(TranscriptionFactors.EGR1, CellTypes.A549, region1,"A"*200), 1)
+    val win2 = LabeledWindow(Window(TranscriptionFactors.EGR1, CellTypes.A549, ReferenceRegion(chr, 50L, 250L),"G"*200), 1)
+
+    val windows = sc.parallelize(Seq(win1, win2))
+    val coverageAlignments = Seq(AlignmentRecord.newBuilder()
+                                  .setStart(60L)
+                                  .setEnd(61L)
+                                  .setContigName(chr)
+                                  .setReadMapped(true)
+                                  .build,
+                                AlignmentRecord.newBuilder()
+                                  .setStart(3L)
+                                  .setEnd(4L)
+                                  .setContigName(chr)
+                                  .setReadMapped(true)
+                                  .build)
+    val coverage = AlignedReadRDD(sc.parallelize(coverageAlignments), sd, null)
+
+    val result = VectorizedDnase.featurize(sc, windows, coverage, sd, false, false, None, false).collect()
+    assert(result.length == 2)
+    assert(result.filter(_.win.region == region1).head.win.dnase.sum > 1)
+  }
 
   sparkTest("msCentipede at full scale") {
     val scale = Some(0)
@@ -43,10 +69,10 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
     val (labels, cellTypes) = Preprocess.loadLabels(sc, labelPath)
     val cellType = cellTypes.head
     val chr = labels.first._3.referenceName
-    val dnase = List(PeakRecord(ReferenceRegion(chr, 2000,2010),1,1.0,1.0,1.0,1.0))
+    val dnase = DenseVector.ones[Double](200) * 0.2
     val rdd = labels
       .filter(_._4 > 0)
-      .map(r => LabeledWindow(Window(r._1, r._2, r._3, ("A" * 192 + "TTTAATTG"), Some(dnase)), r._4))
+      .map(r => LabeledWindow(Window(r._1, r._2, r._3, ("A" * 192 + "TTTAATTG"), 1, Some(dnase)), r._4))
 
     val sd = new SequenceDictionary(Vector(SequenceRecord(chr, 100000)))
     val reads = sc.parallelize((1000 until 3000).map(r => {
@@ -63,8 +89,7 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
 
     val results = VectorizedDnase.featurize(sc, rdd, coverage, sd, false, false,
                   Some(motifs), false)
-    val features = results.first.features
-    val featureLength = features.length
+    val features = results.first.win.dnase
     assert(features.slice(features.length/2, features.length).sum == 0)
   }
 

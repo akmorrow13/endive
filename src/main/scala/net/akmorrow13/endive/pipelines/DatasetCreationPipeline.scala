@@ -74,7 +74,7 @@ object DatasetCreationPipeline extends Serializable  {
     val labelsPath = conf.labels
     if (labelsPath == null)
       throw new Exception("chipseq labels not defined")
-    val dnasePath = conf.dnase
+    val dnasePath = conf.dnaseNarrow
     if (dnasePath == null)
       throw new Exception("dnasePath not defined")
     
@@ -133,7 +133,6 @@ object DatasetCreationPipeline extends Serializable  {
   def getSequenceDictionary(referencePath: String): SequenceDictionary = {
     val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
     val seqRecords = reference.sequences.records
-		.filter(r => Chromosomes.toVector.contains(r.name))
     new SequenceDictionary(seqRecords)
   }
 

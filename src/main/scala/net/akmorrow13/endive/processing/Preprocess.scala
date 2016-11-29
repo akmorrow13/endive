@@ -16,6 +16,8 @@
 package net.akmorrow13.endive.processing
 
 import java.io.{InputStreamReader, BufferedReader, File}
+import breeze.linalg.DenseVector
+import net.akmorrow13.endive.utils.LabeledWindow
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
@@ -397,3 +399,11 @@ object PeakRecord {
   }
 }
 case class Transcript(geneId: String, transcriptId: String, region: ReferenceRegion)
+
+case class BaseFeature(labeledWindow: LabeledWindow, features: DenseVector[Double]) {
+
+  override def toString: String = {
+    labeledWindow.toString + "!" + features.toString
+  }
+}
+

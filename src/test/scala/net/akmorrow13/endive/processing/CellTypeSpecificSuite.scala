@@ -47,20 +47,4 @@ class CellTypeSpecificSuite extends EndiveFunSuite {
     assert(windowed.filter(_._1._1.start == 250).map(_._2).first.size == 1)
   }
 
-  sparkTest("should merge dnase, rnaseq and labels") {
-    val dnaseRDD = Preprocess.loadPeaks(sc, peakPath)
-    val labels = Preprocess.loadLabels(sc, labelPath)._1
-    val rnaseq =  new RNAseq(genePath, sc)
-    val rnaseqRDD = rnaseq.loadRNA(sc, rnaPath)
-
-    // extract sequences from reference over training regions
-    val sequences: RDD[LabeledWindow] =
-      labels.map(r => LabeledWindow(Window(r._1, r._2, r._3, "ATGCG" * 40, None, None), r._4))
-
-    val sd = new SequenceDictionary(Chromosomes.toVector.map(r => SequenceRecord(r, 10000000)))
-
-    val cellTypeInfo = new CellTypeSpecific(windowSize,stride,dnaseRDD, rnaseqRDD, sd)
-    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithSequences(sequences)
-    assert(fullMatrix.count == 29)
-  }
 }

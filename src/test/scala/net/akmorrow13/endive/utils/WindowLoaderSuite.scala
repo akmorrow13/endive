@@ -1,9 +1,10 @@
 package net.akmorrow13.endive.utils
 
+import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveFunSuite
 import net.akmorrow13.endive.processing.{CellTypes, TranscriptionFactors}
-import net.akmorrow13.endive.processing.PeakRecord
 import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.formats.avro.AlignmentRecord
 
 class WindowLoaderSuite extends EndiveFunSuite {
 
@@ -15,8 +16,14 @@ class WindowLoaderSuite extends EndiveFunSuite {
   val sequence = "ATTTTGGGGGAAAAA"
 
   test("test window loader from string") {
-    val peak1 = PeakRecord(region, 0, 0, 0, 0, 0)
-    val window: Window = Window(tf, cellType, region, sequence, Some(List(peak1)), None)
+    val peak1 =  AlignmentRecord.newBuilder()
+      .setContigName(region.referenceName)
+      .setStart(region.start)
+      .setEnd(region.end)
+      .build()
+
+    val dnase = DenseVector.ones[Double](200) * 0.2
+    val window: Window = Window(tf, cellType, region, sequence, 1, Some(dnase), None)
     val labeledWindow = LabeledWindow(window, 0)
     val strWin = labeledWindow.toString
     val labeledWindow2: LabeledWindow = LabeledWindowLoader.stringToLabeledWindow(strWin)
@@ -25,7 +32,7 @@ class WindowLoaderSuite extends EndiveFunSuite {
   }
 
   test("test window loader without dnase") {
-    val window: Window = Window(tf, cellType,region,sequence, None, None)
+    val window: Window = Window(tf, cellType,region,sequence, 0, None, None)
     val labeledWindow = LabeledWindow(window, 0)
     val strWin = labeledWindow.toString
     val labeledWindow2: LabeledWindow = LabeledWindowLoader.stringToLabeledWindow(strWin)

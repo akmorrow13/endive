@@ -54,9 +54,9 @@ export CPATH=/home/eecs/vaishaal/gcc-build/include
 "$SPARK_SUBMIT" \
   --master $MASTER \
   --class $CLASS \
-  --num-executors  16 \
+  --num-executors 32 \
   --driver-memory 60g \
-  --executor-memory 20g \
+  --executor-memory 30g \
   --executor-cores 8 \
   --driver-class-path $JARFILE:$ASSEMBLYJAR:$HOME/hadoop/conf \
   --driver-library-path /opt/amp/gcc/lib64:/opt/amp/openblas/lib:$FWDIR/lib \

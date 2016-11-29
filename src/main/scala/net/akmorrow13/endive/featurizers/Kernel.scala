@@ -9,32 +9,33 @@ import net.akmorrow13.endive.processing.Dataset
 
 class KernelApproximator(filters: DenseMatrix[Double],
                          nonLin: Double => Double = (x: Double) => x ,
+                         ngramSize: Int,
+                         alphabetSize: Int,
                          offset:Option[DenseVector[Double]] = None,
-                         ngramSize: Int = 8,
-                         alphabetSize: Int = Dataset.alphabet.size,
                          seqSize: Int = Dataset.windowSize)
   extends Transformer[DenseVector[Double], DenseVector[Double]] with Serializable {
 
 
   /* valid convolution */
   val outSize = seqSize - ngramSize + 1
+   println(s"mapping partitions alphsize: ${alphabetSize}, outsize: ${outSize}, ngramsize: ${ngramSize}")
 
   override def apply(in: RDD[DenseVector[Double]]): RDD[DenseVector[Double]] = {
     in.mapPartitions(convolvePartitions(_, filters, nonLin, offset, ngramSize, outSize, alphabetSize))
   }
 
   def apply(in: DenseVector[Double]): DenseVector[Double]= {
-    convolve(in, filters, nonLin, offset)
+    convolve(in, filters, nonLin, offset, alphabetSize)
   }
 
   def convolve(seq: DenseVector[Double],
     filters: DenseMatrix[Double],
     nonLin: Double => Double,
     offset: Option[DenseVector[Double]],
-    alphabetSize: Int = 4): DenseVector[Double] = {
+    alphabetSize: Int): DenseVector[Double] = {
 
     /* Make the ngram */
-    val ngrams: DenseMatrix[Double] = KernelApproximator.makeNgrams(seq, ngramSize)
+    val ngrams: DenseMatrix[Double] = KernelApproximator.makeNgrams(seq, ngramSize, alphabetSize)
     /* Actually do the convolution */
     val convRes: DenseMatrix[Double] = ngrams * filters.t
 
@@ -63,7 +64,7 @@ class KernelApproximator(filters: DenseMatrix[Double],
     offset:Option[DenseVector[Double]],
     ngramSize: Int,
     outSize: Int,
-    alphabetSize: Int = 4): Iterator[DenseVector[Double]] = {
+    alphabetSize: Int): Iterator[DenseVector[Double]] = {
       val ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
       seq.map(convolve(_, filters, nonLin, offset, alphabetSize))
     }
@@ -175,7 +176,7 @@ object KernelApproximator  {
    */
   def makeNgrams(seq: DenseVector[Double],
                   ngramSize: Int,
-                  alphabetSize: Int = Dataset.alphabet.size): DenseMatrix[Double] = {
+                  alphabetSize: Int): DenseMatrix[Double] = {
 
     /* The length of seq is alphabet size times sequence length */
     val numSymbols = seq.size/alphabetSize

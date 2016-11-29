@@ -104,7 +104,6 @@ object DeepbindConcord extends Serializable with Logging {
           val w = Window(tf, cell, null, parts(2))
           LabeledWindow(w, parts(3).toInt)
         })
-
     val test = sc.textFile(testPath)
       .filter(!_.contains("FoldID"))
       .map(r => {
@@ -117,7 +116,7 @@ object DeepbindConcord extends Serializable with Logging {
     val gaussian = new Gaussian(0, 1)
 
     // generate random matrix
-    val W = 0.1 * DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
+    val W = 1.0 * DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
 
     // generate approximation features
     val trainApprox = KernelPipeline.featurize(train, W, kmerSize)
