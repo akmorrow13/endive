@@ -1,0 +1,160 @@
+/**
+ * Copyright 2015 Vaishaal Shankar
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package net.akmorrow13.endive.pipelines
+
+import java.io.File
+import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.processing.{Chromosomes, CellTypes, TranscriptionFactors}
+import net.akmorrow13.endive.processing.Sequence
+import net.akmorrow13.endive.utils._
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, FileSystem}
+import org.apache.log4j.{Level, Logger}
+import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
+import org.apache.spark.mllib.regression.LabeledPoint
+import org.apache.spark.rdd.RDD
+import org.apache.spark.{SparkConf, SparkContext}
+import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
+import org.bdgenomics.formats.avro._
+import org.bdgenomics.formats.avro.NucleotideContigFragment
+import org.bdgenomics.utils.io.LocalFileByteAccess
+import org.kohsuke.args4j.{Option => Args4jOption}
+import org.yaml.snakeyaml.constructor.Constructor
+import org.yaml.snakeyaml.Yaml
+import net.akmorrow13.endive.processing._
+
+
+object SingleTFDatasetCreationPipeline extends Serializable  {
+
+  /**
+   * A very basic dataset creation pipeline that *doesn't* featurize the data
+   * but creates a csv of (Window, Label)
+   *
+   * @param args
+   */
+  def main(args: Array[String]) = {
+    if (args.size < 1) {
+      println("Incorrect number of arguments...Exiting now.")
+    } else {
+      val configfile = scala.io.Source.fromFile(args(0))
+      val configtext = try configfile.mkString finally configfile.close()
+      println(configtext)
+      val yaml = new Yaml(new Constructor(classOf[EndiveConf]))
+      val appConfig = yaml.load(configtext).asInstanceOf[EndiveConf]
+      EndiveConf.validate(appConfig)
+      val rootLogger = Logger.getRootLogger()
+      rootLogger.setLevel(Level.INFO)
+      val conf = new SparkConf().setAppName("ENDIVE:SingleTFDatasetCreationPipeline")
+      conf.setIfMissing("spark.master", "local[4]")
+      val sc = new SparkContext(conf)
+      run(sc, appConfig)
+      sc.stop()
+    }
+  }
+
+  def run(sc: SparkContext, conf: EndiveConf) {
+
+    println("STARTING DATA SET CREATION PIPELINE")
+
+    // create new sequence with reference path
+    val referencePath = conf.reference
+
+    // load dnase path for all narrowpeak files
+    val dnaseNarrowPath = conf.dnaseNarrow
+
+    // load dnase paths for all dnase mabs
+    val dnaseBamsPath = conf.dnaseBams
+
+    // create sequence dictionary
+    val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+
+    val sequences = sc.parallelize(sd.records).repartition(sd.records.length)
+        .mapPartitions(r => {
+          val f = r.next()
+          val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+          reference.extract(ReferenceRegion(f.name, 0, f.length))
+              .sliding(200, 50)
+        }).repartition(100)
+
+    println("labeled window count", sequences.count)
+
+
+    val fs: FileSystem = FileSystem.get(new Configuration())
+    val dnaseNarrowStatus = fs.listStatus(new Path(dnaseNarrowPath))
+
+    val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 50)
+
+    train
+      .setName("Raw Train Data").cache()
+
+    println(train.count, train.partitions.length)
+    val tf = train.first._1
+    println(s"celltypes for tf ${tf}:")
+    cellTypes.foreach(println)
+
+    // extract sequences from reference over all regions
+    val sequences: RDD[LabeledWindow] = SingleTFDatasetCreationPipeline.extractSequencesAndLabels(referencePath, train).cache()
+    println("labeled window count", sequences.count)
+
+    // save sequences
+    println("Now saving sequences to disk")
+    sequences.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + "onlySequences/" + tf)
+
+    var fullMatrix: RDD[LabeledWindow] =
+      if (dnaseNarrowPath != null) {
+        // Load DNase data of (cell type, peak record)
+        val dnaseFiles = dnaseNarrowStatus.filter(r => {
+          val cellType = Dataset.filterCellTypeName(r.getPath.getName.split('.')(1))
+          cellTypes.map(_.toString).contains(cellType)
+        })
+
+        // load peak data from dnase
+        val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
+          .filter(r => Chromosomes.toVector.contains(r._2.region.referenceName))
+          .cache()
+
+        println("Reading dnase peaks")
+        println(dnase.count)
+
+        val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
+        cellTypeInfo.joinWithDNase(sequences)
+      } else sequences
+
+    fullMatrix.setName("fullmatrix_with_dnasePeaks").cache()
+    fullMatrix.count()
+    sequences.unpersist()
+
+    // save sequences with narrow peak
+    println("Now saving sequences with peak to disk")
+    fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + "sequencesAndPeakCounts/" + tf)
+
+    // join with dnase bams, if present
+    fullMatrix =
+      if (dnaseBamsPath != null) {
+        // load cuts from AlignmentREcordRDD. filter out only cells of interest
+        val coverage = Preprocess.loadDnase(sc, dnaseBamsPath, cellTypes)
+        coverage.rdd.cache()
+        coverage.rdd.count
+        VectorizedDnase.joinWithDnaseBams(sc, sd, fullMatrix, coverage)
+      } else fullMatrix
+
+    println("Now saving to disk")
+    fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + tf)
+  }
+
+}
