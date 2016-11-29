@@ -35,7 +35,7 @@ object TranscriptionFactors extends Enumeration with Serializable {
   CREB1,	FOXA1,	MAFK,	SPI1,	TEAD4,
   ATF2,	CTCF,	FOXA2,	MAX,		SRF,		YY1,
   ATF3,	E2F1,	GABPA,	MYC,		STAT3,	ZNF143,
-  ATF7,	E2F6,	GATA3,	NANOG,	TAF1 = Value
+  ATF7,	E2F6,	GATA3,	NANOG,	TAF1, Any  = Value
 
   def toVector: Vector[String] = this.values.map(_.toString).toVector
 }
@@ -43,7 +43,7 @@ object TranscriptionFactors extends Enumeration with Serializable {
 object CellTypes extends Enumeration with Serializable {
   val A549,GM12878, H1hESC, HCT116, HeLaS3, HepG2, IMR90, K562,
   MCF7, PC3,
-  Panc1, SKNSH, inducedpluripotentstemcell, liver = Value
+  Panc1, SKNSH, inducedpluripotentstemcell, liver= Value
 
   def toVector: Vector[String] = this.values.map(_.toString).toVector
 
