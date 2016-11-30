@@ -80,20 +80,23 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
     // load dnase paths for all dnase mabs
     val dnaseBamsPath = conf.dnaseBams
 
-    val testCellType = CellTypes.liver
+    val testCellType = CellTypes.inducedpluripotentstemcell
+
+    // labels with sequence only
+    val labels = conf.labels
 
     // create sequence dictionary
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
     val stringChrs = Dataset.heldOutChrs.map(_.toString)
-
+// this is only used if the sequences have not yet been extracted
+/*
     val heldOutChrs = sd.records.filter(r => stringChrs.contains(r.name))
     assert(heldOutChrs.length == 3)
 
     // generate all sliding windows for whole genome
     val sequences = sc.parallelize(heldOutChrs).repartition(heldOutChrs.length)
-    sequences.foreachPartition(r => println(r.length))
-    assert(sequences.partitions.length == 3)
+    println("partitions for held out chrs", sequences.partitions.length)
 
     // extract sequences
     val windows: RDD[LabeledWindow] =
@@ -117,7 +120,12 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
     // save sequences
     println("Now saving sequences to disk")
     windows.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + "test/sequence_windows")
+*/
+    val windows: RDD[LabeledWindow] = 
+      LabeledWindowLoader(labels, sc).setName("Test windows")
+        .cache()
 
+    println("Loaded test windows", windows.count)
     // now join with narrow peak dnase
     val fs: FileSystem = FileSystem.get(new Configuration())
     val dnaseNarrowStatus = fs.listStatus(new Path(dnaseNarrowPath))
@@ -127,7 +135,7 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
       // Load DNase data of (cell type, peak record)
       val dnaseFiles = dnaseNarrowStatus.filter(r => {
         val cellType = Dataset.filterCellTypeName(r.getPath.getName.split('.')(1))
-        cellType == testCellType
+        cellType == testCellType.toString
       })
 
       // load peak data from dnase
