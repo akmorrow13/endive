@@ -28,13 +28,14 @@ import org.bdgenomics.adam.rdd.read.AlignedReadRDD
 import org.bdgenomics.formats.avro.AlignmentRecord
 
 class EndiveLearningPipelineSuite extends EndiveFunSuite {
-  val modelPath = resourcePath("model.model")
+  val modelPath = resourcePath("model_4096.model")
 
   sparkTest("load model back in") {
-    val regionAndSeq = (ReferenceRegion("chrM", 0, 100), "A"*100)
-    val server = ModelServer(modelPath, 100)
+    val regionAndSeq = (ReferenceRegion("chrM", 0, 2400), "A"*2400)
+    val server = new ModelServer(modelPath)
     val soln = server.serve(regionAndSeq)
-    assert(soln.length == 1)
+    assert(soln.length == 4)
+
   }
 
 }

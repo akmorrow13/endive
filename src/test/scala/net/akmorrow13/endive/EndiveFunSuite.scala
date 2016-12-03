@@ -27,7 +27,7 @@ trait EndiveFunSuite extends SparkFunSuite {
     ("spark.kryo.referenceTracking", "true"))
 
   // fetches resources
-  def resourcePath(path: String) = getClass.getResource(path).getPath
+  def resourcePath(path: String) = "/Users/DevinPetersohn/endive/src/test/resources/" + path
 
   def getSequenceDictionary: SequenceDictionary = {
     val records = Chromosomes.toVector.map(r => SequenceRecord(r, 10000000))
