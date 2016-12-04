@@ -4,8 +4,9 @@ assemblySettings
 
 name := "endive"
 
-version := "0.1"
+version := "0.1-SNAPSHOT"
 
+organization := "net.akmorrow13"
 
 scalaVersion := "2.10.6"
 
