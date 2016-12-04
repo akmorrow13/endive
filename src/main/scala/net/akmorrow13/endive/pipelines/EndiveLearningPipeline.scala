@@ -77,7 +77,7 @@ case class ModelServer(filePath: String, dim: Int = 4096) {
 
   def serve(in: (ReferenceRegion, String)): Array[Feature] = {
     val region = in._1
-    val regions = Array.range(0, in._1.length().toInt)
+    val regions = Array.range(0, region.length().toInt)
       .sliding(600, 600)
       .map(r => ReferenceRegion(region.referenceName, r.head + region.start, r.head + region.start + r.length))
       .toArray

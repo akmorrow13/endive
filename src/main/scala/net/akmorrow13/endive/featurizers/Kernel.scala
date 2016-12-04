@@ -100,8 +100,6 @@ object KernelApproximator  {
   def stringToVector(in: String): DenseVector[Double] = {
     /* Identity featurizer */
 
-    val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
-
     val intString:Seq[Int] = in.map(r => Dataset.alphabet.get(r).getOrElse(-1))
     val seqString = intString.map { bp =>
       val out = DenseVector.zeros[Double](4)
