@@ -95,10 +95,18 @@ object KernelPipeline extends EndiveLearningPipeline with Serializable with Logg
       val sc = new SparkContext(conf)
       val blasVersion = BLAS.getInstance().getClass().getName()
       println(s"Currently used version of blas is ${blasVersion}")
-      run(sc, appConfig)
+ 
+      time { run(sc, appConfig) }
     }
   }
 
+def time[R](block: => R): R = {
+    val t0 = System.nanoTime()
+    val result = block    // call-by-name
+    val t1 = System.nanoTime()
+    println("-------------------------------- Elapsed time: " + (t1 - t0) + "ns")
+    result
+}
 
   def run(sc: SparkContext, conf: EndiveConf) = {
 

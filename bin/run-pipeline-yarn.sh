@@ -27,7 +27,7 @@ fi
 
 echo "automatically setting OMP_NUM_THREADS=$OMP_NUM_THREADS"
 
-ASSEMBLYJAR="$FWDIR"/target/scala-2.10/endive-assembly-0.1-deps.jar
+ASSEMBLYJAR="$FWDIR"/target/scala-2.10/endive-assembly-0.0.1-SNAPSHOT-deps.jar
 
 # Find spark-submit script
 if [ -z "$SPARK_HOME" ]; then
