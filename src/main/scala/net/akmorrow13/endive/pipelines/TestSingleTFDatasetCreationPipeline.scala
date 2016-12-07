@@ -83,56 +83,57 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
     // labels with sequence only. Should be null if sequences have not yet been extracted
     val labels = conf.labels
 
+    // specifies ladder region, test region, or ladder region within cell type
+    val boardSpl = labels.split('.')
+    val board = boardSpl(boardSpl.length - 3)
+    println(s"will save to location ${conf.aggregatedSequenceOutput}test/${board}/<TESTCELLNAME>.labeledWindows")
+
+
+    // verify that cell type and tf is defined
+    if (conf.getTf == null || conf.getCellTypes == null) {
+      println("Error: tf and cell type must be provided")
+      sys.exit(-1)
+    }
+
+    val cellTypes = conf.getCellTypes.map(c => CellTypes.getEnumeration(c))
+
     // create sequence dictionary
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-    val stringChrs = Dataset.heldOutChrs.map(_.toString)
-    // this is only used if the sequences have not yet been extracted
+
+    // TODO: start remove -----------------------------
+    val sequencesAndRegions = sc.loadFeatures(conf.labels).transform(rdd => rdd.repartition(20))
+
+    val featuresWithSequences = sequencesAndRegions.rdd.mapPartitions( part => {
+      val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+      part.map { r =>
+        val sequence = reference.extract(ReferenceRegion(r))
+        r.setSource(sequence) // set sequence
+        r
+      }
+    }).repartition(500)
+
+    sequencesAndRegions.transform(rdd => featuresWithSequences).save(s"${conf.aggregatedSequenceOutput}${board}/sequencesAndWindows.features.adam", false)
+    sys.exit(0)
+    // TODO: end remove ----------------------------------
 
     val windows: RDD[LabeledWindow] = {
-      if (labels == null) {
-        val heldOutChrs = sd.records.filter(r => stringChrs.contains(r.name))
-        assert(heldOutChrs.length == 3)
 
-        // generate all sliding windows for whole genome
-        val sequences = sc.parallelize(heldOutChrs).repartition(heldOutChrs.length)
-        println("partitions for held out chrs", sequences.partitions.length)
+      // loads in test regions and sequences. For this to work, sequences should be stored in getSource()
+        val sequencesAndRegions = sc.loadFeatures(conf.labels).rdd
 
-        // extract sequences
-        val windows: RDD[LabeledWindow] =
-          sequences
-            .mapPartitions(iter => {
-              if (iter.hasNext) {
-                val f = iter.next() // should only be one element in each partition
-                Array.range(0, f.length.toInt - Dataset.windowSize, Dataset.stride)
-                  .map(r => ReferenceRegion(f.name, r.toLong, r.toLong + Dataset.windowSize)).toIterator
-              } else Iterator.empty
-            }).repartition(30)
-            .mapPartitions(iter => {
-              val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-              iter.map { r =>
-                LabeledWindow(Window(TranscriptionFactors.Any, CellTypes.Any, // TF and CellType agnostic (just sequence)
-                  r, reference.extract(r), 0), -10) // no labels for test, so -10
-              }
-            }).repartition(500).setName("windows").cache()
-
-        println("labeled window count", windows.count)
-
-        // save sequences
-        println("Now saving sequences to disk")
-        windows.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + "test/sequence_windows")
-        windows.setName("Test windows")
-          .cache()
-      } else {
-        LabeledWindowLoader(labels, sc).setName("Test windows")
-          .cache()
+      // extract sequences
+      val windows: RDD[LabeledWindow] =
+        sequencesAndRegions.map(r => {
+              LabeledWindow(Window(TranscriptionFactors.Any, CellTypes.Any, // TF and CellType agnostic (just sequence)
+                ReferenceRegion(r.getContigName, r.getStart, r.getEnd), r.getSource, 0), -10) // no labels for test, so -10
+          }).setName("windows").cache()
       }
-    }
+
+      println("labeled window count", windows.count)
 
     // iterate through all test cell types and save data
-    for (testCellType <- Dataset.heldOutTypes) {
-
-      println("Loaded test windows", windows.count)
+    for (testCellType <- cellTypes) {
 
       // now join with narrow peak dnase
       val fs: FileSystem = FileSystem.get(new Configuration())
@@ -170,9 +171,11 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
       }
 
       println("Now saving to disk")
-      fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + "test/" + testCellType.toString)
+      val saveLocation = s"${conf.aggregatedSequenceOutput}test/${board}/${testCellType.toString}.labeledWindows"
+      fullMatrix.map(_.toString).saveAsTextFile(saveLocation)
       fullMatrix.unpersist()
     }
   }
+
 
 }
