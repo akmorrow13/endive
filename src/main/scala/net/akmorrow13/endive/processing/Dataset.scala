@@ -22,7 +22,9 @@ object Dataset extends Logging {
 
   // held out values for final round
   val heldOutChrs = List(Chromosomes.chr1, Chromosomes.chr8, Chromosomes.chr21)
-  val heldOutTypes = List(CellTypes.K562, CellTypes.PC3, CellTypes.liver, CellTypes.inducedpluripotentstemcell)
+
+  val heldOutTypes = List(CellTypes.K562, CellTypes.PC3, CellTypes.liver, CellTypes.inducedpluripotentstemcell,
+    CellTypes.MCF7, CellTypes.GM12878, CellTypes.H1hESC, CellTypes.HepG2)
 
   // actual base pairs that are used
   val alphabet = Map('A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
@@ -43,7 +45,7 @@ object TranscriptionFactors extends Enumeration with Serializable {
 object CellTypes extends Enumeration with Serializable {
   val A549,GM12878, H1hESC, HCT116, HeLaS3, HepG2, IMR90, K562,
   MCF7, PC3,
-  Panc1, SKNSH, inducedpluripotentstemcell, liver= Value
+  Panc1, SKNSH, inducedpluripotentstemcell, liver, Any = Value
 
   def toVector: Vector[String] = this.values.map(_.toString).toVector
 
