@@ -85,7 +85,8 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
 
     // specifies ladder region, test region, or ladder region within cell type
     val boardSpl = labels.split('.')
-    val board = boardSpl(boardSpl.length - 3)
+    println(boardSpl, boardSpl.length - 3 )
+    val board = boardSpl(boardSpl.length - 3).split("/").last
     println(s"will save to location ${conf.aggregatedSequenceOutput}test/${board}/<TESTCELLNAME>.labeledWindows")
 
 
@@ -95,14 +96,13 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
       sys.exit(-1)
     }
 
-    val cellTypes = conf.getCellTypes.map(c => CellTypes.getEnumeration(c))
+    val cellTypes = conf.getCellTypes.split(",").map(c => CellTypes.getEnumeration(c))
 
     // create sequence dictionary
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-
-    // TODO: start remove -----------------------------
-    val sequencesAndRegions = sc.loadFeatures(conf.labels).transform(rdd => rdd.repartition(20))
+   if (conf.hasSequences == false) { 
+   val sequencesAndRegions = sc.loadFeatures(conf.labels).transform(rdd => rdd.repartition(20))
 
     val featuresWithSequences = sequencesAndRegions.rdd.mapPartitions( part => {
       val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
@@ -113,17 +113,19 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
       }
     }).repartition(500)
 
-    sequencesAndRegions.transform(rdd => featuresWithSequences).save(s"${conf.aggregatedSequenceOutput}${board}/sequencesAndWindows.features.adam", false)
+    val sequencePath = s"${conf.aggregatedSequenceOutput}test/${board}/sequencesAndWindows.features.adam"
+     println(s"${conf.aggregatedSequenceOutput}test")
+    println(s"saving to sequence path ${sequencePath}")
+    sequencesAndRegions.transform(rdd => featuresWithSequences).save(sequencePath, false)
     sys.exit(0)
-    // TODO: end remove ----------------------------------
-
+    }
+    
     val windows: RDD[LabeledWindow] = {
 
       // loads in test regions and sequences. For this to work, sequences should be stored in getSource()
         val sequencesAndRegions = sc.loadFeatures(conf.labels).rdd
 
       // extract sequences
-      val windows: RDD[LabeledWindow] =
         sequencesAndRegions.map(r => {
               LabeledWindow(Window(TranscriptionFactors.Any, CellTypes.Any, // TF and CellType agnostic (just sequence)
                 ReferenceRegion(r.getContigName, r.getStart, r.getEnd), r.getSource, 0), -10) // no labels for test, so -10
@@ -176,6 +178,5 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
       fullMatrix.unpersist()
     }
   }
-
 
 }

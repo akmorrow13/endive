@@ -73,8 +73,8 @@ class EndiveConf extends Serializable {
 
   /* Configuration values used for saving test set */
   @BeanProperty var tf: String = null
-  @BeanProperty var cellTypes: Array[String] = null
-
+  @BeanProperty var cellTypes: String = null
+  @BeanProperty var hasSequences: Boolean = true
 }
 
 object EndiveConf {
