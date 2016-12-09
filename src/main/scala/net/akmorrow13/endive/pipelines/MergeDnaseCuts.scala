@@ -66,12 +66,15 @@ object MergeDnaseCuts extends Serializable with Logging {
     val output = conf.getFeaturizedOutput
 
     // get cell type from dnase path
-    val cellType = dnasePath.split("/").last.split('.')(1)
+    val cellType = dnasePath.split("/").last.split('.')(2)
+    println(cellType)
 
     val positiveFile = s"${conf.getFeaturizedOutput}${cellType}.positiveStrands.coverage.adam"
     val negativeFile = s"${conf.getFeaturizedOutput}${cellType}.negativeStrands.coverage.adam"
 
-    val dnase = sc.loadParquetAlignments(dnasePath)
+    var dnase = sc.loadParquetAlignments(dnasePath)
+     .transform(rdd => rdd.repartition(1000))
+     .transform(rdd => rdd.filter(r => r.start >= 0))
 
     dnase.rdd.cache()
 
