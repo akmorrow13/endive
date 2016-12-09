@@ -25,9 +25,10 @@ import nodes.learning.LogisticRegressionEstimator
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
+import org.bdgenomics.adam.models.{Coverage, ReferenceRegion, SequenceDictionary}
+import org.bdgenomics.adam.rdd.feature.CoverageRDD
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
-import org.bdgenomics.formats.avro.AlignmentRecord
+import org.bdgenomics.formats.avro.{Strand, AlignmentRecord, Feature}
 import org.bdgenomics.adam.rdd.LeftOuterShuffleRegionJoin
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
@@ -160,6 +161,62 @@ object VectorizedDnase extends Serializable  {
     }
   }
 
+  /**
+   * Joins Coverage and windows. does not specify cell type
+   */
+  def joinWithDnaseCoverage(sc: SparkContext,
+                        sd: SequenceDictionary,
+                        filteredRDD: RDD[LabeledWindow],
+                        positiveCoverage: CoverageRDD,
+                        negativeCoverage: CoverageRDD): RDD[LabeledWindow] = {
+
+
+    // cache all rdds for join
+    filteredRDD.setName("filteredRDD").cache()
+    println("rdd count", filteredRDD.count)
+
+
+    // joining is not cell type specific. require only one cell type
+    require(filteredRDD.map(_.win.getCellType).distinct.count() == 1, "join does not specifiy cell type. " +
+      "must only have one cell types")
+
+
+    // keep track of strands
+    val positiveFeatures = positiveCoverage.toFeatureRDD.rdd.map(r => {
+      r.setStrand(Strand.FORWARD)
+      r
+    })
+
+    val negativeFeatures = negativeCoverage.toFeatureRDD.rdd.map(r => {
+      r.setStrand(Strand.REVERSE)
+      r
+    })
+
+    // join together coverage
+    val coverageFeatures = positiveFeatures.union(negativeFeatures)
+
+    coverageFeatures.rdd.setName("positiveFeatures").cache()
+    coverageFeatures.rdd.count
+
+    // join with positive strands
+    val cutsAndWindows: RDD[LabeledWindow] =
+      LeftOuterShuffleRegionJoin[LabeledWindow, Feature](sd, 2000000, sc)
+        .partitionAndJoin(filteredRDD.keyBy(_.win.region), coverageFeatures.keyBy(r => ReferenceRegion(r.contigName, r.start, r.end)))
+        .groupBy(r => (r._1.win.region, r._1.win.getTf))
+        .map(r => {
+          val arr = r._2.toArray
+          featurizeCoverage(arr.head._1, arr.map(_._2).filter(_.isDefined).map(_.get))
+        }).setName("cutsAndWindows")
+        .cache()
+
+    coverageFeatures.rdd.unpersist()
+    filteredRDD.unpersist()
+    println("Cuts and Windows Count: " + cutsAndWindows.count)
+
+    cutsAndWindows
+
+  }
+
   def joinWithDnaseBams(sc: SparkContext,
                         sd: SequenceDictionary,
                         filteredRDD: RDD[LabeledWindow],
@@ -238,6 +295,43 @@ object VectorizedDnase extends Serializable  {
     joinWithDnaseBams(sc, sd, filteredRDD, coverage)
 
   }
+
+  /**
+   * Featurizes cuts from dnase to vectors of numbers covering 200 bp windows
+   * @param window cuts and windows to vectorize
+   * @return
+   */
+  def featurizeCoverage(window: LabeledWindow,
+                        coverage: Array[Feature]): LabeledWindow = {
+
+    val cellType = window.win.cellType
+
+    // where to center motif?
+    val (start, end) =
+        (window.win.region.start, window.win.region.end)
+
+    val positiveCoverage = coverage.filter(r => r.getStrand == Strand.FORWARD)
+    val negativeCoverage = coverage.filter(r => r.getStrand == Strand.REVERSE)
+
+    val positivePositions = DenseVector.zeros[Double](Dataset.windowSize)
+    val negativePositions = DenseVector.zeros[Double](Dataset.windowSize)
+
+    // featurize positives to vector
+    positiveCoverage.foreach(r => {
+      positivePositions((r.start - start).toInt) = r.getScore
+    })
+
+    // featurize negatives to vector
+    negativeCoverage.foreach(r => {
+      negativePositions((r.start - start).toInt) = r.getScore
+    })
+
+    val positions = DenseVector.vertcat(positivePositions, negativePositions)
+
+    // positions should be size of window
+    LabeledWindow(window.win.setDnase(positions), window.label)
+  }
+
 
   /**
    * Featurizes cuts from dnase to vectors of numbers covering 200 bp windows

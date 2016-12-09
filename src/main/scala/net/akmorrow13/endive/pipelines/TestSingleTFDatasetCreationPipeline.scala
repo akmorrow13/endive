@@ -29,6 +29,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.rdd.feature.CoverageRDD
 import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
 import org.bdgenomics.formats.avro._
 import org.bdgenomics.formats.avro.NucleotideContigFragment
@@ -166,10 +167,10 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
       // join with dnase bams
       fullMatrix = {
         // load cuts from AlignmentREcordRDD. filter out only cells of interest
-        val coverage = Preprocess.loadDnase(sc, dnaseBamsPath, Array(testCellType))
-        coverage.rdd.cache()
-        coverage.rdd.count
-        VectorizedDnase.joinWithDnaseBams(sc, sd, fullMatrix, coverage)
+        val (positiveCoverage: CoverageRDD, negativeCoverage: CoverageRDD)
+          = Preprocess.loadDnase(sc, dnaseBamsPath, testCellType)
+
+        VectorizedDnase.joinWithDnaseCoverage(sc, sd, fullMatrix, positiveCoverage, negativeCoverage)
       }
 
       println("Now saving to disk")
