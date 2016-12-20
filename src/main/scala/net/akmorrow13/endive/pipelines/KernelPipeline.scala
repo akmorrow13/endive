@@ -123,9 +123,9 @@ object KernelPipeline  extends Serializable with Logging {
         train = EndiveUtils.subselectRandomSamples(sc, train, sd)
       }
 
-      train = train.setName("train").cache()
+      train = train.setName("train").repartition(2000).cache()
       val test = allData.filter(r => (r.win.getRegion.referenceName == referenceName && r.win.cellType == cell))
-			.setName("test").cache()
+			.setName("test").repartition(2000).cache()
 
       val negativeCount = train.filter(_.label == 0).count
       val positiveCount = train.filter(_.label == 1).count
@@ -159,26 +159,21 @@ object KernelPipeline  extends Serializable with Logging {
     train.unpersist()
     test.unpersist()
 
-    val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
-      new Cacher[DenseVector[Double]]
+    val labelExtractor = ClassLabelIndicatorsFromIntLabels(2)
 
     val trainFeatures: RDD[DenseVector[Double]] = trainApprox.map(_.features).cache()
-    val trainLabels = trainApprox.map(r => ClassLabelIndicatorsFromIntLabels(2).apply(r.labeledWindow.label))
+    val trainLabels = trainApprox.map(r => labelExtractor.apply(r.labeledWindow.label))
       .cache()
 
     val testFeatures = testApprox.map(_.features)
+    val testLabels = testApprox.map(r => labelExtractor.apply(r.labeledWindow.label))
 
     // run least squares
-    val predictor = new BlockWeightedLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda, mixtureWeight)
-      .fit(trainFeatures, trainLabels)
+    val predictor = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels)
 
     // train metrics
     val trainPredictions = MaxClassifier(predictor(trainFeatures)).map(_.toDouble)
 
-    val prarr = trainPredictions.mapPartitions(iter => Array(iter.size).iterator, true).collect
-    prarr.foreach(r => println(r))
-    val approxarr = trainApprox.mapPartitions(iter => Array(iter.size).iterator, true).collect
-    approxarr.foreach(r => println(r))
 
     val evalTrain = new BinaryClassificationMetrics(trainPredictions.zip(trainApprox.map(_.labeledWindow.label.toDouble)))
     println("Train Results: \n ")
@@ -366,7 +361,7 @@ object KernelPipeline  extends Serializable with Logging {
             .build()
         })
 
-    val featureRDD = FeatureRDD(features, sd)
+    val featureRDD = new FeatureRDD(features, sd)
     featureRDD.save(path, false)
   }
 }

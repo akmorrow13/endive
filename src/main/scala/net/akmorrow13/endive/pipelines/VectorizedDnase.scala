@@ -15,6 +15,7 @@
  */
 package net.akmorrow13.endive.pipelines
 
+import scala.reflect.ClassTag
 import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.Motif
@@ -196,12 +197,19 @@ object VectorizedDnase extends Serializable  {
     val coverageFeatures = positiveFeatures.union(negativeFeatures)
 
     coverageFeatures.rdd.setName("positiveFeatures").cache()
-    coverageFeatures.rdd.count
+    println(s"coverage count in vectorized dnase ${coverageFeatures.rdd.count}")
 
     // join with positive strands
-    val cutsAndWindows: RDD[LabeledWindow] =
-      LeftOuterShuffleRegionJoin[LabeledWindow, Feature](sd, 2000000, sc)
+    var joinedRDD =
+      LeftOuterShuffleRegionJoin[LabeledWindow, Feature](sd, 1000000, sc)
         .partitionAndJoin(filteredRDD.keyBy(_.win.region), coverageFeatures.keyBy(r => ReferenceRegion(r.contigName, r.start, r.end)))
+
+     sc.setCheckpointDir("/data/anv/DREADMDATA/checkpoint/")
+     joinedRDD = truncateLineage(joinedRDD, true).setName("joinedRDD")
+
+     coverageFeatures.rdd.unpersist()
+
+     val cutsAndWindows = joinedRDD
         .groupBy(r => (r._1.win.region, r._1.win.getTf))
         .map(r => {
           val arr = r._2.toArray
@@ -209,7 +217,6 @@ object VectorizedDnase extends Serializable  {
         }).setName("cutsAndWindows")
         .cache()
 
-    coverageFeatures.rdd.unpersist()
     filteredRDD.unpersist()
     println("Cuts and Windows Count: " + cutsAndWindows.count)
 
@@ -403,8 +410,29 @@ object VectorizedDnase extends Serializable  {
       })
     centipedeWindows
   }
+ 
+ def truncateLineage[T: ClassTag](in: RDD[T], cache: Boolean): RDD[T] = {
+    // What we are doing here is:
+    // cache the input before checkpoint as it triggers a job
+    if (cache) {
+      in.cache()
+    }
+    in.checkpoint()
+    // Run a count to trigger the checkpoint
+    in.count
 
+    // Now "in" has HDFS preferred locations which is bothersome
+    // when we zip it next time. So do a identity map & get an RDD
+    // that is in memory, but has no preferred locs
+    val out = in.map(x => x).cache()
+    // This stage will run as NODE_LOCAL ?
+    out.count
 
+    // Now out is in memory, we can get rid of "in" and then
+    // return out
+    if (cache) {
+      in.unpersist(true)
+    }
+    out
+  }
 }
-
-
