@@ -143,8 +143,9 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     val cellTypes = fullMatrix.map(_.win.cellType).distinct.collect
     println("got cellTypes:")
     cellTypes.map(_.toString).foreach(println)
-    val tf = fullMatrix.map(_.win.getTf).distinct.collect
-    assert(tf.length == 1)
+    val tfs = fullMatrix.map(_.win.getTf).distinct.collect
+    assert(tfs.length == 1)
+    val tf = tfs.head
     println(s"Transcription factor ${tf.toString}")
     // TODO: END REMOVE CODE
 
@@ -170,7 +171,6 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
       else
         fullMatrixWithBams = fullMatrixWithBams.union(newData)
     }
-
     println("Now saving to disk")
     fullMatrixWithBams.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + tf)
   }
