@@ -2,6 +2,7 @@ package net.akmorrow13.endive.utils
 
 import net.akmorrow13.endive.processing._
 import org.bdgenomics.adam.models.ReferenceRegion
+import breeze.linalg._
 
 /**
  * required to standardize cell type names
@@ -38,6 +39,9 @@ object Window {
   /* Delimiter inside Sequence and label*/
   val STDDELIM = ","
 
+  /* Delimiter inside Features and LabeledWindow */
+  val FEATDELIM = "#"
+
   /* Delimiter to split RNASE AND DNASE windows */
   val EPIDELIM= ";"
 
@@ -70,6 +74,14 @@ case class Window(tf: TranscriptionFactors.Value,
     val stringifiedMotifs = motifs.map(_.toString).mkString(Window.EPIDELIM)
     val stringifiedRNAseq = rnaseq.map(_.toString).mkString(Window.EPIDELIM)
     s"${tf.toString},${cellType.toString},${region.referenceName},${region.start},${region.end},${sequence}${Window.OUTERDELIM}${stringifiedDnase}${Window.OUTERDELIM}${stringifiedRNAseq}${Window.OUTERDELIM}${stringifiedMotifs}"
+  }
+}
+
+
+case class FeaturizedLabeledWindow(labeledWindow: LabeledWindow, features: DenseVector[Double]) {
+
+  override def toString: String = {
+    labeledWindow.toString + Window.FEATDELIM + features.toString
   }
 }
 

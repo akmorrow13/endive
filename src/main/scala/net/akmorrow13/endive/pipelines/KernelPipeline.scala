@@ -40,9 +40,6 @@ import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
-import nodes.learning.LogisticRegressionEstimator
-import java.io._
-
 import java.io.File
 
 
@@ -95,10 +92,6 @@ object KernelPipeline  extends Serializable with Logging {
     val dnasePath = conf.dnase
     val referencePath = conf.reference
 
-    val hadoopConf = new org.apache.hadoop.conf.Configuration()
-    val hdfs = org.apache.hadoop.fs.FileSystem.get(new java.net.URI("hdfs://localhost:9000"), hadoopConf)
-    println("Saving files to " + conf.featuresOutput)
-
     if (dataPath == null || referencePath == null || dnasePath == null) {
       println("Error: no data or reference path")
       sys.exit(-1)
@@ -113,9 +106,13 @@ object KernelPipeline  extends Serializable with Logging {
     var allData: RDD[LabeledWindow] =
       LabeledWindowLoader(dataPath, sc).setName("_All data")
         .filter(_.label >= 0)
-  	.repartition(conf.numPartitions)
-    	.cache()
+        .cache()
 
+    if (conf.sample) {
+      // sample data
+      allData = EndiveUtils.subselectRandomSamples(sc, allData, sd)
+      println("Sampled LabeledWindows", allData.count)
+    }
 
     // extract tfs and cells for this label file
     val tfs = allData.map(_.win.getTf).distinct.collect()
@@ -133,96 +130,75 @@ object KernelPipeline  extends Serializable with Logging {
       val cell = first.win.cellType
 
       // hold out a (chromosome, celltype) pair for test
-      var train = allData.filter(r => (r.win.getRegion.referenceName != referenceName && r.win.cellType != cell))
+      val train = allData.filter(r => (r.win.getRegion.referenceName != referenceName && r.win.cellType != cell))
       val test = allData.filter(r => (r.win.getRegion.referenceName == referenceName && r.win.cellType == cell))
-
-      // sample data
-      if (conf.negativeSamplingFreq != 1.0) {
-        train = EndiveUtils.subselectRandomSamples(sc, train, sd, conf.negativeSamplingFreq, conf.seed)
-      }
-      println("Sampled train LabeledWindows", train.count)
-      println("unSampled test LabeledWindows", test.count)
 
       (cell, train, test)
     }
 
+    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+    val gaussian = new Gaussian(0, 1)
 
-    // either generate filters or load from disk
-
-    val W =
-    if (conf.readFiltersFromDisk) {
-
-      val numFilters = scala.io.Source.fromFile(conf.filtersPath).getLines.size
-      val dataDimension = scala.io.Source.fromFile(conf.filtersPath).getLines.next.split(",").size
-
-
-      // Make sure read in filter params are consistent with our world view
-      assert(numFilters == approxDim)
-      assert(dataDimension ==  kmerSize * alphabetSize)
-
-      val WRaw = scala.io.Source.fromFile(conf.filtersPath).getLines.toArray.flatMap(_.split(",")).map(_.toDouble)
-      val W:DenseMatrix[Double] = new DenseMatrix(approxDim, kmerSize * alphabetSize, WRaw)
-      W
-    } else {
-      // Only gaussian filter generation is supported (for now)
-
-      implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
-      val gaussian = new Gaussian(0, 1) 
-
-      // generate random matrix
-      val W:DenseMatrix[Double] = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian) * conf.gamma
-      W
-    }
+    // generate random matrix
+    val W = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
 
     // generate approximation features
-    val trainApprox = featurize(train, W, kmerSize)
+    val trainApprox = featurizeWithDnase(sc, train, W, sd, kmerSize, cells.filter(!_.equals(testCell)), dnasePath)
 	  .cache()
-    val testApprox = featurize(test, W, kmerSize)
-	  .cache()
+    val testApprox = featurizeWithDnase(sc, test, W, sd, kmerSize, Array(testCell), dnasePath)
+	.cache()
 
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
 
-    val trainFeatures: RDD[DenseVector[Double]] = trainApprox.map(_.features).cache()
-    val trainLabels = labelExtractor(trainApprox.map(_.labeledWindow.label)).get
+    val trainFeatures: RDD[DenseVector[Double]] = trainApprox.map(_.features)
+    val trainLabels = labelExtractor(trainApprox.map(_.labeledWindow.label))
 
-    val testFeatures = testApprox.map(_.features).cache()
-    val testLabels = labelExtractor(testApprox.map(_.labeledWindow.label)).get
+    val testFeatures = testApprox.map(_.features)
+    val testLabels = labelExtractor(testApprox.map(_.labeledWindow.label))
 
     println(trainApprox.count, testApprox.count)
-    val trainFeaturesOutput = conf.featuresOutput + "/trainFeatures"
-    val testFeaturesOutput = conf.featuresOutput + "/testFeatures"
-
-    trainFeatures.zip(trainLabels).map(x => s"${x._1.toArray.mkString(",")},${x._2}").saveAsTextFile(trainFeaturesOutput)
-
-    testFeatures.zip(testLabels).map(x => s"${x._1.toArray.mkString(",")},${x._2}").saveAsTextFile(testFeaturesOutput)
-
 
     // run least squares
-    /*
-    val model = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels)
+    val predictor = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels.get)
 
-    val trainPredictions:RDD[Double] = model(trainFeatures).map(x => x(1))
-    val testPredictions:RDD[Double] = model(testFeatures).map(x => x(1))
 
-    trainPredictions.count()
-    testPredictions.count()
+    // train metrics
+    val trainPredictions = MaxClassifier(predictor(trainFeatures)).map(_.toDouble)
 
-    val trainScalarLabels = trainLabels.map(x => if(x(1) == 1) 1 else 0)
-    val testScalarLabels = testLabels.map(x => if(x(1) ==1) 1 else 0)
-    val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
-    val testPredictionsOutput = conf.predictionsOutput + "/testPreds"
+    val prarr = trainPredictions.mapPartitions(iter => Array(iter.size).iterator, true).collect
+    prarr.foreach(r => println(r))
+    val approxarr = trainApprox.mapPartitions(iter => Array(iter.size).iterator, true).collect
+    approxarr.foreach(r => println(r))
 
-    println("WRITING TRAIN PREDICTIONS TO DISK")
-    try { hdfs.delete(new org.apache.hadoop.fs.Path(trainPredictionsOutput), true) } catch { case _ : Throwable => { } }
 
-    val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
+    val evalTrain = new BinaryClassificationMetrics(trainPredictions.zip(trainApprox.map(_.labeledWindow.label.toDouble)))
+    println("Train Results: \n ")
+    Metrics.printMetrics(evalTrain)
 
-    println("WRITING TEST PREDICTIONS TO DISK")
-    try { hdfs.delete(new org.apache.hadoop.fs.Path(testPredictionsOutput), true) } catch { case _ : Throwable => { } }
+    // test metrics
+    val testPredictions = MaxClassifier(predictor(testFeatures)).map(_.toDouble)
+    val evalTest = new BinaryClassificationMetrics(testPredictions.zip(testApprox.map(_.labeledWindow.label.toDouble)))
+    println("Test Results: \n ")
+    Metrics.printMetrics(evalTest)
 
-    val zippedTestPreds = testScalarLabels.zip(testPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(testPredictionsOutput)
-    */
+    // save train predictions as FeatureRDD if specified
+    if (conf.saveTrainPredictions != null) {
+      if (sd == null) {
+        println("Error: need referencePath to save output train predictions")
+      } else {
+        saveAsFeatures(trainApprox.map(_.labeledWindow), trainPredictions, sd, conf.saveTrainPredictions)
+      }
+    }
+
+    // save test predictions as FeatureRDD if specified
+    if (conf.saveTestPredictions != null) {
+      if (sd == null) {
+        println("Error: need referencePath to save output train predictions")
+      } else {
+        saveAsFeatures(testApprox.map(_.labeledWindow), testPredictions, sd, conf.saveTestPredictions)
+      }
+    }
   }
 
   /**
@@ -267,7 +243,7 @@ object KernelPipeline  extends Serializable with Logging {
                          dnasePath: String): RDD[BaseFeature] = {
 
     val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize)
-    println("DNASE PATH IS " + dnasePath)
+
     // load cuts from AlignmentREcordRDD. filter out only cells of interest
     val dnase = Preprocess.loadDnase(sc, dnasePath, cells)
       .transform(rdd =>

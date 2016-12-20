@@ -14,7 +14,9 @@ NUM_EXECUTORS = 12
 CORES_PER_EXECUTOR = 24
 
 dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatasetCreationPipeline"
-prediction_pipeline_class = "net.akmorrow13.endive.pipelines.KernelPipeline"
+
+featurization_pipeline_class = "net.akmorrow13.endive.pipelines.KitchenSinkFeaturizePipeline"
+
 pipeline_jar = os.path.relpath("../target/scala-2.10/endive-assembly-0.1.jar")
 
 
@@ -26,16 +28,15 @@ def make_gaussian_filter_gen(gamma, alphabet_size=4, kmer_size=8, seed=0):
         return out
     return gaussian_filter_gen
 
-def run_kernel_pipeline(windowPath,
+def run_kitchensink_featurize_pipeline(windowPath,
                filterPath,
                logpath,
                filter_gen_gen=make_gaussian_filter_gen,
                gamma = 1.0,
+               sample = 0.01,
                alphabet_size=4,
                kmer_size=8,
                num_filters=256,
-               negativeSamplingFreq=0.01,
-               reg=0.01,
                featuresOutput="/user/vaishaal/tmp/features",
                seed=0,
                cores_per_executor=CORES_PER_EXECUTOR,
@@ -51,7 +52,7 @@ def run_kernel_pipeline(windowPath,
     np.savetxt(filterPath, w, delimiter=",")
     kernel_pipeline_config["filtersPath"] = filterPath
     kernel_pipeline_config["aggregatedSequenceOutput"] = windowPath
-    kernel_pipeline_config['negativeSamplingFreq'] = negativeSamplingFreq
+    kernel_pipeline_config["featurizeSample"] = sample
     kernel_pipeline_config["kmerLength"] = kmer_size
     kernel_pipeline_config["dim"] = num_filters
     kernel_pipeline_config["readFiltersFromDisk"] = True
@@ -61,7 +62,7 @@ def run_kernel_pipeline(windowPath,
 
     pythonrun.run(kernel_pipeline_config,
               logpath,
-              prediction_pipeline_class,
+              featurization_pipeline_class,
               pipeline_jar,
               executor_mem,
               cores_per_executor,

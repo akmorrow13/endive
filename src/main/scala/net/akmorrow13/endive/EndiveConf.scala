@@ -37,9 +37,14 @@ class EndiveConf extends Serializable {
   @BeanProperty var readFiltersFromDisk: Boolean = false
   @BeanProperty var predictionsOutput: String = "/user/vaishaal/tmp"
   @BeanProperty var featuresOutput: String = "/user/vaishaal/features"
+  @BeanProperty var featurizeSample: Double = 1.0
   @BeanProperty var numPartitions: Int = 400
   @BeanProperty var negativeSamplingFreq: Double = 0.001
   @BeanProperty var filtersPath: String  = "/tmp/filters.csv"
+
+  /* train test split for solve */
+  @BeanProperty var testChromosomes: Array[String] = Array()
+  @BeanProperty var testCellTypes: Array[Int] = Array()
 
 
   /* data sources*/
