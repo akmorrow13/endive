@@ -108,7 +108,7 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
     val featuresWithSequences = sequencesAndRegions.rdd.mapPartitions( part => {
       val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
       part.map { r =>
-        val sequence = reference.extract(ReferenceRegion(r))
+        val sequence = reference.extract(ReferenceRegion.unstranded(r))
         r.setSource(sequence) // set sequence
         r
       }
