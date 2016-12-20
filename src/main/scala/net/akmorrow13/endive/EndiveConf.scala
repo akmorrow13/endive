@@ -35,7 +35,8 @@ class EndiveConf extends Serializable {
   @BeanProperty var gamma: Double = 1.0
   @BeanProperty var seed: Int = 0
   @BeanProperty var readFiltersFromDisk: Boolean = false
-  @BeanProperty var predictionsOutput: String = "/tmp"
+  @BeanProperty var predictionsOutput: String = "/user/vaishaal/tmp"
+  @BeanProperty var featuresOutput: String = "/user/vaishaal/features"
   @BeanProperty var numPartitions: Int = 400
   @BeanProperty var negativeSamplingFreq: Double = 0.001
   @BeanProperty var filtersPath: String  = "/tmp/filters.csv"

@@ -36,7 +36,7 @@ def run_kernel_pipeline(windowPath,
                num_filters=256,
                negativeSamplingFreq=0.01,
                reg=0.01,
-               predictionsOutput ="/tmp/",
+               featuresOutput="/user/vaishaal/tmp/features",
                seed=0,
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
@@ -55,10 +55,9 @@ def run_kernel_pipeline(windowPath,
     kernel_pipeline_config["kmerLength"] = kmer_size
     kernel_pipeline_config["dim"] = num_filters
     kernel_pipeline_config["readFiltersFromDisk"] = True
-    kernel_pipeline_config["predictionsOutput"] = predictionsOutput
+    kernel_pipeline_config["featuresOutput"] = featuresOutput
     kernel_pipeline_config["seed"] = seed
 
-    os.system("mkdir -p {0}".format(kernel_pipeline_config["predictionsOutput"]))
 
     pythonrun.run(kernel_pipeline_config,
               logpath,
@@ -69,10 +68,9 @@ def run_kernel_pipeline(windowPath,
               num_executors,
               use_yarn=True)
 
+    return True
 
-    y_train_all = genfromtxt(kernel_pipeline_config["predictionsOutput"] + "/trainPreds.csv", delimiter=",")
-    y_test_all = genfromtxt(kernel_pipeline_config["predictionsOutput"] + "/testPreds.csv", delimiter=",")
-    return (y_train_all[:,0], y_train_all[:, 1]), (y_test_all[:, 0], y_test_all[:, 1])
+
 
 
 

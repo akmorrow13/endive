@@ -95,6 +95,10 @@ object KernelPipeline  extends Serializable with Logging {
     val dnasePath = conf.dnase
     val referencePath = conf.reference
 
+    val hadoopConf = new org.apache.hadoop.conf.Configuration()
+    val hdfs = org.apache.hadoop.fs.FileSystem.get(new java.net.URI("hdfs://localhost:9000"), hadoopConf)
+    println("Saving files to " + conf.featuresOutput)
+
     if (dataPath == null || referencePath == null || dnasePath == null) {
       println("Error: no data or reference path")
       sys.exit(-1)
@@ -133,7 +137,9 @@ object KernelPipeline  extends Serializable with Logging {
       val test = allData.filter(r => (r.win.getRegion.referenceName == referenceName && r.win.cellType == cell))
 
       // sample data
-      train = EndiveUtils.subselectRandomSamples(sc, train, sd, conf.negativeSamplingFreq, conf.seed)
+      if (conf.negativeSamplingFreq != 1.0) {
+        train = EndiveUtils.subselectRandomSamples(sc, train, sd, conf.negativeSamplingFreq, conf.seed)
+      }
       println("Sampled train LabeledWindows", train.count)
       println("unSampled test LabeledWindows", test.count)
 
@@ -184,10 +190,16 @@ object KernelPipeline  extends Serializable with Logging {
     val testLabels = labelExtractor(testApprox.map(_.labeledWindow.label)).get
 
     println(trainApprox.count, testApprox.count)
+    val trainFeaturesOutput = conf.featuresOutput + "/trainFeatures"
+    val testFeaturesOutput = conf.featuresOutput + "/testFeatures"
+
+    trainFeatures.zip(trainLabels).map(x => s"${x._1.toArray.mkString(",")},${x._2}").saveAsTextFile(trainFeaturesOutput)
+
+    testFeatures.zip(testLabels).map(x => s"${x._1.toArray.mkString(",")},${x._2}").saveAsTextFile(testFeaturesOutput)
 
 
     // run least squares
-
+    /*
     val model = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels)
 
     val trainPredictions:RDD[Double] = model(trainFeatures).map(x => x(1))
@@ -198,19 +210,19 @@ object KernelPipeline  extends Serializable with Logging {
 
     val trainScalarLabels = trainLabels.map(x => if(x(1) == 1) 1 else 0)
     val testScalarLabels = testLabels.map(x => if(x(1) ==1) 1 else 0)
+    val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
+    val testPredictionsOutput = conf.predictionsOutput + "/testPreds"
 
-    val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").collect()
-    val zippedTestPreds = testScalarLabels.zip(testPredictions).map(x => s"${x._1},${x._2}").collect()
+    println("WRITING TRAIN PREDICTIONS TO DISK")
+    try { hdfs.delete(new org.apache.hadoop.fs.Path(trainPredictionsOutput), true) } catch { case _ : Throwable => { } }
 
-    val trainFile = new File(conf.predictionsOutput + "/trainPreds.csv")
-    var bw = new BufferedWriter(new FileWriter(trainFile))
-    bw.write(zippedTrainPreds.mkString("\n"))
-    bw.close()
+    val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
 
-    val testFile = new File(conf.predictionsOutput + "/testPreds.csv")
-    bw = new BufferedWriter(new FileWriter(testFile))
-    bw.write(zippedTestPreds.mkString("\n"))
-    bw.close()
+    println("WRITING TEST PREDICTIONS TO DISK")
+    try { hdfs.delete(new org.apache.hadoop.fs.Path(testPredictionsOutput), true) } catch { case _ : Throwable => { } }
+
+    val zippedTestPreds = testScalarLabels.zip(testPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(testPredictionsOutput)
+    */
   }
 
   /**
