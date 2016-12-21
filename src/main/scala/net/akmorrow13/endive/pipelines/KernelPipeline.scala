@@ -129,7 +129,7 @@ object KernelPipeline  extends Serializable with Logging {
 
       val negativeCount = train.filter(_.label == 0).count
       val positiveCount = train.filter(_.label == 1).count
-      val mixtureWeight = negativeCount/positiveCount
+      val mixtureWeight = negativeCount.toDouble/positiveCount.toDouble
       println(s"calculating mixture weight, negs: ${negativeCount}, pos ${positiveCount}, mix ${mixtureWeight}")
 
       (cell, train, test, mixtureWeight)
@@ -154,6 +154,12 @@ object KernelPipeline  extends Serializable with Logging {
 	  .setName("testApprox")
 	  .cache()
 
+    if (conf.saveFeatures != null) {
+      trainApprox.map(_.toString).saveAsTextFile(conf.saveFeatures + "_train")
+      testApprox.map(_.toString).saveAsTextFile(conf.saveFeatures + "_test")
+
+    }
+
     println(trainApprox.count, testApprox.count)
 
     train.unpersist()
@@ -169,7 +175,7 @@ object KernelPipeline  extends Serializable with Logging {
     val testLabels = testApprox.map(r => labelExtractor.apply(r.labeledWindow.label))
 
     // run least squares
-    val predictor = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels)
+    val predictor = new BlockWeightedLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda, mixtureWeight).fit(trainFeatures, trainLabels)
 
     // train metrics
     val trainPredictions = MaxClassifier(predictor(trainFeatures)).map(_.toDouble)

@@ -75,6 +75,9 @@ class EndiveConf extends Serializable {
   @BeanProperty var tf: String = null
   @BeanProperty var cellTypes: String = null
   @BeanProperty var hasSequences: Boolean = true
+
+  @BeanProperty var saveFeatures: String = null
+
 }
 
 object EndiveConf {
