@@ -18,21 +18,16 @@ package net.akmorrow13.endive.pipelines
 import java.io.File
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.processing.{Chromosomes, CellTypes, TranscriptionFactors}
-import net.akmorrow13.endive.processing.Sequence
 import net.akmorrow13.endive.utils._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
-import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
-import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.feature.CoverageRDD
-import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
-import org.bdgenomics.formats.avro._
-import org.bdgenomics.formats.avro.NucleotideContigFragment
+import org.bdgenomics.adam.util.{  TwoBitFile }
 import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.constructor.Constructor
@@ -102,36 +97,37 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
     // create sequence dictionary
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-   if (conf.hasSequences == false) { 
-   val sequencesAndRegions = sc.loadFeatures(conf.labels).transform(rdd => rdd.repartition(20))
+    if (conf.hasSequences == false) {
 
-    val featuresWithSequences = sequencesAndRegions.rdd.mapPartitions( part => {
-      val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-      part.map { r =>
-        val sequence = reference.extract(ReferenceRegion.unstranded(r))
-        r.setSource(sequence) // set sequence
-        r
-      }
-    }).repartition(500)
+      val sequencesAndRegions = sc.loadFeatures(conf.labels).transform(rdd => rdd.repartition(20))
 
-    val sequencePath = s"${conf.aggregatedSequenceOutput}test/${board}/sequencesAndWindows.features.adam"
-     println(s"${conf.aggregatedSequenceOutput}test")
-    println(s"saving to sequence path ${sequencePath}")
-    sequencesAndRegions.transform(rdd => featuresWithSequences).save(sequencePath, false)
-    sys.exit(0)
+      val featuresWithSequences = sequencesAndRegions.rdd.mapPartitions( part => {
+        val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+        part.map { r =>
+          val sequence = reference.extract(ReferenceRegion.unstranded(r))
+          r.setSource(sequence) // set sequence
+          r
+        }
+      }).repartition(500)
+
+      val sequencePath = s"${conf.aggregatedSequenceOutput}test/${board}/sequencesAndWindows.features.adam"
+       println(s"${conf.aggregatedSequenceOutput}test")
+      println(s"saving to sequence path ${sequencePath}")
+      sequencesAndRegions.transform(rdd => featuresWithSequences).save(sequencePath, false)
+      sys.exit(0)
     }
-    
+
     val windows: RDD[LabeledWindow] = {
 
       // loads in test regions and sequences. For this to work, sequences should be stored in getSource()
         val sequencesAndRegions = sc.loadFeatures(conf.labels).rdd
 
       // extract sequences
-        sequencesAndRegions.map(r => {
-              LabeledWindow(Window(TranscriptionFactors.Any, CellTypes.Any, // TF and CellType agnostic (just sequence)
-                ReferenceRegion(r.getContigName, r.getStart, r.getEnd), r.getSource, 0), -10) // no labels for test, so -10
-          }).setName("windows").cache()
-      }
+      sequencesAndRegions.map(r => {
+            LabeledWindow(Window(TranscriptionFactors.Any, CellTypes.Any, // TF and CellType agnostic (just sequence)
+              ReferenceRegion(r.getContigName, r.getStart, r.getEnd), r.getSource, 0), -10) // no labels for test, so -10
+        }).setName("windows").cache()
+    }
 
       println("labeled window count", windows.count)
 
@@ -173,8 +169,8 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
         VectorizedDnase.joinWithDnaseCoverage(sc, sd, fullMatrix, positiveCoverage, negativeCoverage)
       }
 
-      println("Now saving to disk")
       val saveLocation = s"${conf.aggregatedSequenceOutput}test/${board}/${testCellType.toString}.labeledWindows"
+      println(s"Now saving to disk for celltyp ${testCellType.toString} at ${saveLocation}")
       fullMatrix.map(_.toString).saveAsTextFile(saveLocation)
       fullMatrix.unpersist()
     }
