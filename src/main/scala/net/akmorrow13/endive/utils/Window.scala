@@ -81,7 +81,7 @@ case class Window(tf: TranscriptionFactors.Value,
 case class FeaturizedLabeledWindow(labeledWindow: LabeledWindow, features: DenseVector[Double]) {
 
   override def toString: String = {
-    labeledWindow.toString + Window.FEATDELIM + features.toString
+    labeledWindow.toString + Window.FEATDELIM + features.toArray.mkString(",")
   }
 }
 

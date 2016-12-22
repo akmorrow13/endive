@@ -47,6 +47,9 @@ echo "RUNNING ON THE CLUSTER"
 export LD_LIBRARY_PATH=/home/eecs/vaishaal/gcc-build/lib64:/home/eecs/vaishaal/gcc-build/lib:/home/eecs/vaishaal/openblas-install/lib
 export CPATH=/home/eecs/vaishaal/gcc-build/include
 
+echo CORES $SPARK_EXECUTOR_CORES
+echo NUM EXECUTORS $SPARK_NUM_EXECUTORS
+
 # Set some commonly used config flags on the cluster
 "$SPARK_SUBMIT" \
   --master $MASTER \

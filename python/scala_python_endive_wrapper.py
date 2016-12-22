@@ -17,6 +17,8 @@ dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatas
 
 featurization_pipeline_class = "net.akmorrow13.endive.pipelines.KitchenSinkFeaturizePipeline"
 
+solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
+
 pipeline_jar = os.path.relpath("../target/scala-2.10/endive-assembly-0.1.jar")
 
 
@@ -70,6 +72,36 @@ def run_kitchensink_featurize_pipeline(windowPath,
               use_yarn=True)
 
     return True
+
+
+def run_solver_pipeline(featuresPath,
+               logpath,
+               cores_per_executor=CORES_PER_EXECUTOR,
+               num_executors=NUM_EXECUTORS,
+               executor_mem=EXECUTOR_MEM,
+               use_yarn=True,
+               base_config=BASE_KERNEL_PIPELINE_CONFIG):
+
+    kernel_pipeline_config = base_config.copy()
+    kernel_pipeline_config["featuresOutput"] = featuresPath
+    pythonrun.run(kernel_pipeline_config,
+              logpath,
+              solver_pipeline_class,
+              pipeline_jar,
+              executor_mem,
+              cores_per_executor,
+              num_executors,
+              use_yarn=True)
+
+    return True
+
+
+
+
+
+
+
+
 
 
 

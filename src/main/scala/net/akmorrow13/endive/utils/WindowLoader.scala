@@ -114,7 +114,7 @@ object FeaturizedLabeledWindowLoader {
     def stringToFeaturizedLabeledWindow(str: String): FeaturizedLabeledWindow = {
       val splitString = str.split(Window.FEATDELIM)
       val labeledWindow:LabeledWindow = LabeledWindowLoader.stringToLabeledWindow(splitString(0))
-      val features:DenseVector[Double]= new DenseVector[Double](splitString(1).toArray.map(_.toDouble))
+      val features:DenseVector[Double]= new DenseVector[Double](splitString(1).split(",").toArray.map(_.toDouble))
       FeaturizedLabeledWindow(labeledWindow, features)
     }
 

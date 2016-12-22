@@ -96,9 +96,11 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
   	.repartition(conf.numPartitions)
       .cache()
 
-    if (conf.featurizeSample < 1.0) = {
+    if (conf.featurizeSample < 1.0)  {
       allData = allData.sample(false, conf.featurizeSample)
     }
+
+    println("Sampling Frequency " + conf.featurizeSample)
 
     // either generate filters or load from disk
 
