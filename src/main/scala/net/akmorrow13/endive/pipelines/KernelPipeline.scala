@@ -119,11 +119,6 @@ object KernelPipeline  extends Serializable with Logging {
       // hold out a (chromosome, celltype) pair for test
       var train = allData.filter(r => (r.win.getRegion.referenceName != referenceName && r.win.cellType != cell))
 
-      val negativeCount = train.filter(_.label == 0).count
-      val positiveCount = train.filter(_.label == 1).count
-      val mixtureWeight = negativeCount.toDouble/positiveCount.toDouble
-      println(s"calculating mixture weight, negs: ${negativeCount}, pos ${positiveCount}, mix ${mixtureWeight}")
-
       if (conf.sample) {
         // sample data
         train = EndiveUtils.subselectRandomSamples(sc, train, sd)
@@ -134,6 +129,7 @@ object KernelPipeline  extends Serializable with Logging {
 			.setName("test").repartition(2000).cache()
 
       (cell, train, test)
+
     }
 
     println(s"train: ${train.count}, test: ${test.count}")
@@ -142,16 +138,14 @@ object KernelPipeline  extends Serializable with Logging {
     val gaussian = new Gaussian(0, 1)
 
     // generate random matrix
-    val dnaseMax = train.map(r => r.win.dnase.max).max().toInt
-    println("dnaseMax", dnaseMax)
     val W_sequence = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
     val W_dnase = DenseMatrix.rand(approxDim, dnaseSize * 1, gaussian)
 
     // generate approximation features
-    val trainApprox = featurizeWithDnase(sc, train, W_sequence, kmerSize, Some(W_dnase),Some(dnaseSize))
+    val trainApprox = featurizeWithWaveletDnase(sc, train, W_sequence, kmerSize, dnaseSize, approxDim)
 	  .setName("trainApprox")
 	  .cache()
-    val testApprox = featurizeWithDnase(sc, test, W_sequence, kmerSize, Some(W_dnase), Some(dnaseSize))
+    val testApprox = featurizeWithWaveletDnase(sc, train, W_sequence, kmerSize, dnaseSize, approxDim)
 	  .setName("testApprox")
 	  .cache()
 
@@ -169,9 +163,8 @@ object KernelPipeline  extends Serializable with Logging {
     val testFeatures = testApprox.map(_.features)
     val testLabels = testApprox.map(r => labelExtractor.apply(r.labeledWindow.label))
   
-    for (mixtureWeight <- Array(0.1,0.5,1.0,1.5,10,50,100)) {
     // run least squares
-    val predictor = new BlockWeightedLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda, mixtureWeight).fit(trainFeatures, trainLabels)
+    val predictor = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels)
 
     // train metrics
     val trainPredictions = MaxClassifier(predictor(trainFeatures)).map(_.toDouble)
@@ -182,7 +175,6 @@ object KernelPipeline  extends Serializable with Logging {
     Metrics.printMetrics(evalTrain)
 
     // test metrics
-    println(s"mixture weight ${mixtureWeight}")
     val testPredictions = MaxClassifier(predictor(testFeatures)).map(_.toDouble)
     val evalTest = new BinaryClassificationMetrics(testPredictions.zip(testApprox.map(_.labeledWindow.label.toDouble)))
     println("Test Results: \n ")
@@ -204,7 +196,6 @@ object KernelPipeline  extends Serializable with Logging {
       } else {
         saveAsFeatures(testApprox.map(_.labeledWindow), testPredictions, sd, conf.saveTestPredictions)
       }
-    }
     }
   }
 

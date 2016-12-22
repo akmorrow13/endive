@@ -17,7 +17,7 @@ package net.akmorrow13.endive.processing
 
 import java.io.{InputStreamReader, BufferedReader, File}
 import breeze.linalg.DenseVector
-import net.akmorrow13.endive.utils.LabeledWindow
+import net.akmorrow13.endive.utils.{LabeledWindowLoader, LabeledWindow}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
@@ -421,7 +421,23 @@ case class Transcript(geneId: String, transcriptId: String, region: ReferenceReg
 case class BaseFeature(labeledWindow: LabeledWindow, features: DenseVector[Double]) {
 
   override def toString: String = {
-    labeledWindow.toString + "!" + features.toString
+    labeledWindow.toString + features.toString
+  }
+}
+
+object BaseFeatureLoader {
+
+  def stringToBaseFeature(str: String): BaseFeature = {
+    val parts = str.split("DenseVector")
+    val winStr = parts(0)
+    val featureStr = parts(1).dropRight(1).drop(1)
+    val vector = DenseVector[Double](featureStr.split(",").map(_.toDouble))
+    BaseFeature(LabeledWindowLoader.stringToLabeledWindow(winStr), vector)
+  }
+
+  def apply(path: String, sc: SparkContext): RDD[BaseFeature] = {
+    val dataTxtRDD:RDD[String] = sc.textFile(path)
+    dataTxtRDD.map(stringToBaseFeature(_))
   }
 }
 
