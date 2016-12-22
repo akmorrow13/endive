@@ -75,7 +75,7 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
     // set parameters
     val seed = 0
     val kmerSize = 8
-    val approxDim = conf.dim
+    val approxDim = conf.approxDim
     val alphabetSize = Dataset.alphabet.size
 
     val dataPath = conf.aggregatedSequenceOutput

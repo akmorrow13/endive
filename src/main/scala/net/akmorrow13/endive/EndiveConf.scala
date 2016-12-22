@@ -74,7 +74,7 @@ class EndiveConf extends Serializable {
   @BeanProperty var sequenceLength: Int = 100
 
   /* Kernel approximation feature parameters */
-  @BeanProperty var dim: Int = 256
+  @BeanProperty var approxDim: Int = 256
 
   /* Save predictions */
   @BeanProperty var saveTrainPredictions: String = null

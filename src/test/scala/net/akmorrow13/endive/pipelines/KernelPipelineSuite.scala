@@ -39,7 +39,7 @@ class KernelPipelineSuite extends EndiveFunSuite {
     val conf: EndiveConf = new EndiveConf()
     conf.setAggregatedSequenceOutput(windowPath)
     conf.setReference(referencePath)
-    conf.setDim(100)
+    conf.setApproxDim(100)
     conf.setSample(false)
     conf.setSaveTrainPredictions(outputFile)
 

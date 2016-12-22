@@ -79,24 +79,24 @@ object SolverPipeline extends Serializable with Logging {
     }
   }
 
-  /*
-  def trainTestSplit(featuresRDD, testChromosomes, testCellTypes) = {
+  def trainTestSplit(featuresRDD: RDD[FeaturizedLabeledWindow], testChromosomes: Array[String], testCellTypes: Array[Int]): (RDD[FeaturizedLabeledWindow], RDD[FeaturizedLabeledWindow])  = {
       // hold out a (chromosome, celltype) pair for test
       val trainFeaturizedWindows = featuresRDD.filter { r => 
-                  val chrm = r.labeledWindow.win.getRegion.referenceName
-                  val label = r.labeledWindow.label
-                  val celltype = r.labeledWindow.win.cellType
+                  val chrm:String = r.labeledWindow.win.getRegion.referenceName
+                  val label:Int = r.labeledWindow.label
+                  val cellType:Int = r.labeledWindow.win.cellType.id
                   !testChromosomes.contains(chrm)  && !testCellTypes.contains(cellType) && label != - 1
       }
 
       val testFeaturizedWindows = featuresRDD.filter { r => 
-                  val chrm = r.labeledWindow.win.getRegion.referenceName
-                  val label = r.labeledWindow.label
-                  val celltype = r.labeledWindow.win.cellType
+                  val chrm:String = r.labeledWindow.win.getRegion.referenceName
+                  val label:Int = r.labeledWindow.label
+                  val cellType:Int = r.labeledWindow.win.cellType.id
                   testChromosomes.contains(chrm)  && testCellTypes.contains(cellType)
       }
+
+      (trainFeaturizedWindows, testFeaturizedWindows)
   }
-  */
 
 
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
@@ -106,13 +106,19 @@ object SolverPipeline extends Serializable with Logging {
     val featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
     featuresRDD.count()
     println(featuresRDD.first.toString)
-    /*
 
-    val (trainFeatures, testFeatures, trainLabels, testLabels)  = trainTestSplit(featuresRDD, conf.testChromosomes, conf.testCellTypes)
+    val (trainFeaturizedWindows, testFeaturizedWindows)  = trainTestSplit(featuresRDD, conf.testChromosomes, conf.testCellTypes)
+    val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
+      new Cacher[DenseVector[Double]]
 
+    val trainFeatures = trainFeaturizedWindows.map(_.features)
+    val trainLabels = labelExtractor(trainFeaturizedWindows.map(_.labeledWindow.label)).get
 
+    val testFeatures = testFeaturizedWindows.map(_.features)
+    val testLabels = labelExtractor(testFeaturizedWindows.map(_.labeledWindow.label)).get
 
-    val model = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels)
+    // Currently hardcoded to just do exact solve (after accumulating XtX)
+    val model = new BlockLeastSquaresEstimator(conf.approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
 
     val trainPredictions:RDD[Double] = model(trainFeatures).map(x => x(1))
     val testPredictions:RDD[Double] = model(testFeatures).map(x => x(1))
@@ -122,19 +128,15 @@ object SolverPipeline extends Serializable with Logging {
 
     val trainScalarLabels = trainLabels.map(x => if(x(1) == 1) 1 else 0)
     val testScalarLabels = testLabels.map(x => if(x(1) ==1) 1 else 0)
+
     val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
     val testPredictionsOutput = conf.predictionsOutput + "/testPreds"
 
     println("WRITING TRAIN PREDICTIONS TO DISK")
-    try { hdfs.delete(new org.apache.hadoop.fs.Path(trainPredictionsOutput), true) } catch { case _ : Throwable => {println("DELETE TRAIN PRED FAILED") } }
-
     val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
 
     println("WRITING TEST PREDICTIONS TO DISK")
-    try { hdfs.delete(new org.apache.hadoop.fs.Path(testPredictionsOutput), true) } catch { case _ : Throwable => { println("DELETE TEST PRED FAILED")} }
-
     val zippedTestPreds = testScalarLabels.zip(testPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(testPredictionsOutput)
-    */
   }
 }
 
