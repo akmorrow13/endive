@@ -236,7 +236,7 @@ object KernelPipeline  extends Serializable with Logging {
                          rdd: RDD[LabeledWindow],
                          W_sequence: DenseMatrix[Double],
                          kmerSize: Int,
-                         dnaseSize: Int,
+   			 dnaseSize: Int,
                          approxDim: Int): RDD[BaseFeature] = {
 
     val kernelApprox_seq = new KernelApproximator(W_sequence, Math.cos, kmerSize, Dataset.alphabet.size)
@@ -246,8 +246,8 @@ object KernelPipeline  extends Serializable with Logging {
     // generate kernel approximators for all different variations of dnase length
     val approximators = Array(100, 50, 25, 12, 6, 3, 1)
       .map(r => {
-        val W = DenseMatrix.rand(approxDim, r * 1, gaussian)
-        new KernelApproximator(W, Math.cos, dnaseSize, 1)
+        val W = DenseMatrix.rand(approxDim, r, gaussian)
+        new KernelApproximator(W, Math.cos, r, 1)
       })
 
 
