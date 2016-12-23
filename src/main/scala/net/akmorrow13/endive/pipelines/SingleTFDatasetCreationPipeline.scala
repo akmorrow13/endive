@@ -93,102 +93,119 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     savedTfs.foreach(println)
 
    for (labelsPath <- labelsPaths) {
-    println(s"processing ${labelsPath}")
+      println(s"processing ${labelsPath}")
+      val tfStr = labelsPath.split("/").last.split('.').head
+      println(s"tf: ${tfStr}")
 
-    var (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
+      val tf = TranscriptionFactors.withName(tfStr)
+      println(tf)
 
-    train
-	.setName("Raw Train Data").cache()
+      // if tf has not yet been saved
+      if (!savedTfs.contains(tf.toString)) {
 
-    println(train.count, train.partitions.length)
-    val tf = train.first._1
-    println(s"celltypes for tf ${tf}:")
-    cellTypes = cellTypes.filter(r => r.equals(CellTypes.SKNSH))
-    cellTypes.foreach(println)
+        // Define file outputs:
+        // sequence output
+        val sequenceOutput = conf.aggregatedSequenceOutput + "onlySequences/" + tf
+        // final output
+        val finalOutput = conf.aggregatedSequenceOutput + tf
 
-    val finalOutput = conf.aggregatedSequenceOutput + tf
-    if (!savedTfs.contains(tf.toString)) {
+        var (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
 
-    // extract sequences from reference over all regions
-    val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train.repartition(50)).cache()
-    println("labeled window count", sequences.count)
+        train.setName("Raw Train Data").cache()
 
-    // save sequences
-    println("Now saving sequences to disk")
-    sequences.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + "onlySequences/" + tf)
+        println(train.count, train.partitions.length)
+        assert(tf.equals(train.first._1))
+        println(s"celltypes for tf ${tf}:")
+        cellTypes = cellTypes.filter(r => !r.equals(CellTypes.SKNSH))
+        cellTypes.foreach(println)
 
-    // merge in narrow files (Required)
-    val fullMatrix: RDD[LabeledWindow] = {
-        // Load DNase data of (cell type, peak record)
-        val dnaseFiles = dnaseNarrowStatus.filter(r => {
-          val cellType = Dataset.filterCellTypeName(r.getPath.getName.split('.')(1))
-          cellTypes.map(_.toString).contains(cellType)
-        })
+        val sequences: RDD[LabeledWindow] =
+          try {
+            LabeledWindowLoader(sequenceOutput, sc)
+          } catch {
+            case e: Exception => {
+              println(e.getMessage)
+              // extract sequences from reference over all regions
+              val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train.repartition(50)).cache()
+              println("labeled window count", sequences.count)
 
-        // load peak data from dnase
-        val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
-          .filter(r => Chromosomes.toVector.contains(r._2.region.referenceName))
-          .cache()
+              // save sequences
+              println("Now saving sequences to disk")
+              sequences.map(_.toString).saveAsTextFile(sequenceOutput)
+              sequences
+            }
+          }
 
-        println("Reading dnase peaks")
-        println(dnase.count)
+        // merge in narrow files (Required)
+        val fullMatrix: RDD[LabeledWindow] = {
+            // Load DNase data of (cell type, peak record)
+            val dnaseFiles = dnaseNarrowStatus.filter(r => {
+              val cellType = Dataset.filterCellTypeName(r.getPath.getName.split('.')(1))
+              cellTypes.map(_.toString).contains(cellType)
+            })
 
-        val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
-        cellTypeInfo.joinWithDNase(sequences)
-      }
+            // load peak data from dnase
+            val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
+              .filter(r => Chromosomes.toVector.contains(r._2.region.referenceName))
+              .cache()
 
-    fullMatrix.setName("fullmatrix_with_dnasePeaks").cache()
-    fullMatrix.count()
-    sequences.unpersist()
+            println("Reading dnase peaks")
+            println(dnase.count)
 
-    // save sequences with narrow peak
-    println("Now saving sequences with peak to disk")
-    fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + "sequencesAndPeakCounts/" + tf)
-    /* TODO end uncomment */
+            val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
+            cellTypeInfo.joinWithDNase(sequences)
+          }
 
-    // join with dnase bams (Required)
-    var fullMatrixWithBams: RDD[LabeledWindow] = null
+        fullMatrix.setName("fullmatrix_with_dnasePeaks").cache()
+        fullMatrix.count()
+        sequences.unpersist()
 
-//    // TODO: START CODE REMOVE
-//    val fullMatrix = LabeledWindowLoader(labelsPath, sc)
-//    val cellTypes = fullMatrix.map(_.win.cellType).distinct.collect
-//    println("got cellTypes:")
-//    cellTypes.map(_.toString).foreach(println)
-//    val tfs = fullMatrix.map(_.win.getTf).distinct.collect
-//    assert(tfs.length == 1)
-//    val tf = tfs.head
-//    println(s"Transcription factor ${tf.toString}")
-//    // TODO: END REMOVE CODE
+        // save sequences with narrow peak
+        println("completed sequence and narrow peak integration")
 
-    // iterate through each cell type
-    for (cellType <- cellTypes) {
-      println(s"processing dnase for celltype ${cellType.toString}")
+        // join with dnase bams (Required)
+        var fullMatrixWithBams: RDD[LabeledWindow] = null
 
-      // load cuts from CoverageRDD. filter out only cells of interest
-      val (positiveCoverage: CoverageRDD, negativeCoverage: CoverageRDD) =
-        Preprocess.loadDnase(sc, dnaseBamsPath, cellType)
+    //    // TODO: START CODE REMOVE
+    //    val fullMatrix = LabeledWindowLoader(labelsPath, sc)
+    //    val cellTypes = fullMatrix.map(_.win.cellType).distinct.collect
+    //    println("got cellTypes:")
+    //    cellTypes.map(_.toString).foreach(println)
+    //    val tfs = fullMatrix.map(_.win.getTf).distinct.collect
+    //    assert(tfs.length == 1)
+    //    val tf = tfs.head
+    //    println(s"Transcription factor ${tf.toString}")
+    //    // TODO: END REMOVE CODE
 
-      positiveCoverage.rdd.cache()
-      positiveCoverage.rdd.count
+        // iterate through each cell type
+        for (cellType <- cellTypes) {
+          println(s"processing dnase for celltype ${cellType.toString}")
 
-      negativeCoverage.rdd.cache()
-      negativeCoverage.rdd.count
+          // load cuts from CoverageRDD. filter out only cells of interest
+          val (positiveCoverage: CoverageRDD, negativeCoverage: CoverageRDD) =
+            Preprocess.loadDnase(sc, dnaseBamsPath, cellType)
 
-      val newData = VectorizedDnase.joinWithDnaseCoverage(sc, sd,
-        fullMatrix.filter(_.win.getCellType == cellType), positiveCoverage, negativeCoverage)
+          positiveCoverage.rdd.cache()
+          positiveCoverage.rdd.count
 
-      if (fullMatrixWithBams == null)
-        fullMatrixWithBams = newData
-      else
-        fullMatrixWithBams = fullMatrixWithBams.union(newData)
-    }
-    println("Now saving to disk")
-    fullMatrixWithBams.repartition(2000).map(_.toString)
-      .saveAsTextFile(finalOutput)
-   } // end if tf was already defined, save
-   else {
-	println(s"skipping ${labelsPath}")
-   }
+          negativeCoverage.rdd.cache()
+          negativeCoverage.rdd.count
+
+          val newData = VectorizedDnase.joinWithDnaseCoverage(sc, sd,
+            fullMatrix.filter(_.win.getCellType == cellType), positiveCoverage, negativeCoverage)
+
+          if (fullMatrixWithBams == null)
+            fullMatrixWithBams = newData
+          else
+            fullMatrixWithBams = fullMatrixWithBams.union(newData)
+        }
+        println("Now saving to disk")
+        fullMatrixWithBams.repartition(2000).map(_.toString)
+          .saveAsTextFile(finalOutput)
+     } // end if tf was already defined, save
+     else {
+      println(s"skipping ${labelsPath}")
+     }
 
    } // end all labels paths
   }
