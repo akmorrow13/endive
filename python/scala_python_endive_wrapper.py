@@ -56,7 +56,7 @@ def run_kitchensink_featurize_pipeline(windowPath,
     kernel_pipeline_config["aggregatedSequenceOutput"] = windowPath
     kernel_pipeline_config["featurizeSample"] = sample
     kernel_pipeline_config["kmerLength"] = kmer_size
-    kernel_pipeline_config["dim"] = num_filters
+    kernel_pipeline_config["approxDim"] = num_filters
     kernel_pipeline_config["readFiltersFromDisk"] = True
     kernel_pipeline_config["featuresOutput"] = featuresOutput
     kernel_pipeline_config["seed"] = seed
@@ -80,10 +80,16 @@ def run_solver_pipeline(featuresPath,
                num_executors=NUM_EXECUTORS,
                executor_mem=EXECUTOR_MEM,
                use_yarn=True,
+               testChromosomes=[],
+               testCellTypes=[],
+               testDuringSolve=False,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
     kernel_pipeline_config["featuresOutput"] = featuresPath
+    kernel_pipeline_config["testDuringSolve"] = testDuringSolve
+    kernel_pipeline_config["testCellTypes"] = testCellTypes
+    kernel_pipeline_config["testChromosomes"] = testChromosomes
     pythonrun.run(kernel_pipeline_config,
               logpath,
               solver_pipeline_class,
@@ -93,7 +99,31 @@ def run_solver_pipeline(featuresPath,
               num_executors,
               use_yarn=True)
 
+
     return True
+
+def load_hdfs_vector(hdfsPath, tmpPath="/tmp/", shape=None):
+    status = list(hdfsclient.copyToLocal([hdfsPath], tmpPath))[0]
+    fname = os.path.basename(os.path.normpath(hdfsPath))
+    print status['error']
+    vectors = []
+    if status['error'] != '':
+        return
+
+    for part in os.listdir(tmpPath + fname):
+        partName = tmpPath + fname + "/" + part
+        if (os.stat(partName).st_size == 0):
+            continue
+        part_vector = np.ravel(genfromtxt(partName, delimiter=","))
+        vectors.append(part_vector)
+
+    ov = np.concatenate(vectors)
+    if (shape != None):
+        ov = ov.reshape(shape)
+
+    os.system("rm -rf " + tmpPath + fname)
+    return ov
+
 
 
 
