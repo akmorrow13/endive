@@ -109,22 +109,19 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
         // final output
         val finalOutput = conf.aggregatedSequenceOutput + tf
 
-        var (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
-
-        train.setName("Raw Train Data").cache()
-
-        println(train.count, train.partitions.length)
-        assert(tf.equals(train.first._1))
-        println(s"celltypes for tf ${tf}:")
-        cellTypes = cellTypes.filter(r => !r.equals(CellTypes.SKNSH))
-        cellTypes.foreach(println)
-
-        val sequences: RDD[LabeledWindow] =
+        val (sequences: RDD[LabeledWindow], cellTypes: Array[CellTypes.Value]) =
           try {
-            LabeledWindowLoader(sequenceOutput, sc)
+            val sequences = LabeledWindowLoader(sequenceOutput, sc)
+            val cellTypes = sequences.map(_.win.getCellType).distinct.collect
+            (sequences, cellTypes)
           } catch {
             case e: Exception => {
               println(e.getMessage)
+              var (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
+
+              train = train.filter(r => !r._2.equals(CellTypes.SKNSH))
+              train.setName("Raw Train Data").cache()
+
               // extract sequences from reference over all regions
               val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train.repartition(50)).cache()
               println("labeled window count", sequences.count)
@@ -132,9 +129,16 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
               // save sequences
               println("Now saving sequences to disk")
               sequences.map(_.toString).saveAsTextFile(sequenceOutput)
-              sequences
+              train.unpersist()
+
+              (sequences, cellTypes.filter(r => !r.equals((CellTypes.SKNSH))))
             }
           }
+
+        println(sequences.count, sequences.partitions.length)
+        println(s"celltypes for tf ${tf}:")
+        cellTypes.foreach(println)
+
 
         // merge in narrow files (Required)
         val fullMatrix: RDD[LabeledWindow] = {
