@@ -77,17 +77,25 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     // load dnase paths for all dnase mabs
     val dnaseBamsPath = conf.dnaseBams
 
-    // load chip seq labels from 1 file
-    val labelsPath = conf.labels
+    // load chip seq labels from directory
+    val labelsDir = conf.labels
+
+    val fs: FileSystem = FileSystem.get(new Configuration())
+    val labelsPaths = fs.listStatus(new Path(labelsDir)).map(r => r.getPath.toString).filter(_.endsWith(".tsv"))	
 
     // create sequence dictionary
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-    /* TODO START */
-    val fs: FileSystem = FileSystem.get(new Configuration())
     val dnaseNarrowStatus = fs.listStatus(new Path(dnaseNarrowPath))
 
-    val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
+    val savedTfs = fs.listStatus(new Path(conf.aggregatedSequenceOutput)).map(r => r.getPath.getName)
+    println("saved TFS")
+    savedTfs.foreach(println)
+
+   for (labelsPath <- labelsPaths) {
+    println(s"processing ${labelsPath}")
+
+    var (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
 
     train
 	.setName("Raw Train Data").cache()
@@ -95,7 +103,11 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     println(train.count, train.partitions.length)
     val tf = train.first._1
     println(s"celltypes for tf ${tf}:")
+    cellTypes = cellTypes.filter(r => r.equals(CellTypes.SKNSH))
     cellTypes.foreach(println)
+
+    val finalOutput = conf.aggregatedSequenceOutput + tf
+    if (!savedTfs.contains(tf.toString)) {
 
     // extract sequences from reference over all regions
     val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train.repartition(50)).cache()
@@ -172,7 +184,13 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     }
     println("Now saving to disk")
     fullMatrixWithBams.repartition(2000).map(_.toString)
-      .saveAsTextFile(conf.aggregatedSequenceOutput + tf)
+      .saveAsTextFile(finalOutput)
+   } // end if tf was already defined, save
+   else {
+	println(s"skipping ${labelsPath}")
+   }
+
+   } // end all labels paths
   }
 
 
