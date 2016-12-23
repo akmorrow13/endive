@@ -83,13 +83,12 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     // create sequence dictionary
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
-    // TODO: start comment
-    /*
+    /* TODO START */
     val fs: FileSystem = FileSystem.get(new Configuration())
     val dnaseNarrowStatus = fs.listStatus(new Path(dnaseNarrowPath))
 
     val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
- 
+
     train
 	.setName("Raw Train Data").cache()
 
@@ -133,21 +132,21 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     // save sequences with narrow peak
     println("Now saving sequences with peak to disk")
     fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + "sequencesAndPeakCounts/" + tf)
-    TODO end uncomment */
+    /* TODO end uncomment */
 
     // join with dnase bams (Required)
     var fullMatrixWithBams: RDD[LabeledWindow] = null
 
-    // TODO: START CODE REMOVE
-    val fullMatrix = LabeledWindowLoader(labelsPath, sc)
-    val cellTypes = fullMatrix.map(_.win.cellType).distinct.collect
-    println("got cellTypes:")
-    cellTypes.map(_.toString).foreach(println)
-    val tfs = fullMatrix.map(_.win.getTf).distinct.collect
-    assert(tfs.length == 1)
-    val tf = tfs.head
-    println(s"Transcription factor ${tf.toString}")
-    // TODO: END REMOVE CODE
+//    // TODO: START CODE REMOVE
+//    val fullMatrix = LabeledWindowLoader(labelsPath, sc)
+//    val cellTypes = fullMatrix.map(_.win.cellType).distinct.collect
+//    println("got cellTypes:")
+//    cellTypes.map(_.toString).foreach(println)
+//    val tfs = fullMatrix.map(_.win.getTf).distinct.collect
+//    assert(tfs.length == 1)
+//    val tf = tfs.head
+//    println(s"Transcription factor ${tf.toString}")
+//    // TODO: END REMOVE CODE
 
     // iterate through each cell type
     for (cellType <- cellTypes) {
@@ -172,7 +171,8 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
         fullMatrixWithBams = fullMatrixWithBams.union(newData)
     }
     println("Now saving to disk")
-    fullMatrixWithBams.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + tf)
+    fullMatrixWithBams.repartition(2000).map(_.toString)
+      .saveAsTextFile(conf.aggregatedSequenceOutput + tf)
   }
 
 
