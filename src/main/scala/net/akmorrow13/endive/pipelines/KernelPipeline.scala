@@ -244,7 +244,7 @@ object KernelPipeline  extends Serializable with Logging {
     val gaussian = new Gaussian(0, 1)
 
     // generate kernel approximators for all different variations of dnase length
-    val approximators = Array(100, 50, 25, 12, 6, 3, 1)
+    val approximators = Array(100, 50, 25, 12, 6, 3)
       .map(r => {
         val W = DenseMatrix.rand(approxDim, r, gaussian)
         new KernelApproximator(W, Math.cos, r, 1)
