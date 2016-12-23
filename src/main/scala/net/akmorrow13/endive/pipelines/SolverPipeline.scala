@@ -137,6 +137,89 @@ object SolverPipeline extends Serializable with Logging {
 
     println("WRITING TEST PREDICTIONS TO DISK")
     val zippedTestPreds = testScalarLabels.zip(testPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(testPredictionsOutput)
+
+    println("Saving model to disk")
   }
+
+
+def saveModel(model: BlockLinearMapper, outLoc: String)  {
+      val xs = model.xs.zipWithIndex
+      xs.map(mi => breeze.linalg.csvwrite(new File(s"${outLoc}/model.weights.${mi._2}"), mi._1, separator = ','))
+      model.bOpt.map(b => breeze.linalg.csvwrite(new File(s"${outLoc}/model.intercept"),b.toDenseMatrix, separator = ','))
+
+   // Need to save scalers
+    model.featureScalersOpt.map { scalers =>
+      scalers.zipWithIndex.map { scaler =>
+        val stdScaler: StandardScalerModel = scaler._1 match { 
+            case x:StandardScalerModel => x
+            case _ => {
+                throw Exception("Unsuported Scaler")
+              }
+            assert(x.std.isEmpty)
+            breeze.linalg.csvwrite(new File(s"${outLoc}/model.scaler.mean.${scaler._2}"),b.toDenseMatrix, separator = ',')
+        }
+    }
+  }
+  
+}
+
+def loadModel(modelLoc: String): BlockLinearMapper = {
+    val files = ArrayBuffer.empty[Path]
+    /* Hard coded rn */
+    val blockSize = conf.approxDim
+    val numClasses = 2
+
+    val root = Paths.get(modelLoc)
+
+    Files.walkFileTree(root, new SimpleFileVisitor[Path] {
+      override def visitFile(file: Path, attrs: BasicFileAttributes) = {
+        if (file.getFileName.toString.startsWith(s"${featureId}.model.weights")) {
+          files += file
+        }
+        FileVisitResult.CONTINUE
+      }
+    })
+
+    val xsPos: Seq[(Int, DenseMatrix[Double])] = files.map { f =>
+      val modelPos = f.toUri.toString.split("\\.").takeRight(1)(0).toInt
+      val xVector = loadDenseVector(f.toString)
+      /* This is usually blocksize, but the last block may be smaller */
+      val rows = xVector.size/numClasses
+      val transposed = xVector.toDenseMatrix.reshape(numClasses, rows).t.toArray
+      (modelPos, new DenseMatrix(rows, numClasses, transposed))
+    }
+    val xsPosSorted = xsPos.sortBy(_._1)
+    val xs = xsPosSorted.map(_._2)
+    val interceptPath = s"${modelDir}/${featureId}.model.intercept"
+    val bOpt =
+      if (Files.exists(Paths.get(interceptPath))) {
+        Some(loadDenseVector(interceptPath))
+      } else {
+        None
+      }
+
+    val scalerFiles = ArrayBuffer.empty[Path]
+    Files.walkFileTree(root, new SimpleFileVisitor[Path] {
+      override def visitFile(file: Path, attrs: BasicFileAttributes) = {
+        if (file.getFileName.toString.startsWith(s"${featureId}.model.scaler.mean")) {
+          scalerFiles += file
+        }
+        FileVisitResult.CONTINUE
+      }
+    })
+
+    val scalerPos: Seq[(Int, DenseMatrix[Double])] = files.map { f =>
+      val scalerPos = f.toUri.toString.split("\\.").takeRight(1)(0).toInt
+      val mean = loadDenseVector(f.toString)
+      val scaler = new StandardScalerModel(mean)
+      (scalerPos, scaler)
+    }
+
+    val scalerPosSorted = scalerPos.sortBy(_._1)
+    val scalers = Some(scalerPosSorted.map(_._2)).filter(_.size > 0)
+    new BlockLinearMapper(xs, blockSize, bOpt, scalers)
+  }
+
+
 }
 
