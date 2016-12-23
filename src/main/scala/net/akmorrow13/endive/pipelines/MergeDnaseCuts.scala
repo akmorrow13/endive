@@ -62,42 +62,46 @@ object MergeDnaseCuts extends Serializable with Logging {
 
     println("STARTING DNase Processing")
 
-    val dnasePath = conf.dnaseLoc
+    val dnasePaths = conf.dnaseLoc.split(',')
+    println("processing dnase paths")
+    dnasePaths.foreach(println)
+
     val output = conf.getFeaturizedOutput
 
-    // get cell type from dnase path
-    val cellType = dnasePath.split("/").last.split('.')(2)
-    println(cellType)
+    for (dnasePath <- dnasePaths) {
+     // get cell type from dnase path
+     val cellType = dnasePath.split("/").last.split('.')(2)
+     println(cellType)
 
-    val positiveFile = s"${conf.getFeaturizedOutput}${cellType}.positiveStrands.coverage.adam"
-    val negativeFile = s"${conf.getFeaturizedOutput}${cellType}.negativeStrands.coverage.adam"
+     val positiveFile = s"${conf.getFeaturizedOutput}${cellType}.positiveStrands.coverage.adam"
+     val negativeFile = s"${conf.getFeaturizedOutput}${cellType}.negativeStrands.coverage.adam"
 
-    var dnase = sc.loadParquetAlignments(dnasePath)
-     .transform(rdd => rdd.repartition(1000))
-     .transform(rdd => rdd.filter(r => r.start >= 0))
+     var dnase = sc.loadParquetAlignments(dnasePath)
+	     .transform(rdd => rdd.repartition(1000))
+	     .transform(rdd => rdd.filter(r => r.start >= 0))
 
-    dnase.rdd.cache()
+      dnase.rdd.cache()
 
-    println("total dnase count", dnase.rdd.count)
-    println("positives", dnase.rdd.filter(r => !r.getReadNegativeStrand).count)
-    println("negatives", dnase.rdd.filter(r => r.getReadNegativeStrand).count)
+      println("total dnase count", dnase.rdd.count)
+      println("positives", dnase.rdd.filter(r => !r.getReadNegativeStrand).count)
+      println("negatives", dnase.rdd.filter(r => r.getReadNegativeStrand).count)
 
-    val fileCount = dnase.rdd.map(_.getAttributes()).distinct.count
-    println("files parsed for dnase", fileCount)
+      val fileCount = dnase.rdd.map(_.getAttributes()).distinct.count
+      println("files parsed for dnase", fileCount)
 
-    // group and save positive strand files
-    val groupedPositives = dnase.transform(rdd => rdd.filter(r => !r.getReadNegativeStrand))
-      .toCoverage()
-      .transform(rdd => rdd.map(r => new Coverage(r.contigName, r.start, r.end, r.count/fileCount)))
+      // group and save positive strand files
+      val groupedPositives = dnase.transform(rdd => rdd.filter(r => !r.getReadNegativeStrand))
+	      .toCoverage()
+	      .transform(rdd => rdd.map(r => new Coverage(r.contigName, r.start, r.end, r.count/fileCount)))
 
-    groupedPositives.save(positiveFile, false)
+      groupedPositives.save(positiveFile, false)
 
     // group and save negative strand files
-    val groupedNegatives = dnase.transform(rdd => rdd.filter(r => r.getReadNegativeStrand))
-      .toCoverage()
-      .transform(rdd => rdd.map(r => new Coverage(r.contigName, r.start, r.end, r.count/fileCount)))
+      val groupedNegatives = dnase.transform(rdd => rdd.filter(r => r.getReadNegativeStrand))
+	      .toCoverage()
+	      .transform(rdd => rdd.map(r => new Coverage(r.contigName, r.start, r.end, r.count/fileCount)))
 
-    groupedNegatives.save(negativeFile, false)
-
+      groupedNegatives.save(negativeFile, false)
+    }
   }
 }

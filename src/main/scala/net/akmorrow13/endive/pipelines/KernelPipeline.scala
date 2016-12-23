@@ -111,13 +111,14 @@ object KernelPipeline  extends Serializable with Logging {
     val cells = Array(CellTypes.GM12878,CellTypes.H1hESC,CellTypes.HCT116,CellTypes.MCF7)
 
     // divvy up into train and test
-    val (testCell, train, test, mixtureWeight) = {
+    val (testCell, train, test) = {
       val first = allData.first
       val referenceName = first.win.getRegion.referenceName
       val cell = first.win.cellType
 
       // hold out a (chromosome, celltype) pair for test
       var train = allData.filter(r => (r.win.getRegion.referenceName != referenceName && r.win.cellType != cell))
+
       if (conf.sample) {
         // sample data
         train = EndiveUtils.subselectRandomSamples(sc, train, sd)
@@ -127,12 +128,8 @@ object KernelPipeline  extends Serializable with Logging {
       val test = allData.filter(r => (r.win.getRegion.referenceName == referenceName && r.win.cellType == cell))
 			.setName("test").repartition(2000).cache()
 
-      val negativeCount = train.filter(_.label == 0).count
-      val positiveCount = train.filter(_.label == 1).count
-      val mixtureWeight = negativeCount.toDouble/positiveCount.toDouble
-      println(s"calculating mixture weight, negs: ${negativeCount}, pos ${positiveCount}, mix ${mixtureWeight}")
+      (cell, train, test)
 
-      (cell, train, test, mixtureWeight)
     }
 
     println(s"train: ${train.count}, test: ${test.count}")
@@ -141,24 +138,16 @@ object KernelPipeline  extends Serializable with Logging {
     val gaussian = new Gaussian(0, 1)
 
     // generate random matrix
-    val dnaseMax = train.map(r => r.win.dnase.max).max().toInt
-    println("dnaseMax", dnaseMax)
     val W_sequence = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
     val W_dnase = DenseMatrix.rand(approxDim, dnaseSize * 1, gaussian)
 
     // generate approximation features
-    val trainApprox = featurizeWithDnase(sc, train, W_sequence, kmerSize, Some(W_dnase),Some(dnaseSize))
+    val trainApprox = featurizeWithWaveletDnase(sc, train, W_sequence, kmerSize, dnaseSize, approxDim)
 	  .setName("trainApprox")
 	  .cache()
-    val testApprox = featurizeWithDnase(sc, test, W_sequence, kmerSize, Some(W_dnase), Some(dnaseSize))
+    val testApprox = featurizeWithWaveletDnase(sc, train, W_sequence, kmerSize, dnaseSize, approxDim)
 	  .setName("testApprox")
 	  .cache()
-
-    if (conf.saveFeatures != null) {
-      trainApprox.map(_.toString).saveAsTextFile(conf.saveFeatures + "_train")
-      testApprox.map(_.toString).saveAsTextFile(conf.saveFeatures + "_test")
-
-    }
 
     println(trainApprox.count, testApprox.count)
 
@@ -173,9 +162,9 @@ object KernelPipeline  extends Serializable with Logging {
 
     val testFeatures = testApprox.map(_.features)
     val testLabels = testApprox.map(r => labelExtractor.apply(r.labeledWindow.label))
-
+  
     // run least squares
-    val predictor = new BlockWeightedLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda, mixtureWeight).fit(trainFeatures, trainLabels)
+    val predictor = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels)
 
     // train metrics
     val trainPredictions = MaxClassifier(predictor(trainFeatures)).map(_.toDouble)
@@ -247,7 +236,7 @@ object KernelPipeline  extends Serializable with Logging {
                          rdd: RDD[LabeledWindow],
                          W_sequence: DenseMatrix[Double],
                          kmerSize: Int,
-                         dnaseSize: Int,
+   			 dnaseSize: Int,
                          approxDim: Int): RDD[BaseFeature] = {
 
     val kernelApprox_seq = new KernelApproximator(W_sequence, Math.cos, kmerSize, Dataset.alphabet.size)
@@ -257,8 +246,8 @@ object KernelPipeline  extends Serializable with Logging {
     // generate kernel approximators for all different variations of dnase length
     val approximators = Array(100, 50, 25, 12, 6, 3, 1)
       .map(r => {
-        val W = DenseMatrix.rand(approxDim, r * 1, gaussian)
-        new KernelApproximator(W, Math.cos, dnaseSize, 1)
+        val W = DenseMatrix.rand(approxDim, r, gaussian)
+        new KernelApproximator(W, Math.cos, r, 1)
       })
 
 
