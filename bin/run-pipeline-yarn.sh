@@ -72,6 +72,7 @@ echo NUM EXECUTORS $SPARK_NUM_EXECUTORS
   --conf spark.yarn.am.waitTime=200 \
   --conf spark.driver.maxResultSize=0 \
   --conf spark.yarn.maxAppAttempts=1 \
+  --conf spark.hadoop.validateOutputSpecs=false \
   --conf spark.yarn.appMasterEnv.OMP_NUM_THREADS=1 \
   --conf spark.network.timeout=600 \
   --conf spark.executorEnv.OMP_NUM_THREADS=1 \

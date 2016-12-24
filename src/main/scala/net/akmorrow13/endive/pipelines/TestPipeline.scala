@@ -96,8 +96,16 @@ object TestPipeline extends Serializable with Logging {
     val testScalarLabels = testFeaturizedWindows.map(_.labeledWindow.label)
     val testPredictionsOutput = conf.predictionsOutput + s"/testPreds"
     val zippedTestPreds = testScalarLabels.zip(testPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(testPredictionsOutput)
+    val testMetadataOutput = conf.predictionsOutput + s"/testMetaData"
+    testFeaturizedWindows.map { x =>
+      val win = x.labeledWindow.win
+      val chr = x.labeledWindow.win.getRegion.referenceName
+      val start = x.labeledWindow.win.getRegion.start
+      val end  = x.labeledWindow.win.getRegion.end
+      val cell  = CellTypes.toVector(x.labeledWindow.win.cellType.id)
+      s"${chr},${start},${end},${cell}"
+  }.saveAsTextFile(testMetadataOutput)
   }
-
 
 def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
     val files = ArrayBuffer.empty[Path]

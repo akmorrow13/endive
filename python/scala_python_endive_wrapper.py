@@ -126,6 +126,7 @@ def run_test_pipeline(featuresPath,
                reg=0.1,
                predictionsPath="/user/vaishaal/tmp",
                modelPath="/home/eecs/vaishaal/endive-models",
+               delete_predictions_from_hdfs=False,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
@@ -142,7 +143,36 @@ def run_test_pipeline(featuresPath,
 
     test_pred_name = predictionsPath + "/testPreds"
     test_preds = load_hdfs_vector(test_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
-    return test_preds
+    test_meta_name = predictionsPath + "/testMetaData"
+    test_meta  = load_test_metadata(test_meta_name, hdfsclient=hdfsclient)
+
+    if (delete_predictions_from_hdfs):
+        os.system("hadoop fs -rmr ${0}".format(test_pred_name))
+        os.system("hadoop fs -rmr ${0}".format(test_meta_name))
+
+    return test_preds, test_meta
+
+
+def load_test_metadata(metadataPath, hdfsclient, tmpPath="/tmp/"):
+    status = list(hdfsclient.copyToLocal([metadataPath], tmpPath))[0]
+    fname = os.path.basename(os.path.normpath(metadataPath))
+    print status['error']
+    vectors = []
+    if status['error'] != '':
+        return
+    for part in os.listdir(tmpPath + fname):
+        partName = tmpPath + fname + "/" + part
+        if (os.stat(partName).st_size == 0):
+            continue
+        part_vector = np.ravel(genfromtxt(partName, delimiter=",", dtype='str'))
+        vectors.append(part_vector)
+
+    ov = np.concatenate(vectors)
+    ov = ov.reshape((-1,4))
+
+    os.system("rm -rf " + tmpPath + fname)
+    return ov
+
 
 
 
