@@ -35,16 +35,20 @@ class EndiveConf extends Serializable {
   @BeanProperty var gamma: Double = 1.0
   @BeanProperty var seed: Int = 0
   @BeanProperty var readFiltersFromDisk: Boolean = false
+
+  @BeanProperty var valDuringSolve: Boolean = true
+  @BeanProperty var writePredictionsToDisk: Boolean = true
   @BeanProperty var predictionsOutput: String = "/user/vaishaal/tmp"
   @BeanProperty var featuresOutput: String = "/user/vaishaal/features"
+  @BeanProperty var modelOutput: String = "/home/eecs/vaishaal/endive-models/"
   @BeanProperty var featurizeSample: Double = 1.0
   @BeanProperty var numPartitions: Int = 400
   @BeanProperty var negativeSamplingFreq: Double = 0.001
   @BeanProperty var filtersPath: String  = "/tmp/filters.csv"
 
   /* train test split for solve */
-  @BeanProperty var testChromosomes: Array[String] = Array()
-  @BeanProperty var testCellTypes: Array[Int] = Array()
+  @BeanProperty var valChromosomes: Array[String] = Array()
+  @BeanProperty var valCellTypes: Array[Int] = Array()
 
 
   /* data sources*/
@@ -78,7 +82,7 @@ class EndiveConf extends Serializable {
 
   /* Save predictions */
   @BeanProperty var saveTrainPredictions: String = null
-  @BeanProperty var saveTestPredictions: String = null
+  @BeanProperty var saveValPredictions: String = null
 
   /* Default prediction parameters for block solve */
   @BeanProperty var lambda: Double = 10000

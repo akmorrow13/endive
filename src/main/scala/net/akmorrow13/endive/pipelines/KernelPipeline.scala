@@ -192,13 +192,6 @@ object KernelPipeline  extends Serializable with Logging {
     }
 
     // save test predictions as FeatureRDD if specified
-    if (conf.saveTestPredictions != null) {
-      if (sd == null) {
-        println("Error: need referencePath to save output train predictions")
-      } else {
-        saveAsFeatures(testApprox.map(_.labeledWindow), testPredictions, sd, conf.saveTestPredictions)
-      }
-    }
   }
 
   /**

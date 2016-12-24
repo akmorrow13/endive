@@ -50,7 +50,7 @@ import nodes.stats._
 
 
 
-object SolverPipeline extends Serializable with Logging {
+object TestPipeline extends Serializable with Logging {
 
   /**
    * A very basic pipeline that *doesn't* featurize the data
@@ -84,97 +84,20 @@ object SolverPipeline extends Serializable with Logging {
     }
   }
 
-  def trainValSplit(featuresRDD: RDD[FeaturizedLabeledWindow], valChromosomes: Array[String], valCellTypes: Array[Int], valDuringSolve: Boolean): (RDD[FeaturizedLabeledWindow], Option[RDD[FeaturizedLabeledWindow]])  = {
-      // hold out a (chromosome, celltype) pair for val
-      val trainFeaturizedWindows = featuresRDD.filter { r => 
-                  val chrm:String = r.labeledWindow.win.getRegion.referenceName
-                  val label:Int = r.labeledWindow.label
-                  val cellType:Int = r.labeledWindow.win.cellType.id
-                  !valChromosomes.contains(chrm)  && !valCellTypes.contains(cellType) && label != - 1
-      }
-      val valFeaturizedWindowsOpt =
-        if (valDuringSolve) {
-          println(featuresRDD.first.labeledWindow.win.cellType.id)
-          println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
-          println(valChromosomes.mkString(","))
-          println(valCellTypes.mkString(","))
-          val valFeaturizedWindows = featuresRDD.filter { r => 
-                      val chrm:String = r.labeledWindow.win.getRegion.referenceName
-                      val label:Int = r.labeledWindow.label
-                      val cellType:Int = r.labeledWindow.win.cellType.id
-                      valChromosomes.contains(chrm)  && valCellTypes.contains(cellType)
-          }
-          Some(valFeaturizedWindows)
-        } else {
-          None
-        }
-
-      (trainFeaturizedWindows, valFeaturizedWindowsOpt)
-  }
-
-
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
+    val testFeaturizedWindows = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
+    val model = loadModel(conf.modelOutput, conf.approxDim)
+    val testFeatures = testFeaturizedWindows.map(_.features)
 
-    println(conf.featuresOutput)
-    val featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
-    featuresRDD.count()
-    println("FILTERING ")
-    println(featuresRDD.first.labeledWindow.win.cellType.id)
-    println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
-
-    val (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve)
-    val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
-      new Cacher[DenseVector[Double]]
-
-    val trainFeatures = trainFeaturizedWindows.map(_.features)
-    val trainLabels = labelExtractor(trainFeaturizedWindows.map(_.labeledWindow.label)).get
-
-
-    // Currently hardcoded to just do exact solve (after accumulating XtX)
-    val model = new BlockLeastSquaresEstimator(conf.approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
-
-
-    if (conf.valDuringSolve) {
-      val trainPredictions:RDD[Double] = model(trainFeatures).map(x => x(1))
-      trainPredictions.count()
-      val trainScalarLabels = trainLabels.map(x => if(x(1) == 1) 1 else 0)
-      val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
-      println("WRITING TRAIN PREDICTIONS TO DISK")
-      val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
-      val valFeaturizedWindows = valFeaturizedWindowsOpt.get
-      val valFeatures = valFeaturizedWindows.map(_.features)
-      val valPredictions:RDD[Double] = model(valFeatures).map(x => x(1))
-      valPredictions.count()
-      val valScalarLabels = valFeaturizedWindows.map(_.labeledWindow.label)
-      val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
-      val zippedValPreds = valScalarLabels.zip(valPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
-    }
-
-    println("Saving model to disk")
-    saveModel(model, conf.modelOutput)
+    println(testFeatures.count())
+    println(testFeatures.first.size)
+    val testPredictions:RDD[Double] = model(testFeatures).map(x => x(1))
+    testPredictions.count()
+    val testScalarLabels = testFeaturizedWindows.map(_.labeledWindow.label)
+    val testPredictionsOutput = conf.predictionsOutput + s"/testPreds"
+    val zippedTestPreds = testScalarLabels.zip(testPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(testPredictionsOutput)
   }
 
-
-def saveModel(model: BlockLinearMapper, outLoc: String)  {
-      val xs = model.xs.zipWithIndex
-      xs.map(mi => breeze.linalg.csvwrite(new File(s"${outLoc}/model.weights.${mi._2}"), mi._1, separator = ','))
-      model.bOpt.map(b => breeze.linalg.csvwrite(new File(s"${outLoc}/model.intercept"),b.toDenseMatrix, separator = ','))
-
-   // Need to save scalers
-    model.featureScalersOpt.map { scalers =>
-      scalers.zipWithIndex.map { scaler =>
-        val stdScaler: StandardScalerModel = scaler._1 match { 
-            case x:StandardScalerModel => x
-            case _ => {
-                throw new Exception("Unsuported Scaler")
-              }
-            }
-            println("SCALER MEAN IS " + stdScaler.mean.size)
-            assert(stdScaler.std.isEmpty)
-            breeze.linalg.csvwrite(new File(s"${outLoc}/model.scaler.mean.${scaler._2}"), stdScaler.mean.toDenseMatrix, separator = ',')
-        }
-    }
-  }
 
 def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
     val files = ArrayBuffer.empty[Path]
@@ -185,7 +108,7 @@ def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
 
     Files.walkFileTree(root, new SimpleFileVisitor[Path] {
       override def visitFile(file: Path, attrs: BasicFileAttributes) = {
-        if (file.getFileName.toString.startsWith(s"${modelLoc}/model.weights")) {
+        if (file.getFileName.toString.startsWith(s"model.weights")) {
           files += file
         }
         FileVisitResult.CONTINUE
@@ -202,7 +125,7 @@ def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
     }
     val xsPosSorted = xsPos.sortBy(_._1)
     val xs = xsPosSorted.map(_._2)
-    val interceptPath = s"${modelLoc}/model.intercept"
+    val interceptPath = s"model.intercept"
     val bOpt =
       if (Files.exists(Paths.get(interceptPath))) {
         Some(loadDenseVector(interceptPath))
@@ -213,16 +136,17 @@ def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
     val scalerFiles = ArrayBuffer.empty[Path]
     Files.walkFileTree(root, new SimpleFileVisitor[Path] {
       override def visitFile(file: Path, attrs: BasicFileAttributes) = {
-        if (file.getFileName.toString.startsWith(s"${modelLoc}/model.scaler.mean")) {
+        if (file.getFileName.toString.startsWith(s"model.scaler.mean")) {
           scalerFiles += file
         }
         FileVisitResult.CONTINUE
       }
     })
 
-    val scalerPos: Seq[(Int, StandardScalerModel)] = files.map { f =>
+    val scalerPos: Seq[(Int, StandardScalerModel)] = scalerFiles.map { f =>
       val scalerPos = f.toUri.toString.split("\\.").takeRight(1)(0).toInt
       val mean = loadDenseVector(f.toString)
+      println("SIZE OF MEAN IS " + mean.size)
       val scaler = new StandardScalerModel(mean)
       (scalerPos, scaler)
     }

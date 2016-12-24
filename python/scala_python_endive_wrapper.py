@@ -18,6 +18,7 @@ dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatas
 featurization_pipeline_class = "net.akmorrow13.endive.pipelines.KitchenSinkFeaturizePipeline"
 
 solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
+test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
 
 pipeline_jar = os.path.relpath("../target/scala-2.10/endive-assembly-0.1.jar")
 
@@ -76,20 +77,27 @@ def run_kitchensink_featurize_pipeline(windowPath,
 
 def run_solver_pipeline(featuresPath,
                logpath,
+               hdfsclient,
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
                executor_mem=EXECUTOR_MEM,
                use_yarn=True,
-               testChromosomes=[],
-               testCellTypes=[],
-               testDuringSolve=False,
+               valChromosomes=[],
+               valCellTypes=[],
+               reg=0.1,
+               predictionsPath="/user/vaishaal/tmp",
+               valDuringSolve=False,
+               modelPath="/home/eecs/vaishaal/endive-models",
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
     kernel_pipeline_config["featuresOutput"] = featuresPath
-    kernel_pipeline_config["testDuringSolve"] = testDuringSolve
-    kernel_pipeline_config["testCellTypes"] = testCellTypes
-    kernel_pipeline_config["testChromosomes"] = testChromosomes
+    kernel_pipeline_config["predictionsOutput"] = predictionsPath
+    kernel_pipeline_config["valDuringSolve"] = valDuringSolve
+    kernel_pipeline_config["valCellTypes"] = valCellTypes
+    kernel_pipeline_config["valChromosomes"] = valChromosomes
+    kernel_pipeline_config["modelOutput"] = modelPath
+    kernel_pipeline_config["lambda"] = reg
     pythonrun.run(kernel_pipeline_config,
               logpath,
               solver_pipeline_class,
@@ -99,10 +107,46 @@ def run_solver_pipeline(featuresPath,
               num_executors,
               use_yarn=True)
 
+    if valDuringSolve:
+        train_preds = load_hdfs_vector(predictionsPath + "/trainPreds", hdfsclient=hdfsclient, shape=(-1, 2))
+        valCellTypesStr = map(str, valCellTypes)
+        val_pred_name = predictionsPath + "/valPreds_{0}_{1}".format(','.join(valChromosomes), ','.join(valCellTypesStr))
+        print val_pred_name
+        val_preds = load_hdfs_vector(val_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
+        return (train_preds, val_preds)
+    return ([], [])
 
-    return True
+def run_test_pipeline(featuresPath,
+               logpath,
+               hdfsclient,
+               cores_per_executor=CORES_PER_EXECUTOR,
+               num_executors=NUM_EXECUTORS,
+               executor_mem=EXECUTOR_MEM,
+               use_yarn=True,
+               reg=0.1,
+               predictionsPath="/user/vaishaal/tmp",
+               modelPath="/home/eecs/vaishaal/endive-models",
+               base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
-def load_hdfs_vector(hdfsPath, tmpPath="/tmp/", shape=None):
+    kernel_pipeline_config = base_config.copy()
+    kernel_pipeline_config["featuresOutput"] = featuresPath
+    kernel_pipeline_config["predictionsOutput"] = predictionsPath
+    pythonrun.run(kernel_pipeline_config,
+              logpath,
+              test_pipeline_class,
+              pipeline_jar,
+              executor_mem,
+              cores_per_executor,
+              num_executors,
+              use_yarn=True)
+
+    test_pred_name = predictionsPath + "/testPreds"
+    test_preds = load_hdfs_vector(test_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
+    return test_preds
+
+
+
+def load_hdfs_vector(hdfsPath, hdfsclient, tmpPath="/tmp/", shape=None):
     status = list(hdfsclient.copyToLocal([hdfsPath], tmpPath))[0]
     fname = os.path.basename(os.path.normpath(hdfsPath))
     print status['error']
