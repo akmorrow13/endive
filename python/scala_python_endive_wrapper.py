@@ -2,6 +2,7 @@ import numpy as np
 from pylab import *
 import pythonrun
 import os
+import pandas as pd
 
 BASE_KERNEL_PIPELINE_CONFIG = \
 {
@@ -171,7 +172,7 @@ def load_test_metadata(metadataPath, hdfsclient, tmpPath="/tmp/"):
     ov = ov.reshape((-1,4))
 
     os.system("rm -rf " + tmpPath + fname)
-    return ov
+    return pd.DataFrame(ov, columns=['chr', 'start', 'end', 'cellType'])
 
 
 
