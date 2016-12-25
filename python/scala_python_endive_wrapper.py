@@ -200,6 +200,43 @@ def load_hdfs_vector(hdfsPath, hdfsclient, tmpPath="/tmp/", shape=None):
     return ov
 
 
+def make_submission_output(outfile, test_preds, meta_df):
+    meta_df = meta_df.copy(True)
+    meta_df['chr_int'] = meta_df['chr'].map(lambda x: int(x.replace('chr', '').replace('X', '24').replace('Y', '25')))
+    meta_df['start'] = pd.to_numeric(meta_df['start'])
+    sorted_test = meta_df.sort_values(['chr_int', 'start'])[['chr', 'start', 'end']]
+    prob_pred = (test_preds[:,1] - min(test_preds[:,1]))/max(test_preds[:,1] - min(test_preds[:,1]))
+    sorted_test['prob'] = prob_pred
+    sorted_test.to_csv(outfile, sep='\t', header=False)
+
+def pr_result(y_test, y_test_pred, y_train=None, y_train_pred=None):
+    fpr, tpr, thresh = metrics.precision_recall_curve(y_test, y_test_pred)
+    test_auc = metrics.average_precision_score(y_test, y_test_pred)
+    plot(fpr, tpr, label="test")
+    plt.legend(loc=4)
+    plt.figure()
+    print("Test PR AUC {0}".format(test_auc))
+    if (y_train != None and y_train_pred != None):
+        fpr, tpr, thresh = metrics.precision_recall_curve(y_train, y_train_pred)
+        train_auc = metrics.average_precision_score(y_train, y_train_pred)
+        plot(fpr, tpr, label="train")
+        print("Train PR AUC {0}".format(train_auc))
+
+
+def roc_result(y_test, y_test_pred, y_train=None, y_train_pred=None):
+    fpr, tpr, thresh = metrics.roc_curve(y_test, y_test_pred)
+    test_auc = metrics.roc_auc_score(y_test, y_test_pred)
+    plot(fpr, tpr, label="test")
+    plt.legend(loc=4)
+    plt.figure()
+    print("Test ROC AUC {0}".format(test_auc))
+    if (y_train != None and y_train_pred != None):
+        fpr, tpr, thresh = metrics.precision_recall_curve(y_train, y_train_pred)
+        train_auc = metrics.average_precision_score(y_train, y_train_pred)
+        plot(fpr, tpr, label="train")
+        print("Train PR AUC {0}".format(train_auc))
+
+
 
 
 
