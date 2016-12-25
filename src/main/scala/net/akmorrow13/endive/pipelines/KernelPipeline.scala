@@ -24,7 +24,7 @@ import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils._
 import com.github.fommil.netlib.BLAS
 import nodes.akmorrow13.endive.featurizers.KernelApproximator
-import nodes.learning.{BlockWeightedLeastSquaresEstimator, BlockLeastSquaresEstimator}
+import nodes.learning.{ BlockLeastSquaresEstimator }
 import nodes.util.{Cacher, MaxClassifier, ClassLabelIndicatorsFromIntLabels}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
@@ -32,7 +32,6 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.SequenceDictionary
 import org.bdgenomics.adam.rdd.feature.FeatureRDD
-import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.formats.avro._
 import org.bdgenomics.utils.io.LocalFileByteAccess

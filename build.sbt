@@ -45,7 +45,7 @@ fork := true
   "org.bdgenomics.utils" %% "utils-misc" % "0.2.9" excludeAll(excludeHadoop, excludeSpark),
   "org.bdgenomics.utils" %% "utils-cli" % "0.2.9" excludeAll(excludeHadoop, excludeSpark),
   "org.bdgenomics.utils" %% "utils-metrics" % "0.2.9" excludeAll(excludeHadoop, excludeSpark),
-  "org.bdgenomics.adam" %% "adam-core" % "0.20.3-SNAPSHOT" excludeAll(excludeHadoop, excludeSpark),
+  "org.bdgenomics.adam" %% "adam-core" % "0.20.1-SNAPSHOT" excludeAll(excludeHadoop, excludeSpark),
   "org.apache.spark" % "spark-core_2.10" % sparkVersion % "provided" excludeAll(excludeHadoop),
   "org.apache.spark" % "spark-mllib_2.10" % sparkVersion % "provided" excludeAll(excludeHadoop),
   "org.apache.spark" % "spark-sql_2.10" % sparkVersion % "provided" excludeAll(excludeHadoop),

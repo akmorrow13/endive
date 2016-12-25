@@ -80,14 +80,19 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
     val labels = conf.labels
 
     // specifies ladder region, test region, or ladder region within cell type
-    val boardSpl = labels.split('.')
-    println(boardSpl, boardSpl.length - 3 )
-    val board = boardSpl(boardSpl.length - 3).split("/").last
+    val board = 
+      if (conf.hasSequences) {
+        val boardSpl = labels.split("/")
+        boardSpl(boardSpl.length - 2)
+       } else {
+        val boardSpl = labels.split('.')
+        println(boardSpl, boardSpl.length - 3 )
+        boardSpl(boardSpl.length - 3).split("/").last
+      }
+
     println(s"will save to location ${conf.aggregatedSequenceOutput}test/${board}/<TESTCELLNAME>.labeledWindows")
 
-
-    // verify that cell type and tf is defined
-    if (conf.getTf == null || conf.getCellTypes == null) {
+    if (conf.getCellTypes == null) {
       println("Error: tf and cell type must be provided")
       sys.exit(-1)
     }

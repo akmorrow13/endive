@@ -26,7 +26,7 @@ import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.bdgenomics.adam.rdd.feature.CoverageRDD
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.models.{Coverage, ReferenceRegion}
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.util.{TwoBitFile}
 import org.bdgenomics.utils.io.LocalFileByteAccess
@@ -36,13 +36,13 @@ import org.yaml.snakeyaml.Yaml
 import net.akmorrow13.endive.processing._
 
 
-object SingleTFDatasetCreationPipeline extends Serializable  {
+object TFDatasetCreationPipeline extends Serializable  {
 
   /**
    * A very basic dataset creation pipeline that *doesn't* featurize the data
    * but creates a csv of (Window, Label)
    *
-    * @param args
+   * @param args
    */
   def main(args: Array[String]) = {
     if (args.size < 1) {
@@ -67,34 +67,43 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
   def run(sc: SparkContext, conf: EndiveConf) {
 
     println("STARTING DATA SET CREATION PIPELINE")
-    
+
     // create new sequence with reference path
     val referencePath = conf.reference
 
     // load dnase path for all narrowpeak files
     val dnaseNarrowPath = conf.dnaseNarrow
 
-    // load dnase paths for all dnase mabs
+    // load dnase paths for all dnase bamss
     val dnaseBamsPath = conf.dnaseBams
 
     // load chip seq labels from directory
     val labelsDir = conf.labels
 
     val fs: FileSystem = FileSystem.get(new Configuration())
-    val labelsPaths = fs.listStatus(new Path(labelsDir)).map(r => r.getPath.toString).filter(_.endsWith(".tsv"))	
+    val labelsPaths = fs.listStatus(new Path(labelsDir)).map(r => r.getPath.toString).filter(_.endsWith(".tsv"))
 
     // create sequence dictionary
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
     val dnaseNarrowStatus = fs.listStatus(new Path(dnaseNarrowPath))
 
-    val savedTfs = fs.listStatus(new Path(conf.aggregatedSequenceOutput)).map(r => r.getPath.getName)
-    println("saved TFS")
-    savedTfs.foreach(println)
+    // load peak data from dnase for all cell types
+    val dnaseNarrow_all: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseNarrowStatus.map(_.getPath.toString))
+      .filter(r => Chromosomes.toVector.contains(r._2.region.referenceName))
+      .cache()
 
+    // load all full dnase
+    val (positiveCoverage: RDD[(CellTypes.Value, Coverage)], negativeCoverage: RDD[(CellTypes.Value, Coverage)]) =
+      Preprocess.loadAllDnase(sc, dnaseBamsPath)
+
+    positiveCoverage.setName("positivecoverage").cache()
+    negativeCoverage.setName("negativecoverage").cache()
+
+    val savedTfs = fs.listStatus(new Path(conf.aggregatedSequenceOutput)).map(r => r.getPath.getName)
     val tfs = conf.tf.split(',').map(r => TranscriptionFactors.withName(r))
 
-   for (labelsPath <- labelsPaths) {
+    for (labelsPath <- labelsPaths) {
       println(s"processing ${labelsPath}")
       val tfStr = labelsPath.split("/").last.split('.').head
       println(s"tf: ${tfStr}")
@@ -125,7 +134,8 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
               train.setName("Raw Train Data").cache()
 
               // extract sequences from reference over all regions
-              val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train.repartition(50)).cache()
+              val sequences: RDD[LabeledWindow] =
+                SingleTFDatasetCreationPipeline.extractSequencesAndLabels(referencePath, train.repartition(50)).cache()
               println("labeled window count", sequences.count)
 
               // save sequences
@@ -144,23 +154,16 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
 
         // merge in narrow files (Required)
         val fullMatrix: RDD[LabeledWindow] = {
-            // Load DNase data of (cell type, peak record)
-            val dnaseFiles = dnaseNarrowStatus.filter(r => {
-              val cellType = Dataset.filterCellTypeName(r.getPath.getName.split('.')(1))
-              cellTypes.map(_.toString).contains(cellType)
-            })
 
-            // load peak data from dnase
-            val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
-              .filter(r => Chromosomes.toVector.contains(r._2.region.referenceName))
-              .cache()
+          val dnase = dnaseNarrow_all.filter(r => cellTypes.contains(r._1))
+          println(s"Reading dnase peaks for ${tf}")
+          println(dnase.count)
 
-            println("Reading dnase peaks")
-            println(dnase.count)
-
-            val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
-            cellTypeInfo.joinWithDNase(sequences)
-          }
+          val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
+          val f = cellTypeInfo.joinWithDNase(sequences)
+          dnase.unpersist()
+          f
+        }
 
         fullMatrix.setName("fullmatrix_with_dnasePeaks").cache()
         fullMatrix.count()
@@ -172,68 +175,41 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
         // join with dnase bams (Required)
         var fullMatrixWithBams: RDD[LabeledWindow] = null
 
-    //    // TODO: START CODE REMOVE
-    //    val fullMatrix = LabeledWindowLoader(labelsPath, sc)
-    //    val cellTypes = fullMatrix.map(_.win.cellType).distinct.collect
-    //    println("got cellTypes:")
-    //    cellTypes.map(_.toString).foreach(println)
-    //    val tfs = fullMatrix.map(_.win.getTf).distinct.collect
-    //    assert(tfs.length == 1)
-    //    val tf = tfs.head
-    //    println(s"Transcription factor ${tf.toString}")
-    //    // TODO: END REMOVE CODE
-
         // iterate through each cell type
         for (cellType <- cellTypes) {
           println(s"processing dnase for celltype ${cellType.toString}")
 
-          // load cuts from CoverageRDD. filter out only cells of interest
-          val (positiveCoverage: CoverageRDD, negativeCoverage: CoverageRDD) =
-            Preprocess.loadDnase(sc, dnaseBamsPath, cellType)
+          val cellPositiveCoverage = positiveCoverage.filter(r => r._1.eq(cellType)).map(_._2)
+          val cellNegativeCoverage = negativeCoverage.filter(r => r._1.eq(cellType)).map(_._2)
 
-          positiveCoverage.rdd.cache()
-          positiveCoverage.rdd.count
+          cellPositiveCoverage.cache()
+          cellPositiveCoverage.count
 
-          negativeCoverage.rdd.cache()
-          negativeCoverage.rdd.count
+          cellNegativeCoverage.cache()
+          cellNegativeCoverage.count
 
           val newData = VectorizedDnase.joinWithDnaseCoverage(sc, sd,
-            fullMatrix.filter(_.win.getCellType == cellType), positiveCoverage, negativeCoverage)
+            fullMatrix.filter(_.win.getCellType == cellType),
+            CoverageRDD(cellPositiveCoverage, sd), CoverageRDD(cellNegativeCoverage, sd))
 
           if (fullMatrixWithBams == null)
             fullMatrixWithBams = newData
           else
             fullMatrixWithBams = fullMatrixWithBams.union(newData)
+
+          cellPositiveCoverage.unpersist()
+          cellNegativeCoverage.unpersist()
         }
         println("Now saving to disk")
         fullMatrixWithBams.repartition(2000).map(_.toString)
           .saveAsTextFile(finalOutput)
-     } // end if tf was already defined, save
-     else {
-      println(s"skipping ${labelsPath}")
-     }
+      } // end if tf was already defined, save
+      else {
+        println(s"skipping ${labelsPath}")
+      }
 
-   } // end all labels paths
+    } // end all labels paths
   }
 
-
-  def extractSequencesAndLabels(referencePath: String, regionsAndLabels: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)]): RDD[LabeledWindow]  = {
-    /* TODO: This is a kludge that relies that the master + slaves share NFS
-     * but the correct thing to do is to use scp/nfs to distribute the sequence data
-     * across the cluster
-     */
-   	
-    regionsAndLabels.mapPartitions( part => {
-        val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-        part.map { r =>
-          val startIdx = r._3.start
-          val endIdx = r._3.end
-          val sequence = reference.extract(r._3)
-	  val label = r._4
-          val win = Window(r._1, r._2, r._3, sequence)
-          LabeledWindow(win, label)
-       }
-      })
-  }
 
 }

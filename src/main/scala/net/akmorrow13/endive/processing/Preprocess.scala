@@ -20,7 +20,7 @@ import breeze.linalg.DenseVector
 import net.akmorrow13.endive.utils.{LabeledWindowLoader, LabeledWindow}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.models.{Coverage, ReferenceRegion}
 import org.apache.hadoop.fs._
 import org.apache.hadoop.conf._
 import org.bdgenomics.adam.rdd.ADAMContext._
@@ -365,6 +365,55 @@ object Preprocess {
 
     (CoverageRDD(positiveCoverage._1, positiveCoverage._2),
       CoverageRDD(negativeCoverage._1, negativeCoverage._2))
+  }
+
+  /**
+   * Parses folder of dnase files that load into AlignmentRecordRDDs. File
+   * naming convention for individual adam files is alignmentcuts.DNASE.<CELLTYPE_NAME>.adam
+   * @param sc Spark Context
+   * @param dnasePath path containing individual adam files for each cell Type
+   */
+  def loadAllDnase(sc: SparkContext,
+                dnasePath: String): (RDD[(CellTypes.Value, Coverage)], RDD[(CellTypes.Value, Coverage)]) = {
+
+    val fs: FileSystem = FileSystem.get(new Configuration())
+
+    // read all bams in file and save positive coverage (positive and negative files for each)
+    val status: Array[FileStatus] = fs.listStatus(new Path(dnasePath))
+      .filter(i => i.getPath.getName.endsWith(".adam")) // verify ADAM file
+
+    //i.getPath.getName.split('.')(0)
+
+    val positiveStatus = status.filter(r => r.getPath.getName.contains("positive"))
+    val negativeStatus = status.filter(r => r.getPath.getName.contains("negative"))
+
+    println(s"loaded positives and negatives")
+    positiveStatus.foreach(r => println(r.getPath.getName))
+    negativeStatus.foreach(r => println(r.getPath.getName))
+
+    val (positiveCoverage) =
+      positiveStatus.map(i => {
+        val filePath: String = i.getPath.toString
+        val fileName = i.getPath.getName
+        val cell = CellTypes.getEnumeration(fileName.split('.')(0))
+        println(s"processing file ${fileName} for cellType ${cell} from ${dnasePath}")
+
+        // get positive strand coverage
+        sc.loadCoverage(filePath).rdd.map(r => (cell, r))
+      }).reduce((r1, r2) => r1.union(r2))
+
+    val (negativeCoverage) =
+      negativeStatus.map(i => {
+        val filePath: String = i.getPath.toString
+        val fileName = i.getPath.getName
+        val cell = CellTypes.getEnumeration(fileName.split('.')(0))
+        println(s"processing file ${fileName} for cellType ${cell} from ${dnasePath}")
+
+        // get positive strand coverage
+        sc.loadCoverage(filePath).rdd.map(r => (cell, r))
+      }).reduce((r1, r2) =>  r1.union(r2))
+
+    (positiveCoverage, negativeCoverage)
   }
 
 }
