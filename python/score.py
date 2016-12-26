@@ -46,7 +46,7 @@ def calc_auPRC(y_true, y_score):
     """
     ro.globalenv['pred'] = y_score
     ro.globalenv['labels'] = y_true
-    return ro.r('library(PRROC); pr.curve(scores.class0=pred, weights.class0=labels)$auc.davis.goadrich')[0]
+    return ro.r('library(pROC); pr.curve(scores.class0=pred, weights.class0=labels)$auc.davis.goadrich')[0]
 
 class InputError(Exception):
     pass

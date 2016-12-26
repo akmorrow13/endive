@@ -116,7 +116,7 @@ object SolverPipeline extends Serializable with Logging {
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
 
     println(conf.featuresOutput)
-    val featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
+    val featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc).cache()
     featuresRDD.count()
     println("FILTERING ")
     println(featuresRDD.first.labeledWindow.win.cellType.id)

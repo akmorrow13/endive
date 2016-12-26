@@ -3,6 +3,10 @@ from pylab import *
 import pythonrun
 import os
 import pandas as pd
+from sklearn import metrics
+from joblib import Parallel, delayed
+import multiprocessing
+from score import *
 
 BASE_KERNEL_PIPELINE_CONFIG = \
 {
@@ -39,6 +43,7 @@ def run_kitchensink_featurize_pipeline(windowPath,
                gamma = 1.0,
                sample = 0.01,
                alphabet_size=4,
+               num_partitions=337,
                kmer_size=8,
                num_filters=256,
                featuresOutput="/user/vaishaal/tmp/features",
@@ -55,6 +60,7 @@ def run_kitchensink_featurize_pipeline(windowPath,
     w = filter_gen(num_filters)
     np.savetxt(filterPath, w, delimiter=",")
     kernel_pipeline_config["filtersPath"] = filterPath
+    kernel_pipeline_config["numPartitions"] = num_partitions
     kernel_pipeline_config["aggregatedSequenceOutput"] = windowPath
     kernel_pipeline_config["featurizeSample"] = sample
     kernel_pipeline_config["kmerLength"] = kmer_size
@@ -143,7 +149,7 @@ def run_test_pipeline(featuresPath,
               use_yarn=True)
 
     test_pred_name = predictionsPath + "/testPreds"
-    test_preds = load_hdfs_vector(test_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
+    test_preds = load_hdfs_vector_parallel(test_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
     test_meta_name = predictionsPath + "/testMetaData"
     test_meta  = load_test_metadata(test_meta_name, hdfsclient=hdfsclient)
 
@@ -169,7 +175,7 @@ def load_test_metadata(metadataPath, hdfsclient, tmpPath="/tmp/"):
         vectors.append(part_vector)
 
     ov = np.concatenate(vectors)
-    ov = ov.reshape((-1,4))
+    ov = ov.reshape((-1,5))
 
     os.system("rm -rf " + tmpPath + fname)
     return pd.DataFrame(ov, columns=['chr', 'start', 'end', 'cellType'])
@@ -186,16 +192,43 @@ def load_hdfs_vector(hdfsPath, hdfsclient, tmpPath="/tmp/", shape=None):
         return
 
     for part in os.listdir(tmpPath + fname):
+        print(part)
         partName = tmpPath + fname + "/" + part
         if (os.stat(partName).st_size == 0):
             continue
-        part_vector = np.ravel(genfromtxt(partName, delimiter=","))
+        part_vector = np.ravel(genfromtxt(partName, delimiter=",", dtype='float16'))
         vectors.append(part_vector)
 
     ov = np.concatenate(vectors)
     if (shape != None):
         ov = ov.reshape(shape)
 
+    os.system("rm -rf " + tmpPath + fname)
+    return ov
+
+def parse_part(part, tmpPath, fname):
+    partName = tmpPath + fname + "/" + part
+    part_vector = np.ravel(genfromtxt(partName, delimiter=",", dtype='float16'))
+    return part_vector
+
+
+def load_hdfs_vector_parallel(hdfsPath, hdfsclient, tmpPath="/tmp/", shape=None):
+
+    fname = os.path.basename(os.path.normpath(hdfsPath))
+    os.system("hadoop fs -copyToLocal  {0} {1}".format(hdfsPath, tmpPath))
+    def filter_empty(part):
+        partName = tmpPath + fname + "/" + part
+        return os.stat(partName).st_size != 0
+
+    parts = filter(filter_empty, list(os.listdir(tmpPath + fname)))
+
+    num_cores = multiprocessing.cpu_count()
+
+    # this part is now in parallel
+    vectors = Parallel(n_jobs=num_cores)(delayed(parse_part)(i, tmpPath, fname) for i in parts)
+    ov = np.concatenate(vectors)
+    if (shape != None):
+        ov = ov.reshape(shape)
     os.system("rm -rf " + tmpPath + fname)
     return ov
 
@@ -213,31 +246,93 @@ def pr_result(y_test, y_test_pred, y_train=None, y_train_pred=None):
     fpr, tpr, thresh = metrics.precision_recall_curve(y_test, y_test_pred)
     test_auc = metrics.average_precision_score(y_test, y_test_pred)
     plot(fpr, tpr, label="test")
-    plt.legend(loc=4)
-    plt.figure()
     print("Test PR AUC {0}".format(test_auc))
-    if (y_train != None and y_train_pred != None):
+    if (not (y_train is None) and not (y_train_pred is None)):
         fpr, tpr, thresh = metrics.precision_recall_curve(y_train, y_train_pred)
         train_auc = metrics.average_precision_score(y_train, y_train_pred)
         plot(fpr, tpr, label="train")
         print("Train PR AUC {0}".format(train_auc))
+    else:
+        train_auc = None
+    plt.legend(loc=4)
+    plt.figure()
+
+    return test_auc, train_auc
 
 
 def roc_result(y_test, y_test_pred, y_train=None, y_train_pred=None):
     fpr, tpr, thresh = metrics.roc_curve(y_test, y_test_pred)
     test_auc = metrics.roc_auc_score(y_test, y_test_pred)
     plot(fpr, tpr, label="test")
-    plt.legend(loc=4)
-    plt.figure()
     print("Test ROC AUC {0}".format(test_auc))
-    if (y_train != None and y_train_pred != None):
-        fpr, tpr, thresh = metrics.precision_recall_curve(y_train, y_train_pred)
-        train_auc = metrics.average_precision_score(y_train, y_train_pred)
+    if (not (y_train is None) and not (y_train_pred is None)):
+        fpr, tpr, thresh = metrics.roc_curve(y_train, y_train_pred)
+        train_auc = metrics.roc_auc_score(y_train, y_train_pred)
         plot(fpr, tpr, label="train")
         print("Train PR AUC {0}".format(train_auc))
+    else:
+        train_auc = None
+    plt.legend(loc=4)
+    plt.figure()
+    return test_auc, train_auc
 
 
 
+def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, numHoldOutChr=1, numHoldOutCell=1,
+                   num_folds=1,
+                   regs=[0.1],
+                   seed=0,
+                   executor_mem='100g',
+                   cores_per_executor=32,
+                   other_meta={}):
+    results = []
+    numpy.random.seed(seed=seed)
+    for fold in range(num_folds):
+        print("FOLD " + str(fold))
+        test_cell_types = []
+        test_chromosomes = []
+        test_chromosomes = map(lambda i: chromosomes[i], np.random.choice(len(chromosomes), numHoldOutChr, replace=False))
+        test_cell_types = map(lambda i: cellTypes[i], np.random.choice(len(cellTypes), numHoldOutCell, replace=False))
+        print("HOLDING OUT CHROMOSOMES {0}".format(test_chromosomes))
+        print("HOLDING OUT CELL TYPES {0}".format(test_cell_types))
+        for reg in regs:
+            print("RUNING SOLVER WITH REG={0}".format(reg))
+            train_res, val_res = run_solver_pipeline(feature_path,
+                           "/tmp/log",
+                           hdfsclient,
+                           executor_mem=executor_mem,
+                           num_executors=num_executors,
+                           cores_per_executor=cores_per_executor,
+                           reg=reg,
+                           valCellTypes=[8],
+                           valChromosomes=["chr10"],
+                           valDuringSolve=True)
+
+            train_metrics = compute_metrics(train_res[:, 1], train_res[:, 0], tag='train')
+            val_metrics = compute_metrics(val_res[:, 1], val_res[:, 0], tag='val')
+            result = dict(train_metrics.items() + val_metrics.items() + other_meta.items())
+            result['test_chromosomes'] = test_chromosomes
+            result['test_celltypes'] = test_cell_types
+            results.append(result)
+    return pd.DataFrame(results)
+
+
+
+def compute_metrics(predictions, labels, tag=''):
+    print("COMPUTING {0} metrics".format(tag))
+    result = {}
+    result[tag + '_auPRC'] = metrics.average_precision_score(labels, predictions)
+    result[tag + '_auROC'] = metrics.roc_auc_score(labels, predictions)
+    result[tag + '_recall_at_50_fdr'] = recall_at_fdr(labels, predictions, fdr_cutoff=0.50)
+    result[tag + '_recall_at_25_fdr'] = recall_at_fdr(labels, predictions, fdr_cutoff=0.25)
+    result[tag + '_recall_at_10_fdr'] = recall_at_fdr(labels, predictions, fdr_cutoff=0.10)
+    result[tag + '_recall_at_05_fdr'] = recall_at_fdr(labels, predictions, fdr_cutoff=0.05)
+    return result
+
+def string_to_enum_celltypes(string_cell_types):
+    ALL_CELLTYPES = ['A549','GM12878', 'H1hESC', 'HCT116', 'HeLaS3', 'HepG2', 'IMR90', 'K562', 'MCF7', 'PC3',
+  'Panc1', 'SKNSH', 'inducedpluripotentstemcell', 'liver']
+    return map(lambda x: x[0], filter(lambda x: x[1] in string_cell_types, enumerate(ALL_CELLTYPES)))
 
 
 

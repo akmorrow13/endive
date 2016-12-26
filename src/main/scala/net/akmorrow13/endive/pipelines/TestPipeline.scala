@@ -97,13 +97,16 @@ object TestPipeline extends Serializable with Logging {
     val testPredictionsOutput = conf.predictionsOutput + s"/testPreds"
     val zippedTestPreds = testScalarLabels.zip(testPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(testPredictionsOutput)
     val testMetadataOutput = conf.predictionsOutput + s"/testMetaData"
-    testFeaturizedWindows.map { x =>
+    testFeaturizedWindows.zip(testPredictions).map { xy =>
+      val x = xy._1 
+      val y = xy._2
       val win = x.labeledWindow.win
       val chr = x.labeledWindow.win.getRegion.referenceName
       val start = x.labeledWindow.win.getRegion.start
       val end  = x.labeledWindow.win.getRegion.end
       val cell  = CellTypes.toVector(x.labeledWindow.win.cellType.id)
-      s"${chr},${start},${end},${cell}"
+      val pred = y
+      s"${chr},${start},${end},${cell},${pred}"
   }.saveAsTextFile(testMetadataOutput)
   }
 
