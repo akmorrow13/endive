@@ -61,7 +61,7 @@ object ProcessDnaseBams extends Serializable with Logging {
   def run(sc: SparkContext, conf: EndiveConf) {
 
     println("STARTING DNase Processing")
-    val dnase = conf.dnase
+    val dnase = conf.dnaseNarrow
     val output = conf.getFeaturizedOutput
     val referencePath = conf.reference
     val chromosomes = Chromosomes.toVector

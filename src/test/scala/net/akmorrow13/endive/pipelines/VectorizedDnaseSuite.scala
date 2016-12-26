@@ -33,7 +33,8 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
   val sd = new SequenceDictionary(Vector(SequenceRecord(chr, 7000)))
 
   sparkTest("verify featurization correctly joins data") {
-    val win1 = LabeledWindow(Window(TranscriptionFactors.EGR1, CellTypes.A549, ReferenceRegion(chr, 1L, 200L),"A"*200), 1)
+    val region1 = ReferenceRegion(chr, 1L, 200L)
+    val win1 = LabeledWindow(Window(TranscriptionFactors.EGR1, CellTypes.A549, region1,"A"*200), 1)
     val win2 = LabeledWindow(Window(TranscriptionFactors.EGR1, CellTypes.A549, ReferenceRegion(chr, 50L, 250L),"G"*200), 1)
 
     val windows = sc.parallelize(Seq(win1, win2))
@@ -53,7 +54,7 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
 
     val result = VectorizedDnase.featurize(sc, windows, coverage, sd, false, false, None, false).collect()
     assert(result.length == 2)
-    assert(result(1).features.sum > 1)
+    assert(result.filter(_.win.region == region1).head.win.dnase.sum > 1)
   }
 
   sparkTest("msCentipede at full scale") {
@@ -68,10 +69,10 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
     val (labels, cellTypes) = Preprocess.loadLabels(sc, labelPath)
     val cellType = cellTypes.head
     val chr = labels.first._3.referenceName
-    val dnase = List(PeakRecord(ReferenceRegion(chr, 2000,2010),1,1.0,1.0,1.0,1.0))
+    val dnase = DenseVector.ones[Double](200) * 0.2
     val rdd = labels
       .filter(_._4 > 0)
-      .map(r => LabeledWindow(Window(r._1, r._2, r._3, ("A" * 192 + "TTTAATTG"), Some(dnase)), r._4))
+      .map(r => LabeledWindow(Window(r._1, r._2, r._3, ("A" * 192 + "TTTAATTG"), 1, Some(dnase)), r._4))
 
     val sd = new SequenceDictionary(Vector(SequenceRecord(chr, 100000)))
     val reads = sc.parallelize((1000 until 3000).map(r => {
@@ -88,7 +89,7 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
 
     val results = VectorizedDnase.featurize(sc, rdd, coverage, sd, false, false,
                   Some(motifs), false)
-    val features = results.first.features
+    val features = results.first.win.dnase
     assert(features.slice(features.length/2, features.length).sum == 0)
   }
 

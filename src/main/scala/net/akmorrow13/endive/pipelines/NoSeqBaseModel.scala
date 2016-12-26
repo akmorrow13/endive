@@ -71,7 +71,6 @@ object NoSeqBaseModel extends Serializable  {
     val referencePath = conf.reference
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
-    val dnasePath = conf.dnase
 
     val windowsRDD: RDD[LabeledWindow] = sc.textFile(labelsPath)
       .map(s => LabeledWindowLoader.stringToLabeledWindow(s))
@@ -159,30 +158,6 @@ object NoSeqBaseModel extends Serializable  {
       else
         rdd
 
-    // print sampling statistics
-    println(s"filtered rdd ${filteredRDD.count}, original rdd ${rdd.count}")
-    println(s"original negative count: ${rdd.filter(_.label == 0.0).count}, " +
-      s"negative count after subsampling: ${filteredRDD.filter(_.label == 0.0).count}")
-    filteredRDD
-      .map(r => {
-        if (r.win.getDnase.length > 0) {
-          // max DNASE fold change across each bin
-          val maxScore = r.win.getDnase.map(_.peak).max
-          val minScore = r.win.getDnase.map(_.peak).min
-          val dnasefold = (maxScore - minScore) / minScore
-          // percentage of overlap
-          val x = List.range(r.win.getRegion.start, r.win.getRegion.end)
-          val others = r.win.getDnase.flatMap(n => {
-            List.range(n.region.start, n.region.end).filter(n => n < r.win.getRegion.start || n > r.win.getRegion.end)
-          }).distinct
-          val coverage = x.filterNot(r => others.contains(r)).length/r.win.getRegion.length
-          BaseFeature(r, DenseVector(coverage, dnasefold))
-        } else {
-          BaseFeature(r, DenseVector(0.0,0.0))
-        }
-
-      })
-/*
     filteredRDD
       .map(r => {
         if (r.win.getDnase.length > 0) {
@@ -191,8 +166,8 @@ object NoSeqBaseModel extends Serializable  {
           BaseFeature(r, DenseVector(0.0))
         }
 
-      })*/
-  }
+      })
+}
 
 
 }

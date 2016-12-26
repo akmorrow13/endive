@@ -79,16 +79,11 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
     val alphabetSize = Dataset.alphabet.size
 
     val dataPath = conf.aggregatedSequenceOutput
-    val dnasePath = conf.dnase
     val referencePath = conf.reference
 
     val hadoopConf = new org.apache.hadoop.conf.Configuration()
     val hdfs = org.apache.hadoop.fs.FileSystem.get(new java.net.URI("hdfs://localhost:9000"), hadoopConf)
 
-    if (dataPath == null || referencePath == null || dnasePath == null) {
-      println("Error: no data or reference path")
-      sys.exit(-1)
-    }
 
     // load data for a specific transcription factor
     var allData: RDD[LabeledWindow] =
@@ -147,7 +142,7 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
                             W: DenseMatrix[Double],
                             kmerSize: Int): RDD[FeaturizedLabeledWindow] = {
 
-    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize)
+    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize, alphabetSize=4)
 
     matrix.map(f => {
       val kx = (kernelApprox({

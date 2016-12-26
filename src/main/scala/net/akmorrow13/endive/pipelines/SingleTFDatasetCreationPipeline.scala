@@ -70,11 +70,15 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
   def run(sc: SparkContext, conf: EndiveConf) {
 
     println("STARTING DATA SET CREATION PIPELINE")
+    
     // create new sequence with reference path
     val referencePath = conf.reference
 
-    // load dnase path for all files
-    val dnasePath = conf.dnase
+    // load dnase path for all narrowpeak files
+    val dnaseNarrowPath = conf.dnaseNarrow
+
+    // load dnase paths for all dnase mabs
+    val dnaseBamsPath = conf.dnaseBams
 
     // load chip seq labels from 1 file
     val labelsPath = conf.labels
@@ -83,10 +87,10 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
     val fs: FileSystem = FileSystem.get(new Configuration())
-    val dnaseStatus = fs.listStatus(new Path(dnasePath))
+    val dnaseNarrowStatus = fs.listStatus(new Path(dnaseNarrowPath))
 
     val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, labelsPath, 40)
-    
+ 
     train
 	.setName("Raw Train Data").cache()
 
@@ -95,30 +99,51 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     println(s"celltypes for tf ${tf}:")
     cellTypes.foreach(println)
 
-    // Load DNase data of (cell type, peak record)
-    val dnaseFiles = dnaseStatus.filter(r => {
-      val cellType = Dataset.filterCellTypeName(r.getPath.getName.split('.')(1))
-      cellTypes.map(_.toString).contains(cellType)
-    })
-
-    // load peak data from dnase
-    val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
-     .filter(r => Chromosomes.toVector.contains(r._2.region.referenceName)) 
-     .cache()
-
-    println("Reading dnase peaks")
-    println(dnase.count)
-
-    // extract sequences from reference over training regions
-    val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
+    // extract sequences from reference over all regions
+    val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train.repartition(50)).cache()
     println("labeled window count", sequences.count)
 
-    val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
+    // save sequences
+    println("Now saving sequences to disk")
+    sequences.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + "onlySequences/" + tf)
 
-    val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
+    var fullMatrix: RDD[LabeledWindow] =
+      if (dnaseNarrowPath != null) {
+        // Load DNase data of (cell type, peak record)
+        val dnaseFiles = dnaseNarrowStatus.filter(r => {
+          val cellType = Dataset.filterCellTypeName(r.getPath.getName.split('.')(1))
+          cellTypes.map(_.toString).contains(cellType)
+        })
 
-    println("Now matching labels with reference genome")
-    println(fullMatrix.count)
+        // load peak data from dnase
+        val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
+          .filter(r => Chromosomes.toVector.contains(r._2.region.referenceName))
+          .cache()
+
+        println("Reading dnase peaks")
+        println(dnase.count)
+
+        val cellTypeInfo = new CellTypeSpecific(Dataset.windowSize, Dataset.stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
+        cellTypeInfo.joinWithDNase(sequences)
+      } else sequences
+
+    fullMatrix.setName("fullmatrix_with_dnasePeaks").cache()
+    fullMatrix.count()
+    sequences.unpersist()
+
+    // save sequences with narrow peak
+    println("Now saving sequences with peak to disk")
+    fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + "sequencesAndPeakCounts/" + tf)
+
+    // join with dnase bams, if present
+    fullMatrix =
+      if (dnaseBamsPath != null) {
+        // load cuts from AlignmentREcordRDD. filter out only cells of interest
+        val coverage = Preprocess.loadDnase(sc, dnaseBamsPath, cellTypes)
+        coverage.rdd.cache()
+        coverage.rdd.count
+        VectorizedDnase.joinWithDnaseBams(sc, sd, fullMatrix, coverage)
+      } else fullMatrix
 
     println("Now saving to disk")
     fullMatrix.map(_.toString).saveAsTextFile(conf.aggregatedSequenceOutput + tf)

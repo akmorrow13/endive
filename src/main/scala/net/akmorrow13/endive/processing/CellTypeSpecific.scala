@@ -16,7 +16,7 @@ class CellTypeSpecific(@transient windowSize: Int,
 
   def joinWithDNase(in: RDD[LabeledWindow]): RDD[LabeledWindow] = {
     val mappedDnase = CellTypeSpecific.window(dnase.map(r => (r._2.region, r._1, r._2)), sd)
-    mappedDnase.cache()
+    mappedDnase.setName("mappedDnasePeaks").cache()
 
     val str = this.stride
     val win = this.windowSize
@@ -27,48 +27,11 @@ class CellTypeSpecific(@transient windowSize: Int,
       .map(r => {
         val dnase = r._2._2.getOrElse(List())
         LabeledWindow(Window(r._2._1.win.getTf, r._2._1.win.getCellType,
-          r._2._1.win.getRegion, r._2._1.win.getSequence, dnase = Some(dnase)), r._2._1.label)
+          r._2._1.win.getRegion, r._2._1.win.getSequence, dnase.length), r._2._1.label)
       })
+    mappedDnase.unpersist()
     x
   }
-
-  /**
-   * merges sequences with overlapping dnase regions
- *
-   * @param in Window of sequences specified by cell type and transcription factor
-   * @return new window with dnase regions
-   */
-   def joinWithSequences(in: RDD[LabeledWindow]): RDD[LabeledWindow] = {
-    // if no rnaseq just join with dnase
-    if (rnaseq.isEmpty)
-      return joinWithDNase(in)
-
-    // map dnase and rnaseq to window sizes that match the input window sizes
-    val mappedDnase = dnase.map(r => (r._2.region, r._1, r._2))
-    val mappedRnaseq = rnaseq.map(r => (r._2.region, r._1, r._2))
-
-    // join together cell type specific information
-    val cellData: RDD[((ReferenceRegion, CellTypes.Value), (Option[List[PeakRecord]], Option[List[RNARecord]]))]  =
-      CellTypeSpecific.joinDataSets(mappedDnase, mappedRnaseq, sd)
-
-    val str = this.stride
-    val win = this.windowSize
-
-
-    // TODO: this does not calculate held out chrs
-      val x: RDD[LabeledWindow] = in.keyBy(r => (r.win.getRegion, r.win.getCellType))
-        //  .partitionBy(new LabeledReferenceRegionPartitioner(sd, Dataset.cellTypes.toVector))
-        .leftOuterJoin(cellData)
-        .map(r => {
-          val (dnase, rnaseq) =
-            if (r._2._2.isDefined) {
-              (r._2._2.get._1.getOrElse(List()),  r._2._2.get._2.getOrElse(List()))
-            } else (List(), List())
-          LabeledWindow(Window(r._2._1.win.getTf, r._2._1.win.getCellType,
-            r._2._1.win.getRegion, r._2._1.win.getSequence,dnase = Some(dnase),rnaseq = Some(rnaseq)), r._2._1.label)
-        })
-      x
-    }
 
 }
 
