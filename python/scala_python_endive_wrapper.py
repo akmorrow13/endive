@@ -6,7 +6,6 @@ import pandas as pd
 from sklearn import metrics
 from joblib import Parallel, delayed
 import multiprocessing
-from score import *
 
 BASE_KERNEL_PIPELINE_CONFIG = \
 {
@@ -26,6 +25,13 @@ solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
 test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
 
 pipeline_jar = os.path.relpath("../target/scala-2.10/endive-assembly-0.1.jar")
+
+
+def recall_at_fdr(y_true, y_score, fdr_cutoff=0.05):
+    precision, recall, thresholds = metrics.precision_recall_curve(y_true, y_score)
+    fdr = 1- precision
+    cutoff_index = next(i for i, x in enumerate(fdr) if x <= fdr_cutoff)
+    return recall[cutoff_index]
 
 
 def make_gaussian_filter_gen(gamma, alphabet_size=4, kmer_size=8, seed=0):
