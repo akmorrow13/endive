@@ -92,7 +92,7 @@ object SingleTFDatasetCreationPipeline extends Serializable  {
     println("saved TFS")
     savedTfs.foreach(println)
 
-    val tfs = conf.tf.split(',').map(r => TranscriptionFactors.withName(r))
+    val tfs = conf.tfs.split(',').map(r => TranscriptionFactors.withName(r))
 
    for (labelsPath <- labelsPaths) {
       println(s"processing ${labelsPath}")

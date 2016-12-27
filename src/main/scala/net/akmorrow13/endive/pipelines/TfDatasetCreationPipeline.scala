@@ -101,7 +101,7 @@ object TFDatasetCreationPipeline extends Serializable  {
     negativeCoverage.setName("negativecoverage").cache()
 
     val savedTfs = fs.listStatus(new Path(conf.aggregatedSequenceOutput)).map(r => r.getPath.getName)
-    val tfs = conf.tf.split(',').map(r => TranscriptionFactors.withName(r))
+    val tfs = conf.tfs.split(',').map(r => TranscriptionFactors.withName(r))
 
     for (labelsPath <- labelsPaths) {
       println(s"processing ${labelsPath}")
