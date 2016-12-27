@@ -42,7 +42,7 @@ import net.akmorrow13.endive.processing._
 object SingleTFDatasetCreationPipeline extends Serializable  {
 
   /**
-   * A very basic dataset creation pipeline that *doesn't* featurize the data
+   * A very basic dataset creation pipeline for sequence data that *doesn't* featurize the data
    * but creates a csv of (Window, Label)
    *
     * @param args

@@ -85,8 +85,8 @@ object KernelPipeline  extends Serializable with Logging {
     // set parameters
     val seed = 0
     val kmerSize = 8
+    val approxDim = conf.approxDim
     val dnaseSize = 100
-    val approxDim = conf.dim
     val alphabetSize = Dataset.alphabet.size
 
     val dataPath = conf.aggregatedSequenceOutput
@@ -104,8 +104,16 @@ object KernelPipeline  extends Serializable with Logging {
 
 
     // load data for a specific transcription factor
-    val allData: RDD[LabeledWindow] =
+    var allData: RDD[LabeledWindow] =
       LabeledWindowLoader(dataPath, sc).setName("_All data")
+        .filter(_.label >= 0)
+        .cache()
+
+    if (conf.sample) {
+      // sample data
+      allData = EndiveUtils.subselectRandomSamples(sc, allData, sd)
+      println("Sampled LabeledWindows", allData.count)
+    }
 
 /*
     // extract tfs and cells for this label file
@@ -202,13 +210,6 @@ object KernelPipeline  extends Serializable with Logging {
     }
 
     // save test predictions as FeatureRDD if specified
-    if (conf.saveTestPredictions != null) {
-      if (sd == null) {
-        println("Error: need referencePath to save output train predictions")
-      } else {
-        saveAsFeatures(testApprox.map(_.labeledWindow), testPredictions, sd, conf.saveTestPredictions)
-      }
-    }
   }
 
   /**
@@ -222,7 +223,7 @@ object KernelPipeline  extends Serializable with Logging {
    */
   def featurize(matrix: RDD[LabeledWindow],
                             W: DenseMatrix[Double],
-                            kmerSize: Int): RDD[BaseFeature] = {
+                            kmerSize: Int): RDD[FeaturizedLabeledWindow] = {
 
     val kernelApprox = new KernelApproximator(W, Math.cos, kmerSize, Dataset.alphabet.size)
 
@@ -230,7 +231,7 @@ object KernelPipeline  extends Serializable with Logging {
       val kx = (kernelApprox({
         KernelApproximator.stringToVector(f.win.sequence)
       }))
-      BaseFeature(f, kx)
+      FeaturizedLabeledWindow(f, kx)
     })
 
   }
@@ -255,7 +256,7 @@ object KernelPipeline  extends Serializable with Logging {
                          W_sequence: DenseMatrix[Double],
                          kmerSize: Int,
                          W_dnase: Option[DenseMatrix[Double]] = None,
-                         dnaseSize: Option[Int] = None): RDD[BaseFeature] = {
+                         dnaseSize: Option[Int] = None): RDD[FeaturizedLabeledWindow] = {
 
     val kernelApprox_seq = new KernelApproximator(W_sequence, Math.cos, kmerSize, Dataset.alphabet.size)
 
@@ -268,12 +269,12 @@ object KernelPipeline  extends Serializable with Logging {
         // TODO: include
         val k_dnase_neg = kernelApprox_dnase(f.win.dnase.slice(Dataset.windowSize, f.win.dnase.length))
 
-        BaseFeature(f, DenseVector.vertcat(k_seq, k_dnase_pos, k_dnase_neg))
+        FeaturizedLabeledWindow(f, DenseVector.vertcat(k_seq, k_dnase_pos, k_dnase_neg))
       })
     } else {
       rdd.map(f => {
         val kx = kernelApprox_seq(oneHotEncodeDnase(f))
-        BaseFeature(f, kx)
+        FeaturizedLabeledWindow(f, kx)
       })
     }
 

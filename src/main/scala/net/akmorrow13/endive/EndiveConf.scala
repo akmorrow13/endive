@@ -32,6 +32,24 @@ class EndiveConf extends Serializable {
   @BeanProperty var heldoutChr: Int = 1
   @BeanProperty var heldOutCells: Int = 1
 
+  @BeanProperty var gamma: Double = 1.0
+  @BeanProperty var seed: Int = 0
+  @BeanProperty var readFiltersFromDisk: Boolean = false
+
+  @BeanProperty var valDuringSolve: Boolean = true
+  @BeanProperty var writePredictionsToDisk: Boolean = true
+  @BeanProperty var predictionsOutput: String = "/user/vaishaal/tmp"
+  @BeanProperty var featuresOutput: String = "/tmp"
+  @BeanProperty var modelOutput: String = "/tmp"
+  @BeanProperty var featurizeSample: Double = 1.0
+  @BeanProperty var numPartitions: Int = 400
+  @BeanProperty var negativeSamplingFreq: Double = 0.001
+  @BeanProperty var filtersPath: String  = "/tmp/filters.csv"
+
+  /* train test split for solve */
+  @BeanProperty var valChromosomes: Array[String] = Array()
+  @BeanProperty var valCellTypes: Array[Int] = Array()
+
 
   /* data sources*/
   @BeanProperty var labelsPathArray: Array[String] = Array()
@@ -39,6 +57,8 @@ class EndiveConf extends Serializable {
   @BeanProperty var cutmapOutputPath: String = null
   @BeanProperty var predictionOutputPath: String = null
   @BeanProperty var modelTest: String = "true"
+
+
   /* dnase data */
   @BeanProperty var dnaseNarrow: String = null
   @BeanProperty var dnaseBams: String = null
@@ -59,15 +79,15 @@ class EndiveConf extends Serializable {
   @BeanProperty var sequenceLength: Int = 100
 
   /* Kernel approximation feature parameters */
-  @BeanProperty var dim: Int = 4096
+  @BeanProperty var approxDim: Int = 256
 
   /* Save predictions */
   @BeanProperty var saveTrainPredictions: String = null
-  @BeanProperty var saveTestPredictions: String = null
+  @BeanProperty var saveValPredictions: String = null
 
   /* Default prediction parameters for block solve */
   @BeanProperty var lambda: Double = 10000
-  @BeanProperty var epochs: Int = 4
+  @BeanProperty var epochs: Int = 1
 
   @BeanProperty var sample: Boolean = true
 

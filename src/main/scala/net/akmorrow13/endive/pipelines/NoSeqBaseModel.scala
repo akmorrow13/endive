@@ -150,7 +150,7 @@ object NoSeqBaseModel extends Serializable  {
     * - Max, 0.99%, 0.95%, 0.75%, 0.50%, mean
     * - max DNASE fold change across each bin
     *************************************/
-  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], sd: SequenceDictionary, filter: Boolean = true): RDD[BaseFeature] = {
+  def featurize(sc: SparkContext, rdd: RDD[LabeledWindow], sd: SequenceDictionary, filter: Boolean = true): RDD[FeaturizedLabeledWindow] = {
 
     val filteredRDD =
       if (filter)
@@ -161,9 +161,9 @@ object NoSeqBaseModel extends Serializable  {
     filteredRDD
       .map(r => {
         if (r.win.getDnase.length > 0) {
-          BaseFeature(r, DenseVector(1.0))
+          FeaturizedLabeledWindow(r, DenseVector(1.0))
         } else {
-          BaseFeature(r, DenseVector(0.0))
+          FeaturizedLabeledWindow(r, DenseVector(0.0))
         }
 
       })
