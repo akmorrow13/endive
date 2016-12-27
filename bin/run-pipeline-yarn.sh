@@ -54,7 +54,7 @@ echo NUM EXECUTORS $SPARK_NUM_EXECUTORS
 "$SPARK_SUBMIT" \
   --master $MASTER \
   --class $CLASS \
-  --num-executors  $SPARK_NUM_EXECUTORS \
+  --num-executors $SPARK_NUM_EXECUTORS \
   --driver-memory 60g \
   --executor-memory $KEYSTONE_MEM \
   --executor-cores $SPARK_EXECUTOR_CORES \

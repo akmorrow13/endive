@@ -61,7 +61,7 @@ object ProcessDnaseBams extends Serializable with Logging {
   def run(sc: SparkContext, conf: EndiveConf) {
 
     println("STARTING DNase Processing")
-    val dnase = conf.dnaseNarrow
+    val dnase = conf.dnaseLoc
     val output = conf.getFeaturizedOutput
     val referencePath = conf.reference
     val chromosomes = Chromosomes.toVector
@@ -83,7 +83,7 @@ object ProcessDnaseBams extends Serializable with Logging {
       println(s"processing Dnase for celltype ${cellType}")
 
       var totalCuts: AlignmentRecordRDD = null
-      val outputLocation = s"${output}/aligmentcuts.DNASE.${cellType}.adam"
+      val outputLocation = s"${output}/aligmentcuts_allFiles.DNASE.${cellType}.adam"
 
       if (!saved.contains(outputLocation)) {
         for (i <- grp._2.map(_._2)) {
@@ -104,7 +104,7 @@ object ProcessDnaseBams extends Serializable with Logging {
           if (totalCuts == null ) {
             totalCuts = cuts
           } else {
-            totalCuts.transform(rdd => rdd.union(cuts.rdd))
+            totalCuts = totalCuts.transform(rdd => rdd.union(cuts.rdd))
           }
           alignments.rdd.unpersist(false)
         }

@@ -31,7 +31,7 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     val outSize = sequenceShort.length - ngramSize + 1
     val expected = Array("A","T","C","G")
 
-    val ngrams = KernelApproximator.makeNgrams(sequenceVector, ngramSize)
+    val ngrams = KernelApproximator.makeNgrams(sequenceVector, ngramSize, 4)
     val ngramStrings = KernelApproximator.vectorsToStrings(ngrams)
     assert(ngramStrings.deep == expected.deep)
   }
@@ -43,7 +43,7 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     val sequenceVector:DenseVector[Double] = KernelApproximator.stringToVector(sequenceShort)
     val outSize = seqSize - ngramSize + 1
     val expected = Array("AT","TC","CG")
-    val ngrams = KernelApproximator.makeNgrams(sequenceVector, ngramSize)
+    val ngrams = KernelApproximator.makeNgrams(sequenceVector, ngramSize, 4)
     val ngramStrings = KernelApproximator.vectorsToStrings(ngrams)
     assert(ngramStrings.deep == expected.deep)
   }
@@ -54,7 +54,7 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     val sequenceVector:DenseVector[Double] = KernelApproximator.stringToVector(sequenceLong)
     val outSize = seqSize - ngramSize + 1
     val expected = Array("TTGGAAAG", "TGGAAAGA", "GGAAAGAG", "GAAAGAGG", "AAAGAGGA", "AAGAGGAC", "AGAGGACG", "GAGGACGT", "AGGACGTG", "GGACGTGG", "GACGTGGG", "ACGTGGGA", "CGTGGGAC", "GTGGGACT", "TGGGACTG", "GGGACTGG", "GGACTGGG", "GACTGGGA", "ACTGGGAT", "CTGGGATT", "TGGGATTT", "GGGATTTA", "GGATTTAC", "GATTTACT", "ATTTACTC", "TTTACTCG", "TTACTCGG", "TACTCGGC", "ACTCGGCC", "CTCGGCCA", "TCGGCCAC", "CGGCCACC", "GGCCACCA", "GCCACCAA", "CCACCAAA", "CACCAAAA", "ACCAAAAC", "CCAAAACA", "CAAAACAC", "AAAACACT", "AAACACTC", "AACACTCA", "ACACTCAC", "CACTCACT", "ACTCACTT", "CTCACTTG", "TCACTTGG", "CACTTGGA", "ACTTGGAA", "CTTGGAAA", "TTGGAAAG", "TGGAAAGA", "GGAAAGAG", "GAAAGAGG", "AAAGAGGA", "AAGAGGAC", "AGAGGACG", "GAGGACGT", "AGGACGTG", "GGACGTGG", "GACGTGGG", "ACGTGGGA", "CGTGGGAC", "GTGGGACT", "TGGGACTG", "GGGACTGG", "GGACTGGG", "GACTGGGA", "ACTGGGAT", "CTGGGATT", "TGGGATTT", "GGGATTTA", "GGATTTAC", "GATTTACT", "ATTTACTC", "TTTACTCG", "TTACTCGG", "TACTCGGC", "ACTCGGCC", "CTCGGCCA", "TCGGCCAC", "CGGCCACC", "GGCCACCA", "GCCACCAA", "CCACCAAA", "CACCAAAA", "ACCAAAAC", "CCAAAACA", "CAAAACAC", "AAAACACT", "AAACACTC", "AACACTCA", "ACACTCAC", "CACTCACT", "ACTCACTT", "CTCACTTG", "TCACTTGG", "CACTTGGA", "ACTTGGAA", "CTTGGAAA", "TTGGAAAG", "TGGAAAGA", "GGAAAGAG", "GAAAGAGG", "AAAGAGGA", "AAGAGGAC", "AGAGGACG", "GAGGACGT", "AGGACGTG", "GGACGTGG", "GACGTGGG", "ACGTGGGA", "CGTGGGAC", "GTGGGACT", "TGGGACTG", "GGGACTGG", "GGACTGGG", "GACTGGGA", "ACTGGGAT", "CTGGGATT", "TGGGATTT", "GGGATTTA", "GGATTTAC", "GATTTACT", "ATTTACTC", "TTTACTCG", "TTACTCGG", "TACTCGGC", "ACTCGGCC", "CTCGGCCA", "TCGGCCAC", "CGGCCACC", "GGCCACCA", "GCCACCAA", "CCACCAAA", "CACCAAAA", "ACCAAAAC", "CCAAAACA", "CAAAACAC", "AAAACACT", "AAACACTC", "AACACTCA", "ACACTCAC", "CACTCACT", "ACTCACTT", "CTCACTTG", "TCACTTGG", "CACTTGGA", "ACTTGGAA", "CTTGGAAA", "TTGGAAAG", "TGGAAAGA", "GGAAAGAG", "GAAAGAGG", "AAAGAGGA", "AAGAGGAC", "AGAGGACG", "GAGGACGT", "AGGACGTG", "GGACGTGG", "GACGTGGG", "ACGTGGGA", "CGTGGGAC", "GTGGGACT", "TGGGACTG", "GGGACTGG", "GGACTGGG", "GACTGGGA", "ACTGGGAT", "CTGGGATT", "TGGGATTT", "GGGATTTA", "GGATTTAC", "GATTTACT", "ATTTACTC", "TTTACTCG", "TTACTCGG", "TACTCGGC", "ACTCGGCC", "CTCGGCCA", "TCGGCCAC", "CGGCCACC", "GGCCACCA", "GCCACCAA", "CCACCAAA", "CACCAAAA", "ACCAAAAC", "CCAAAACA", "CAAAACAC", "AAAACACT", "AAACACTC", "AACACTCA", "ACACTCAC")
-    val ngrams = KernelApproximator.makeNgrams(sequenceVector, ngramSize)
+    val ngrams = KernelApproximator.makeNgrams(sequenceVector, ngramSize, 4)
     val ngramStrings = KernelApproximator.vectorsToStrings(ngrams)
     assert(ngramStrings.deep == expected.deep)
   }
@@ -68,8 +68,8 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     val sequenceVector2:DenseVector[Double] = KernelApproximator.stringToVector(sequenceLong2)
 
 
-    val ngrams1 = KernelApproximator.makeNgrams(sequenceVector, ngramSize)
-    val ngrams2 = KernelApproximator.makeNgrams(sequenceVector2, ngramSize)
+    val ngrams1 = KernelApproximator.makeNgrams(sequenceVector, ngramSize, 4)
+    val ngrams2 = KernelApproximator.makeNgrams(sequenceVector2, ngramSize, 4)
     ngrams1 :/= KernelApproximator.computeConvolutionalNorm(ngrams1)
     ngrams2 :/= KernelApproximator.computeConvolutionalNorm(ngrams2)
 
@@ -120,7 +120,7 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
     val W = DenseMatrix.rand(approxDim, ngramSize*alphabetSize, gaussian)
-    val kernelApprox = new KernelApproximator(W)
+    val kernelApprox = new KernelApproximator(W, Math.cos, 8, 4)
     var Wx = kernelApprox(sequenceVector)
     var Wy = kernelApprox(sequenceVector2)
     Wx :/= norm(Wx)

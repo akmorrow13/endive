@@ -119,9 +119,9 @@ object DeepbindConcord extends Serializable with Logging {
     val W = 1.0 * DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
 
     // generate approximation features
-    val trainApprox = KernelPipeline.featurize(train, W, kmerSize)
+    val trainApprox = DnaseKernelPipeline.featurize(train, W, kmerSize)
 	    .cache()
-    val testApprox = KernelPipeline.featurize(test, W, kmerSize)
+    val testApprox = DnaseKernelPipeline.featurize(test, W, kmerSize)
     	.cache()
 
     println(trainApprox.count, testApprox.count)

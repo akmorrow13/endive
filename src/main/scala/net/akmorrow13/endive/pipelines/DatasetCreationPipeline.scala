@@ -60,6 +60,11 @@ object DatasetCreationPipeline extends Serializable  {
     }
   }
 
+  /**
+   *
+   * @param sc
+   * @param conf
+   */
   def run(sc: SparkContext, conf: EndiveConf) {
 
     println("STARTING DATA SET CREATION PIPELINE")

@@ -24,7 +24,7 @@ import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils._
 import com.github.fommil.netlib.BLAS
 import nodes.akmorrow13.endive.featurizers.KernelApproximator
-import nodes.learning.{ BlockLeastSquaresEstimator}
+import nodes.learning.{ BlockLeastSquaresEstimator }
 import nodes.util.{Cacher, MaxClassifier, ClassLabelIndicatorsFromIntLabels}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
@@ -32,7 +32,6 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.SequenceDictionary
 import org.bdgenomics.adam.rdd.feature.FeatureRDD
-import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.formats.avro._
 import org.bdgenomics.utils.io.LocalFileByteAccess
@@ -44,7 +43,7 @@ import java.io.File
 
 
 
-object KernelPipeline  extends Serializable with Logging {
+object DnaseKernelPipeline  extends Serializable with Logging {
 
   /**
    * A very basic pipeline that *doesn't* featurize the data
@@ -104,112 +103,23 @@ object KernelPipeline  extends Serializable with Logging {
 
 
     // load data for a specific transcription factor
-    var allData: RDD[LabeledWindow] =
+    val allData: RDD[LabeledWindow] =
       LabeledWindowLoader(dataPath, sc).setName("_All data")
         .filter(_.label >= 0)
         .cache()
-
-    if (conf.sample) {
-      // sample data
-      allData = EndiveUtils.subselectRandomSamples(sc, allData, sd)
-      println("Sampled LabeledWindows", allData.count)
-    }
-
-/*
-    // extract tfs and cells for this label file
-    val tfs = allData.map(_.win.getTf).distinct.collect()
-    val cells = allData.map(_.win.getCellType).distinct.collect()
-    tfs.foreach(println)
-    println(s"running on cells from ${dataPath}:")
-    cells.foreach(println)
-*/
-    val tfs  = Array("EGR1")
-    val cells = Array(CellTypes.GM12878,CellTypes.H1hESC,CellTypes.HCT116,CellTypes.MCF7)
-
-    // divvy up into train and test
-    val (testCell, train, test) = {
-      val first = allData.first
-      val referenceName = first.win.getRegion.referenceName
-      val cell = first.win.cellType
-
-      // hold out a (chromosome, celltype) pair for test
-      var train = allData.filter(r => (r.win.getRegion.referenceName != referenceName && r.win.cellType != cell))
-      if (conf.sample) {
-        // sample data
-        train = EndiveUtils.subselectRandomSamples(sc, train, sd)
-      }
-
-      train = train.setName("train").cache()
-      val test = allData.filter(r => (r.win.getRegion.referenceName == referenceName && r.win.cellType == cell))
-			.setName("test").cache()
-
-      (cell, train, test)
-    }
-
-    println(s"train: ${train.count}, test: ${test.count}")
 
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
 
     // generate random matrix
-    val dnaseMax = train.map(r => r.win.dnase.max).max().toInt
-    println("dnaseMax", dnaseMax)
     val W_sequence = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
     val W_dnase = DenseMatrix.rand(approxDim, dnaseSize * 1, gaussian)
 
     // generate approximation features
-    val trainApprox = featurizeWithDnase(sc, train, sd, W_sequence, kmerSize, Some(W_dnase),Some(dnaseSize))
-	  .setName("trainApprox")
-	  .cache()
-    val testApprox = featurizeWithDnase(sc, test, sd, W_sequence, kmerSize, Some(W_dnase), Some(dnaseSize))
-	  .setName("testApprox")
-	  .cache()
+    val allFeaturized = featurizeWithWaveletDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim)
 
-    println(trainApprox.count, testApprox.count)
+    allFeaturized.map(_.toString).saveAsTextFile(conf.featuresOutput)
 
-    train.unpersist()
-    test.unpersist()
-
-    val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
-      new Cacher[DenseVector[Double]]
-
-    val trainFeatures: RDD[DenseVector[Double]] = trainApprox.map(_.features)
-    val trainLabels = labelExtractor(trainApprox.map(_.labeledWindow.label))
-
-    val testFeatures = testApprox.map(_.features)
-    val testLabels = labelExtractor(testApprox.map(_.labeledWindow.label))
-
-    // run least squares
-    val predictor = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels.get)
-
-    // train metrics
-    val trainPredictions = MaxClassifier(predictor(trainFeatures)).map(_.toDouble)
-
-    val prarr = trainPredictions.mapPartitions(iter => Array(iter.size).iterator, true).collect
-    prarr.foreach(r => println(r))
-    val approxarr = trainApprox.mapPartitions(iter => Array(iter.size).iterator, true).collect
-    approxarr.foreach(r => println(r))
-
-    val evalTrain = new BinaryClassificationMetrics(trainPredictions.zip(trainApprox.map(_.labeledWindow.label.toDouble)))
-    println("Train Results: \n ")
-    Metrics.printMetrics(evalTrain)
-
-    // test metrics
-    val testPredictions = MaxClassifier(predictor(testFeatures)).map(_.toDouble)
-    val evalTest = new BinaryClassificationMetrics(testPredictions.zip(testApprox.map(_.labeledWindow.label.toDouble)))
-    println("Test Results: \n ")
-    Metrics.printMetrics(evalTest)
-
-    // save train predictions as FeatureRDD if specified
-    if (conf.saveTrainPredictions != null) {
-      if (sd == null) {
-        println("Error: need referencePath to save output train predictions")
-      } else {
-        saveAsFeatures(trainApprox.map(_.labeledWindow), trainPredictions, sd, conf.saveTrainPredictions)
-      }
-    }
-
-    // save test predictions as FeatureRDD if specified
   }
 
   /**
@@ -243,7 +153,53 @@ object KernelPipeline  extends Serializable with Logging {
    *
    * @param sc: Spark Context
    * @param rdd: data matrix with sequences
-   * @param sd: Sequence Dictionary
+   * @return
+   */
+  def featurizeWithWaveletDnase(sc: SparkContext,
+                         rdd: RDD[LabeledWindow],
+                         W_sequence: DenseMatrix[Double],
+                         kmerSize: Int,
+   			 dnaseSize: Int,
+                         approxDim: Int): RDD[FeaturizedLabeledWindow] = {
+
+    val kernelApprox_seq = new KernelApproximator(W_sequence, Math.cos, kmerSize, Dataset.alphabet.size)
+
+    val gaussian = new Gaussian(0, 1)
+
+    // generate kernel approximators for all different variations of dnase length
+    val approximators = Array(100, 50, 25, 12, 6)
+      .map(r => {
+        val W = DenseMatrix.rand(approxDim, r, gaussian)
+        new KernelApproximator(W, Math.cos, r, 1)
+      })
+
+
+    rdd.map(f => {
+
+      val k_seq = kernelApprox_seq(KernelApproximator.stringToVector(f.win.sequence))
+
+      //iteratively compute and multiply all dnase for positive strands
+      val k_dnase_pos = approximators.map(ap => {
+        ap(f.win.dnase.slice(0, Dataset.windowSize))
+      }).reduce(_ :* _)
+
+      //iteratively compute and multiply all dnase for negative strands
+      val k_dnase_neg = approximators.map(ap => {
+        ap(f.win.dnase.slice(Dataset.windowSize, f.win.dnase.length))
+      }).reduce(_ :* _)
+
+      FeaturizedLabeledWindow(f, DenseVector.vertcat(k_seq, k_dnase_pos, k_dnase_neg))
+    })
+
+  }
+
+  /**
+   * Takes a region of the genome and one hot enodes sequences (eg A = 0001). If DNASE is enabled positive strands
+   * are appended to the one hot sequence encoding. For example, if positive 1 has A with DNASE count of 3 positive
+   * strands, the encoding is 0003.
+   *
+   * @param sc: Spark Context
+   * @param rdd: data matrix with sequences
    * @param kmerSize size of kmers
    * @param W_sequence random matrix for sequence
    * @param W_dnase random matrix for dnase
@@ -252,7 +208,6 @@ object KernelPipeline  extends Serializable with Logging {
    */
   def featurizeWithDnase(sc: SparkContext,
                          rdd: RDD[LabeledWindow],
-                         sd: SequenceDictionary,
                          W_sequence: DenseMatrix[Double],
                          kmerSize: Int,
                          W_dnase: Option[DenseMatrix[Double]] = None,
@@ -266,7 +221,6 @@ object KernelPipeline  extends Serializable with Logging {
       rdd.map(f => {
         val k_seq = kernelApprox_seq(KernelApproximator.stringToVector(f.win.sequence))
         val k_dnase_pos = kernelApprox_dnase(f.win.dnase.slice(0, Dataset.windowSize))
-        // TODO: include
         val k_dnase_neg = kernelApprox_dnase(f.win.dnase.slice(Dataset.windowSize, f.win.dnase.length))
 
         FeaturizedLabeledWindow(f, DenseVector.vertcat(k_seq, k_dnase_pos, k_dnase_neg))
@@ -325,7 +279,7 @@ object KernelPipeline  extends Serializable with Logging {
             .build()
         })
 
-    val featureRDD = FeatureRDD(features, sd)
+    val featureRDD = new FeatureRDD(features, sd)
     featureRDD.save(path, false)
   }
 }

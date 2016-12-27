@@ -91,6 +91,14 @@ class EndiveConf extends Serializable {
 
   @BeanProperty var sample: Boolean = true
 
+  /* Configuration values used for saving test set */
+
+  // comma separated list of TFS (ie EGR1,ATF2...)
+  @BeanProperty var tfs: String = null
+  // comma separated list of cell types (ie K562,GM12878...)
+  @BeanProperty var cellTypes: String = null
+  @BeanProperty var hasSequences: Boolean = true
+
 }
 
 object EndiveConf {

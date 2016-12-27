@@ -17,13 +17,14 @@ package net.akmorrow13.endive.processing
 
 import java.io.{InputStreamReader, BufferedReader, File}
 import breeze.linalg.DenseVector
-import net.akmorrow13.endive.utils.LabeledWindow
+import net.akmorrow13.endive.utils.{LabeledWindowLoader, LabeledWindow}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.models.{Coverage, ReferenceRegion}
 import org.apache.hadoop.fs._
 import org.apache.hadoop.conf._
 import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.rdd.feature.CoverageRDD
 import org.bdgenomics.adam.rdd.read.{AlignedReadRDD, AlignmentRecordRDD}
 
 
@@ -318,35 +319,101 @@ object Preprocess {
    * naming convention for individual adam files is alignmentcuts.DNASE.<CELLTYPE_NAME>.adam
    * @param sc Spark Context
    * @param dnasePath path containing individual adam files for each cell Type
-   * @param cellTypes cell types to be loaded
+   * @param cellType cell type to be loaded
    */
   def loadDnase(sc: SparkContext,
                 dnasePath: String,
-                cellTypes: Array[CellTypes.Value]): AlignmentRecordRDD = {
-
-    val cellStrings = cellTypes.map(_.toString)
+                cellType: CellTypes.Value): (CoverageRDD, CoverageRDD) = {
 
     val fs: FileSystem = FileSystem.get(new Configuration())
 
-    // read all bams in file and save positive coverage
+    // read all bams in file and save positive coverage (positive and negative files for each)
     val status: Array[FileStatus] = fs.listStatus(new Path(dnasePath))
       .filter(i => i.getPath.getName.endsWith(".adam") // verify ADAM file
-        && cellStrings.contains(i.getPath.getName.split('.')(2))) // extract relevent celltype
+        && cellType.equals(CellTypes.getEnumeration(i.getPath.getName.split('.')(0)))) // extract relevent celltype
 
+    val positiveStatus = status.filter(r => r.getPath.getName.contains("positive"))
+    val negativeStatus = status.filter(r => r.getPath.getName.contains("negative"))
 
-    val (coverage, sequences) =
-      status.map(i => {
+    println(s"loaded positives and negatives")
+    positiveStatus.foreach(r => println(r.getPath.getName))
+    negativeStatus.foreach(r => println(r.getPath.getName))
+
+    val (positiveCoverage) =
+      positiveStatus.map(i => {
         val filePath: String = i.getPath.toString
         val fileName = i.getPath.getName
         val cell = fileName.split('.')(2)
         println(s"processing file ${fileName} for cellType ${cell} from ${dnasePath}")
 
         // get positive strand coverage
-        val alignments = sc.loadAlignments(filePath)
+        val alignments = sc.loadCoverage(filePath)
         (alignments.rdd, alignments.sequences)
       }).reduce((r1, r2) =>  (r1._1.union(r2._1), r1._2 ++ r2._2))
 
-    AlignedReadRDD(coverage, sequences, null)
+    val (negativeCoverage) =
+      negativeStatus.map(i => {
+        val filePath: String = i.getPath.toString
+        val fileName = i.getPath.getName
+        val cell = fileName.split('.')(2)
+        println(s"processing file ${fileName} for cellType ${cell} from ${dnasePath}")
+
+        // get positive strand coverage
+        val alignments = sc.loadCoverage(filePath)
+        (alignments.rdd, alignments.sequences)
+      }).reduce((r1, r2) =>  (r1._1.union(r2._1), r1._2 ++ r2._2))
+
+    (CoverageRDD(positiveCoverage._1, positiveCoverage._2),
+      CoverageRDD(negativeCoverage._1, negativeCoverage._2))
+  }
+
+  /**
+   * Parses folder of dnase files that load into AlignmentRecordRDDs. File
+   * naming convention for individual adam files is alignmentcuts.DNASE.<CELLTYPE_NAME>.adam
+   * @param sc Spark Context
+   * @param dnasePath path containing individual adam files for each cell Type
+   */
+  def loadAllDnase(sc: SparkContext,
+                dnasePath: String): (RDD[(CellTypes.Value, Coverage)], RDD[(CellTypes.Value, Coverage)]) = {
+
+    val fs: FileSystem = FileSystem.get(new Configuration())
+
+    // read all bams in file and save positive coverage (positive and negative files for each)
+    val status: Array[FileStatus] = fs.listStatus(new Path(dnasePath))
+      .filter(i => i.getPath.getName.endsWith(".adam")) // verify ADAM file
+
+    //i.getPath.getName.split('.')(0)
+
+    val positiveStatus = status.filter(r => r.getPath.getName.contains("positive"))
+    val negativeStatus = status.filter(r => r.getPath.getName.contains("negative"))
+
+    println(s"loaded positives and negatives")
+    positiveStatus.foreach(r => println(r.getPath.getName))
+    negativeStatus.foreach(r => println(r.getPath.getName))
+
+    val (positiveCoverage) =
+      positiveStatus.map(i => {
+        val filePath: String = i.getPath.toString
+        val fileName = i.getPath.getName
+        val cell = CellTypes.getEnumeration(fileName.split('.')(0))
+        println(s"processing file ${fileName} for cellType ${cell} from ${dnasePath}")
+
+        // get positive strand coverage
+        sc.loadCoverage(filePath).rdd.map(r => (cell, r))
+      }).reduce((r1, r2) => r1.union(r2))
+
+    val (negativeCoverage) =
+      negativeStatus.map(i => {
+        val filePath: String = i.getPath.toString
+        val fileName = i.getPath.getName
+        val cell = CellTypes.getEnumeration(fileName.split('.')(0))
+        println(s"processing file ${fileName} for cellType ${cell} from ${dnasePath}")
+
+        // get positive strand coverage
+        sc.loadCoverage(filePath).rdd.map(r => (cell, r))
+      }).reduce((r1, r2) =>  r1.union(r2))
+
+    (positiveCoverage, negativeCoverage)
   }
 
 }
@@ -399,5 +466,3 @@ object PeakRecord {
   }
 }
 case class Transcript(geneId: String, transcriptId: String, region: ReferenceRegion)
-
-

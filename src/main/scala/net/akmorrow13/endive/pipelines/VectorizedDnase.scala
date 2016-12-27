@@ -15,6 +15,7 @@
  */
 package net.akmorrow13.endive.pipelines
 
+import scala.reflect.ClassTag
 import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.Motif
@@ -25,9 +26,10 @@ import nodes.learning.LogisticRegressionEstimator
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
+import org.bdgenomics.adam.models.{Coverage, ReferenceRegion, SequenceDictionary}
+import org.bdgenomics.adam.rdd.feature.CoverageRDD
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
-import org.bdgenomics.formats.avro.AlignmentRecord
+import org.bdgenomics.formats.avro.{Strand, AlignmentRecord, Feature}
 import org.bdgenomics.adam.rdd.LeftOuterShuffleRegionJoin
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
@@ -160,6 +162,68 @@ object VectorizedDnase extends Serializable  {
     }
   }
 
+  /**
+   * Joins Coverage and windows. does not specify cell type
+   */
+  def joinWithDnaseCoverage(sc: SparkContext,
+                        sd: SequenceDictionary,
+                        filteredRDD: RDD[LabeledWindow],
+                        positiveCoverage: CoverageRDD,
+                        negativeCoverage: CoverageRDD): RDD[LabeledWindow] = {
+
+
+    // cache all rdds for join
+    filteredRDD.setName("filteredRDD").cache()
+    println("rdd count", filteredRDD.count)
+
+
+    // joining is not cell type specific. require only one cell type
+    require(filteredRDD.map(_.win.getCellType).distinct.count() == 1, "join does not specifiy cell type. " +
+      "must only have one cell types")
+
+
+    // keep track of strands
+    val positiveFeatures = positiveCoverage.toFeatureRDD.rdd.map(r => {
+      r.setStrand(Strand.FORWARD)
+      r
+    })
+
+    val negativeFeatures = negativeCoverage.toFeatureRDD.rdd.map(r => {
+      r.setStrand(Strand.REVERSE)
+      r
+    })
+
+    // join together coverage
+    val coverageFeatures = positiveFeatures.union(negativeFeatures)
+
+    coverageFeatures.rdd.setName("positiveFeatures").cache()
+    println(s"coverage count in vectorized dnase ${coverageFeatures.rdd.count}")
+
+    // join with positive strands
+    var joinedRDD =
+      LeftOuterShuffleRegionJoin[LabeledWindow, Feature](sd, 1000000, sc)
+        .partitionAndJoin(filteredRDD.keyBy(_.win.region), coverageFeatures.keyBy(r => ReferenceRegion(r.contigName, r.start, r.end)))
+
+     sc.setCheckpointDir("/data/anv/DREADMDATA/checkpoint/")
+     joinedRDD = truncateLineage(joinedRDD, true).setName("joinedRDD")
+
+     coverageFeatures.rdd.unpersist()
+
+     val cutsAndWindows = joinedRDD
+        .groupBy(r => (r._1.win.region, r._1.win.getTf))
+        .map(r => {
+          val arr = r._2.toArray
+          featurizeCoverage(arr.head._1, arr.map(_._2).filter(_.isDefined).map(_.get))
+        }).setName("cutsAndWindows")
+        .cache()
+
+    filteredRDD.unpersist()
+    println("Cuts and Windows Count: " + cutsAndWindows.count)
+
+    cutsAndWindows
+
+  }
+
   def joinWithDnaseBams(sc: SparkContext,
                         sd: SequenceDictionary,
                         filteredRDD: RDD[LabeledWindow],
@@ -179,7 +243,7 @@ object VectorizedDnase extends Serializable  {
 
     val cutsAndWindows: RDD[(LabeledWindow, Option[AlignmentRecord])] =
       LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, 2000000, sc)
-        .partitionAndJoin(filteredRDD.keyBy(_.win.region), mappedCoverage.rdd.keyBy(r => ReferenceRegion(r)))
+        .partitionAndJoin(filteredRDD.keyBy(_.win.region), mappedCoverage.rdd.keyBy(r => ReferenceRegion.opt(r).get))
         .filter(_._2.isDefined)
         .setName("cutsAndWindows")
         .cache()
@@ -238,6 +302,43 @@ object VectorizedDnase extends Serializable  {
     joinWithDnaseBams(sc, sd, filteredRDD, coverage)
 
   }
+
+  /**
+   * Featurizes cuts from dnase to vectors of numbers covering 200 bp windows
+   * @param window cuts and windows to vectorize
+   * @return
+   */
+  def featurizeCoverage(window: LabeledWindow,
+                        coverage: Array[Feature]): LabeledWindow = {
+
+    val cellType = window.win.cellType
+
+    // where to center motif?
+    val (start, end) =
+        (window.win.region.start, window.win.region.end)
+
+    val positiveCoverage = coverage.filter(r => r.getStrand == Strand.FORWARD)
+    val negativeCoverage = coverage.filter(r => r.getStrand == Strand.REVERSE)
+
+    val positivePositions = DenseVector.zeros[Double](Dataset.windowSize)
+    val negativePositions = DenseVector.zeros[Double](Dataset.windowSize)
+
+    // featurize positives to vector
+    positiveCoverage.foreach(r => {
+      positivePositions((r.start - start).toInt) = r.getScore
+    })
+
+    // featurize negatives to vector
+    negativeCoverage.foreach(r => {
+      negativePositions((r.start - start).toInt) = r.getScore
+    })
+
+    val positions = DenseVector.vertcat(positivePositions, negativePositions)
+
+    // positions should be size of window
+    LabeledWindow(window.win.setDnase(positions), window.label)
+  }
+
 
   /**
    * Featurizes cuts from dnase to vectors of numbers covering 200 bp windows
@@ -309,8 +410,29 @@ object VectorizedDnase extends Serializable  {
       })
     centipedeWindows
   }
+ 
+ def truncateLineage[T: ClassTag](in: RDD[T], cache: Boolean): RDD[T] = {
+    // What we are doing here is:
+    // cache the input before checkpoint as it triggers a job
+    if (cache) {
+      in.cache()
+    }
+    in.checkpoint()
+    // Run a count to trigger the checkpoint
+    in.count
 
+    // Now "in" has HDFS preferred locations which is bothersome
+    // when we zip it next time. So do a identity map & get an RDD
+    // that is in memory, but has no preferred locs
+    val out = in.map(x => x).cache()
+    // This stage will run as NODE_LOCAL ?
+    out.count
 
+    // Now out is in memory, we can get rid of "in" and then
+    // return out
+    if (cache) {
+      in.unpersist(true)
+    }
+    out
+  }
 }
-
-
