@@ -400,10 +400,4 @@ object PeakRecord {
 }
 case class Transcript(geneId: String, transcriptId: String, region: ReferenceRegion)
 
-case class BaseFeature(labeledWindow: LabeledWindow, features: DenseVector[Double]) {
-
-  override def toString: String = {
-    labeledWindow.toString + "!" + features.toString
-  }
-}
 

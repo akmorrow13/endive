@@ -135,10 +135,10 @@ object CSKPipeline extends Serializable  {
     val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize, Dataset.alphabet.size)
     //val featurized = VectorizedDnase.featurize(sc, windowsRDD, aggregatedCuts, sd, None, subselectNegatives = false, motifs=Some(motifs))
     //featurized.map(f => (f.labeledWindow,f.features))
-    //val featurized = windowsRDD.map(f => BaseFeature(f, denseFeaturize(f.win.getSequence)))
+    //val featurized = windowsRDD.map(f => FeaturizedLabeledWindow(f, denseFeaturize(f.win.getSequence)))
 
     /* Sequence Featurization */
-    val featurized = windowsRDD.map(f => BaseFeature(f, {
+    val featurized = windowsRDD.map(f => FeaturizedLabeledWindow(f, {
       kernelApprox({
         val BASEPAIRMAP = Map('N'-> -1, 'A' -> 0, 'T' -> 1, 'C' -> 2, 'G' -> 3)
         val sequenceVectorizer = ClassLabelIndicatorsFromIntLabels(4)
@@ -154,7 +154,7 @@ object CSKPipeline extends Serializable  {
         DenseVector.vertcat(seqString:_*)
       })
     }))
-    val folds: IndexedSeq[(RDD[((String, CellTypes.Value), BaseFeature)], RDD[((String, CellTypes.Value), BaseFeature)])] =
+    val folds: IndexedSeq[(RDD[((String, CellTypes.Value), FeaturizedLabeledWindow)], RDD[((String, CellTypes.Value), FeaturizedLabeledWindow)])] =
       if(modelTest) {
         /* First one chromesome and one celltype per fold (leave 1 out) */
         EndiveUtils.generateFoldsRDD(featurized.keyBy(r => (r.labeledWindow.win.region.referenceName, r.labeledWindow.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds, sampleFreq = None)
