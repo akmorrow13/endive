@@ -7,6 +7,7 @@ import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
+import breeze.linalg._
 import org.bdgenomics.formats.avro.AlignmentRecord
 
 case class DeepbindRecord(tf: TranscriptionFactors.Value, cellType: CellTypes.Value, id: String, sequence: String, label: Int)
@@ -84,6 +85,9 @@ object DeepbindRecordLoader {
     DeepbindRecord(tf, cellType, split(1), split(2), split(3).toInt)
   }
 }
+
+
+
 object LabeledWindowLoader {
 
   def stringToLabeledWindow(str: String): LabeledWindow = {
@@ -103,18 +107,24 @@ object LabeledWindowLoader {
     LabeledWindow(Window(tf, cellType, region, dataArray(6), dataArray(7).toInt, dnase = dnase, rnaseq = rnaseq, motifs = motifs), label)
   }
 
-  /*
-  def byteArrayToLabeledWindow(ba: Array[Byte]): LabeledWindow = {
-    val intSeqType = AvroType[LabeledWindow]
-    val io: AvroTypeIO[LabeledWindow] = intSeqType.io
-    val is = new ByteArrayInputStream(ba);
-    val Success(readResult) = io read is
-    readResult
-  }
-  */
 
   def apply(path: String, sc: SparkContext): RDD[LabeledWindow] = {
     val dataTxtRDD:RDD[String] = sc.textFile(path)
     dataTxtRDD.map(stringToLabeledWindow(_))
   }
+}
+
+object FeaturizedLabeledWindowLoader {
+
+    def stringToFeaturizedLabeledWindow(str: String): FeaturizedLabeledWindow = {
+      val splitString = str.split(Window.FEATDELIM)
+      val labeledWindow:LabeledWindow = LabeledWindowLoader.stringToLabeledWindow(splitString(0))
+      val features:DenseVector[Double]= new DenseVector[Double](splitString(1).split(",").toArray.map(_.toDouble))
+      FeaturizedLabeledWindow(labeledWindow, features)
+    }
+
+    def apply(path: String, sc: SparkContext): RDD[FeaturizedLabeledWindow] = {
+      val dataTxtRDD:RDD[String] = sc.textFile(path)
+      dataTxtRDD.map(stringToFeaturizedLabeledWindow(_))
+    }
 }

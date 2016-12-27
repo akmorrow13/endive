@@ -43,7 +43,7 @@ import java.io.File
 
 
 
-object KernelPipeline  extends Serializable with Logging {
+object DnaseKernelPipeline  extends Serializable with Logging {
 
   /**
    * A very basic pipeline that *doesn't* featurize the data
@@ -84,8 +84,8 @@ object KernelPipeline  extends Serializable with Logging {
     // set parameters
     val seed = 0
     val kmerSize = 8
+    val approxDim = conf.approxDim
     val dnaseSize = 100
-    val approxDim = conf.dim
     val alphabetSize = Dataset.alphabet.size
 
     val dataPath = conf.aggregatedSequenceOutput
@@ -105,33 +105,8 @@ object KernelPipeline  extends Serializable with Logging {
     // load data for a specific transcription factor
     val allData: RDD[LabeledWindow] =
       LabeledWindowLoader(dataPath, sc).setName("_All data")
-
-    val tfs  = Array("EGR1")
-    val cells = Array(CellTypes.GM12878,CellTypes.H1hESC,CellTypes.HCT116,CellTypes.MCF7)
-
-    // divvy up into train and test
-    val (testCell, train, test) = {
-      val first = allData.first
-      val referenceName = first.win.getRegion.referenceName
-      val cell = first.win.cellType
-
-      // hold out a (chromosome, celltype) pair for test
-      var train = allData.filter(r => (r.win.getRegion.referenceName != referenceName && r.win.cellType != cell))
-
-      if (conf.sample) {
-        // sample data
-        train = EndiveUtils.subselectRandomSamples(sc, train, sd)
-      }
-
-      train = train.setName("train").repartition(2000).cache()
-      val test = allData.filter(r => (r.win.getRegion.referenceName == referenceName && r.win.cellType == cell))
-			.setName("test").repartition(2000).cache()
-
-      (cell, train, test)
-
-    }
-
-    println(s"train: ${train.count}, test: ${test.count}")
+        .filter(_.label >= 0)
+        .cache()
 
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
@@ -141,61 +116,10 @@ object KernelPipeline  extends Serializable with Logging {
     val W_dnase = DenseMatrix.rand(approxDim, dnaseSize * 1, gaussian)
 
     // generate approximation features
-    val trainApprox = featurizeWithWaveletDnase(sc, train, W_sequence, kmerSize, dnaseSize, approxDim)
-	  .setName("trainApprox")
-	  .cache()
-    val testApprox = featurizeWithWaveletDnase(sc, train, W_sequence, kmerSize, dnaseSize, approxDim)
-	  .setName("testApprox")
-	  .cache()
+    val allFeaturized = featurizeWithWaveletDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim)
 
-    println(trainApprox.count, testApprox.count)
+    allFeaturized.map(_.toString).saveAsTextFile(conf.featuresOutput)
 
-    train.unpersist()
-    test.unpersist()
-
-    val labelExtractor = ClassLabelIndicatorsFromIntLabels(2)
-
-    val trainFeatures: RDD[DenseVector[Double]] = trainApprox.map(_.features).cache()
-    val trainLabels = trainApprox.map(r => labelExtractor.apply(r.labeledWindow.label))
-      .cache()
-
-    val testFeatures = testApprox.map(_.features)
-    val testLabels = testApprox.map(r => labelExtractor.apply(r.labeledWindow.label))
-  
-    // run least squares
-    val predictor = new BlockLeastSquaresEstimator(approxDim, conf.epochs, conf.lambda).fit(trainFeatures, trainLabels)
-
-    // train metrics
-    val trainPredictions = MaxClassifier(predictor(trainFeatures)).map(_.toDouble)
-
-
-    val evalTrain = new BinaryClassificationMetrics(trainPredictions.zip(trainApprox.map(_.labeledWindow.label.toDouble)))
-    println("Train Results: \n ")
-    Metrics.printMetrics(evalTrain)
-
-    // test metrics
-    val testPredictions = MaxClassifier(predictor(testFeatures)).map(_.toDouble)
-    val evalTest = new BinaryClassificationMetrics(testPredictions.zip(testApprox.map(_.labeledWindow.label.toDouble)))
-    println("Test Results: \n ")
-    Metrics.printMetrics(evalTest)
-
-    // save train predictions as FeatureRDD if specified
-    if (conf.saveTrainPredictions != null) {
-      if (sd == null) {
-        println("Error: need referencePath to save output train predictions")
-      } else {
-        saveAsFeatures(trainApprox.map(_.labeledWindow), trainPredictions, sd, conf.saveTrainPredictions)
-      }
-    }
-
-    // save test predictions as FeatureRDD if specified
-    if (conf.saveTestPredictions != null) {
-      if (sd == null) {
-        println("Error: need referencePath to save output train predictions")
-      } else {
-        saveAsFeatures(testApprox.map(_.labeledWindow), testPredictions, sd, conf.saveTestPredictions)
-      }
-    }
   }
 
   /**
@@ -209,7 +133,7 @@ object KernelPipeline  extends Serializable with Logging {
    */
   def featurize(matrix: RDD[LabeledWindow],
                             W: DenseMatrix[Double],
-                            kmerSize: Int): RDD[BaseFeature] = {
+                            kmerSize: Int): RDD[FeaturizedLabeledWindow] = {
 
     val kernelApprox = new KernelApproximator(W, Math.cos, kmerSize, Dataset.alphabet.size)
 
@@ -217,7 +141,7 @@ object KernelPipeline  extends Serializable with Logging {
       val kx = (kernelApprox({
         KernelApproximator.stringToVector(f.win.sequence)
       }))
-      BaseFeature(f, kx)
+      FeaturizedLabeledWindow(f, kx)
     })
 
   }
@@ -236,7 +160,7 @@ object KernelPipeline  extends Serializable with Logging {
                          W_sequence: DenseMatrix[Double],
                          kmerSize: Int,
    			 dnaseSize: Int,
-                         approxDim: Int): RDD[BaseFeature] = {
+                         approxDim: Int): RDD[FeaturizedLabeledWindow] = {
 
     val kernelApprox_seq = new KernelApproximator(W_sequence, Math.cos, kmerSize, Dataset.alphabet.size)
 
@@ -264,7 +188,7 @@ object KernelPipeline  extends Serializable with Logging {
         ap(f.win.dnase.slice(Dataset.windowSize, f.win.dnase.length))
       }).reduce(_ :* _)
 
-      BaseFeature(f, DenseVector.vertcat(k_seq, k_dnase_pos, k_dnase_neg))
+      FeaturizedLabeledWindow(f, DenseVector.vertcat(k_seq, k_dnase_pos, k_dnase_neg))
     })
 
   }
@@ -287,7 +211,7 @@ object KernelPipeline  extends Serializable with Logging {
                          W_sequence: DenseMatrix[Double],
                          kmerSize: Int,
                          W_dnase: Option[DenseMatrix[Double]] = None,
-                         dnaseSize: Option[Int] = None): RDD[BaseFeature] = {
+                         dnaseSize: Option[Int] = None): RDD[FeaturizedLabeledWindow] = {
 
     val kernelApprox_seq = new KernelApproximator(W_sequence, Math.cos, kmerSize, Dataset.alphabet.size)
 
@@ -299,12 +223,12 @@ object KernelPipeline  extends Serializable with Logging {
         val k_dnase_pos = kernelApprox_dnase(f.win.dnase.slice(0, Dataset.windowSize))
         val k_dnase_neg = kernelApprox_dnase(f.win.dnase.slice(Dataset.windowSize, f.win.dnase.length))
 
-        BaseFeature(f, DenseVector.vertcat(k_seq, k_dnase_pos, k_dnase_neg))
+        FeaturizedLabeledWindow(f, DenseVector.vertcat(k_seq, k_dnase_pos, k_dnase_neg))
       })
     } else {
       rdd.map(f => {
         val kx = kernelApprox_seq(oneHotEncodeDnase(f))
-        BaseFeature(f, kx)
+        FeaturizedLabeledWindow(f, kx)
       })
     }
 
