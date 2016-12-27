@@ -39,8 +39,8 @@ class EndiveConf extends Serializable {
   @BeanProperty var valDuringSolve: Boolean = true
   @BeanProperty var writePredictionsToDisk: Boolean = true
   @BeanProperty var predictionsOutput: String = "/user/vaishaal/tmp"
-  @BeanProperty var featuresOutput: String = "/user/vaishaal/features"
-  @BeanProperty var modelOutput: String = "/home/eecs/vaishaal/endive-models/"
+  @BeanProperty var featuresOutput: String = "/tmp"
+  @BeanProperty var modelOutput: String = "/tmp"
   @BeanProperty var featurizeSample: Double = 1.0
   @BeanProperty var numPartitions: Int = 400
   @BeanProperty var negativeSamplingFreq: Double = 0.001
