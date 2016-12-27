@@ -10,7 +10,8 @@ import multiprocessing
 BASE_KERNEL_PIPELINE_CONFIG = \
 {
     "reference": "/home/eecs/akmorrow/ADAM/endive/workfiles/hg19.2bit",
-    "dnase": "/user/vaishaal/endive-data/dnase_bams/coverage",
+    "dnaseNarrow": "/data/anv/DREAMDATA/DNASE/peaks/relaxed/",
+    "dnaseBams": "/data/anv/DREAMDATA/dnase_bams/merged_coverage/"
 }
 
 EXECUTOR_MEM = '100g'
