@@ -15,12 +15,12 @@ BASE_KERNEL_PIPELINE_CONFIG = \
 }
 
 EXECUTOR_MEM = '100g'
-NUM_EXECUTORS = 12
-CORES_PER_EXECUTOR = 24
+NUM_EXECUTORS = 30
+CORES_PER_EXECUTOR = 8
 
 dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatasetCreationPipeline"
 
-featurization_pipeline_class = "net.akmorrow13.endive.pipelines.KitchenSinkFeaturizePipeline"
+featurization_pipeline_class = "net.akmorrow13.endive.pipelines.DnaseKernelPipeline"
 
 solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
 test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
@@ -62,11 +62,11 @@ def run_kitchensink_featurize_pipeline(windowPath,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
-    filter_gen = make_gaussian_filter_gen(gamma=gamma, alphabet_size=alphabet_size, kmer_size=kmer_size)
+    # filter_gen = make_gaussian_filter_gen(gamma=gamma, alphabet_size=alphabet_size, kmer_size=kmer_size)
 
-    w = filter_gen(num_filters)
-    np.savetxt(filterPath, w, delimiter=",")
-    kernel_pipeline_config["filtersPath"] = filterPath
+    # w = filter_gen(num_filters)
+    # np.savetxt(filterPath, w, delimiter=",")
+    # kernel_pipeline_config["filtersPath"] = filterPath
     kernel_pipeline_config["numPartitions"] = num_partitions
     kernel_pipeline_config["aggregatedSequenceOutput"] = windowPath
     kernel_pipeline_config["featurizeSample"] = sample
@@ -287,10 +287,13 @@ def roc_result(y_test, y_test_pred, y_train=None, y_train_pred=None):
 
 
 
-def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, numHoldOutChr=1, numHoldOutCell=1,
+def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, 
+                   numHoldOutChr=1, 
+                   numHoldOutCell=1,
                    num_folds=1,
                    regs=[0.1],
                    negativeSamplingFreqs=[1.0],
+                   logPath = "/tmp/log", 
                    seed=0,
                    executor_mem='100g',
                    cores_per_executor=32,
@@ -310,7 +313,7 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, numHoldOutC
           for reg in regs:
             print("RUNING SOLVER WITH REG={0}".format(reg))
             train_res, val_res = run_solver_pipeline(feature_path,
-                           "/tmp/log",
+                           logPath,
                            hdfsclient,
                            executor_mem=executor_mem,
                            num_executors=num_executors,
