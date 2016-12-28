@@ -88,12 +88,12 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
     // load data for a specific transcription factor
     var allData: RDD[LabeledWindow] =
       LabeledWindowLoader(dataPath, sc).setName("_All data")
-  	.repartition(conf.numPartitions)
-      .cache()
-
     if (conf.featurizeSample < 1.0)  {
       allData = allData.sample(false, conf.featurizeSample)
     }
+
+  	allData = allData.repartition(conf.numPartitions).cache()
+
 
     println("Sampling Frequency " + conf.featurizeSample)
 
@@ -125,7 +125,7 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
 
     // generate approximation features
     val allFeaturized = featurize(allData, W, kmerSize).cache()
-
+    println("FEATURES OUTPUT IS " + conf.featuresOutput)
     allFeaturized.map(_.toString).saveAsTextFile(conf.featuresOutput)
   }
 
