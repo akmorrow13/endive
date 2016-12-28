@@ -125,7 +125,7 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
 
     // generate approximation features
     val allFeaturized = featurize(allData, W, kmerSize).cache()
-
+    println("FEATURES OUTPUT IS " + conf.featuresOutput)
     allFeaturized.map(_.toString).saveAsTextFile(conf.featuresOutput)
   }
 
