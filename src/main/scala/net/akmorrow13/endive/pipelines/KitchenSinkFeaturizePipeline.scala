@@ -88,12 +88,12 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
     // load data for a specific transcription factor
     var allData: RDD[LabeledWindow] =
       LabeledWindowLoader(dataPath, sc).setName("_All data")
-  	.repartition(conf.numPartitions)
-      .cache()
-
     if (conf.featurizeSample < 1.0)  {
       allData = allData.sample(false, conf.featurizeSample)
     }
+
+  	allData = allData.repartition(conf.numPartitions).cache()
+
 
     println("Sampling Frequency " + conf.featurizeSample)
 
