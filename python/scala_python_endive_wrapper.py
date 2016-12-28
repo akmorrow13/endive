@@ -88,7 +88,6 @@ def run_kitchensink_featurize_pipeline(windowPath,
 
     return True
 
-
 def run_solver_pipeline(featuresPath,
                logpath,
                hdfsclient,
@@ -99,6 +98,7 @@ def run_solver_pipeline(featuresPath,
                valChromosomes=[],
                valCellTypes=[],
                reg=0.1,
+               negativeSamplingFreq=1.0,
                predictionsPath="/user/vaishaal/tmp",
                valDuringSolve=False,
                modelPath="/home/eecs/vaishaal/endive-models",
@@ -112,6 +112,8 @@ def run_solver_pipeline(featuresPath,
     kernel_pipeline_config["valChromosomes"] = valChromosomes
     kernel_pipeline_config["modelOutput"] = modelPath
     kernel_pipeline_config["lambda"] = reg
+    kernel_pipeline_config["negativeSamplingFreq"] = negativeSamplingFreq
+
     pythonrun.run(kernel_pipeline_config,
               logpath,
               solver_pipeline_class,
@@ -288,12 +290,14 @@ def roc_result(y_test, y_test_pred, y_train=None, y_train_pred=None):
 def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, numHoldOutChr=1, numHoldOutCell=1,
                    num_folds=1,
                    regs=[0.1],
+                   negativeSamplingFreqs=[1.0],
                    seed=0,
                    executor_mem='100g',
                    cores_per_executor=32,
+                   num_executors=14,
                    other_meta={}):
     results = []
-    numpy.random.seed(seed=seed)
+    np.random.seed(seed=seed)
     for fold in range(num_folds):
         print("FOLD " + str(fold))
         test_cell_types = []
@@ -302,7 +306,8 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, numHoldOutC
         test_cell_types = map(lambda i: cellTypes[i], np.random.choice(len(cellTypes), numHoldOutCell, replace=False))
         print("HOLDING OUT CHROMOSOMES {0}".format(test_chromosomes))
         print("HOLDING OUT CELL TYPES {0}".format(test_cell_types))
-        for reg in regs:
+        for neg in negativeSamplingFreqs:
+          for reg in regs:
             print("RUNING SOLVER WITH REG={0}".format(reg))
             train_res, val_res = run_solver_pipeline(feature_path,
                            "/tmp/log",
@@ -311,6 +316,7 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, numHoldOutC
                            num_executors=num_executors,
                            cores_per_executor=cores_per_executor,
                            reg=reg,
+                           negativeSamplingFreq=neg,
                            valCellTypes=[8],
                            valChromosomes=["chr10"],
                            valDuringSolve=True)
@@ -318,6 +324,8 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, numHoldOutC
             train_metrics = compute_metrics(train_res[:, 1], train_res[:, 0], tag='train')
             val_metrics = compute_metrics(val_res[:, 1], val_res[:, 0], tag='val')
             result = dict(train_metrics.items() + val_metrics.items() + other_meta.items())
+            result['reg'] = reg
+            result['negativeSamplingFreq'] = neg
             result['test_chromosomes'] = test_chromosomes
             result['test_celltypes'] = test_cell_types
             results.append(result)
@@ -326,6 +334,8 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, numHoldOutC
 
 
 def compute_metrics(predictions, labels, tag=''):
+    predictions = predictions[np.where(labels >= 0)]
+    labels = labels[np.where(labels >= 0)]
     print("COMPUTING {0} metrics".format(tag))
     result = {}
     result[tag + '_auPRC'] = metrics.average_precision_score(labels, predictions)
