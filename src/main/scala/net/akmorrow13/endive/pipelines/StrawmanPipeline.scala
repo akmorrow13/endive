@@ -1,5 +1,5 @@
 /**
- * Copyright 2015 Frank Austin Nothaft
+ * Copyright 2015 Vaishaal Shankar
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,23 +17,19 @@ package net.akmorrow13.endive.pipelines
 
 import breeze.linalg._
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.processing.Sequence
+import net.akmorrow13.endive.metrics.Metrics
+import net.akmorrow13.endive.processing.CellTypes
 import net.akmorrow13.endive.utils._
 import nodes.learning._
-import nodes.nlp._
-import nodes.stats.TermFrequency
-import nodes.util.CommonSparseFeatures
 import nodes.util.{Identity, Cacher, ClassLabelIndicatorsFromIntLabels, TopKClassifier, MaxClassifier, VectorCombiner}
-import utils.{Image, MatrixUtils, Stats, ImageMetadata, LabeledImage, RowMajorArrayVectorizedImage, ChannelMajorArrayVectorizedImage}
-
+import workflow.{Pipeline, Transformer}
+import com.github.fommil.netlib.BLAS
 import org.apache.log4j.{Level, Logger}
 import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
-import org.apache.spark.mllib.regression.LabeledPoint
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.bdgenomics.adam.models.ReferenceRegion
-import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.formats.avro._
 import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
@@ -63,11 +59,13 @@ object StrawmanPipeline extends Serializable with Logging {
       val appConfig = yaml.load(configtext).asInstanceOf[EndiveConf]
       EndiveConf.validate(appConfig)
       val conf = new SparkConf().setAppName("ENDIVE")
+      conf.setIfMissing("spark.master", "local[4]")
       Logger.getLogger("org").setLevel(Level.WARN)
       Logger.getLogger("akka").setLevel(Level.WARN)
       val sc = new SparkContext(conf)
+      val blasVersion = BLAS.getInstance().getClass().getName()
+      println(s"Currently used version of blas is ${blasVersion}")
       run(sc, appConfig)
-      sc.stop()
     }
   }
 
@@ -92,37 +90,49 @@ object StrawmanPipeline extends Serializable with Logging {
 
 
   def run(sc: SparkContext, conf: EndiveConf) {
-    println("STARTING STRAWMAN PIPELINE")
-    val allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.windowLoc, sc).filter(_.label >= 0)
+    val dataTxtRDD:RDD[String] = sc.textFile(conf.aggregatedSequenceOutput, minPartitions=600)
+
+    val allData:RDD[LabeledWindow] = LabeledWindowLoader(conf.aggregatedSequenceOutput, sc).setName("All Data").cache()
     allData.count()
 
-    println("Grouping Data for cross validation")
-    val groupedData = allData.groupBy(lw => lw.win.getRegion.referenceName).cache()
-    groupedData.count()
-
-    val foldsData = groupedData.map(x => (x._1.hashCode() % conf.folds, x._2))
-    // featurize sequences to 8mers
+    val foldsData = allData.map(x => (x.win.getRegion.referenceName.hashCode() % conf.folds, x))
     val labelVectorizer = ClassLabelIndicatorsFromIntLabels(2)
 
     for (i <- (0 until conf.folds)) {
-      val train = foldsData.filter(x => x._1 != i).flatMap(x => x._2).cache()
-      val test = foldsData.filter(x => x._1 == i).flatMap(x => x._2).cache()
+      val r = new java.util.Random()
+      var train = foldsData.filter(x => x._1 != i).filter(x => x._2.label == 1 || (x._2.label == 0 && r.nextFloat < 0.001)).map(x => x._2).setName("train").cache()
+      train.count()
+      val test = foldsData.filter(x => x._1 == i).map(x => x._2).setName("test").cache()
+      val yTrain = train.map(_.label).setName("yTrain").cache()
+      val yTest = test.map(_.label).setName("yTest").cache()
+
       println(s"Fold ${i}, training points ${train.count()}, testing points ${test.count()}")
 
-      val allTrainingData = train map { window =>
-        val x:DenseVector[Double] = denseFeaturize(window.win.getSequence)
-        val y:DenseVector[Double] = labelVectorizer(window.label.toInt)
-        val xtx = x * x.t
-        val xty = x * y.t
-        (x, y, xtx, xty)
-        }
+      /* Make an estimator? */
+      val cellTypes:Map[CellTypes.Value, Int] = train.map(x => (x.win.cellType)).countByValue().keys.zipWithIndex.toMap
+      val cellTypeFeaturizer = Transformer.apply[LabeledWindow, Int](x => cellTypes(x.win.cellType)) andThen new ClassLabelIndicatorsFromIntLabels(cellTypes.size)
 
-        val XTXStart = System.nanoTime
-        val XTX = allTrainingData.map(_._3)
-        val XTXloc = XTX.treeReduce({ (a:DenseMatrix[Double],b:DenseMatrix[Double]) =>
-          a += b
-        })
-        println(s"XTX Computation took ${timeElapsed(XTXStart)}")
+
+      println("Building Pipeline")
+      val sequenceFeaturizer =
+      Transformer.apply[LabeledWindow, DenseVector[Double]](x => denseFeaturize(x.win.sequence)) andThen Cacher[DenseVector[Double]]()
+
+
+      val predictor = Pipeline.gather[LabeledWindow, DenseVector[Double]] {
+        sequenceFeaturizer :: (cellTypeFeaturizer) :: Nil
+       } andThen Transformer.apply[Seq[DenseVector[Double]], DenseVector[Double]](x => x.reduce(DenseVector.vertcat(_,_))) andThen (LogisticRegressionEstimator[DenseVector[Double]](numClasses = 2, numIters = 10, regParam=0.1), train, yTrain)
+
+
+      val yPredTrain = predictor(train).get()
+      val evalTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
+      println("Train Results: \n ")
+      Metrics.printMetrics(evalTrain)
+
+
+      val yPredTest = predictor(test).get()
+      val evalTest = new BinaryClassificationMetrics(yPredTest.zip(yTest.map(_.toDouble)))
+      println("Test Results: \n ")
+      Metrics.printMetrics(evalTest)
     }
   }
 

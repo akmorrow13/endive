@@ -11,12 +11,13 @@ class RNAseqSuite extends EndiveFunSuite {
   sparkTest("should extract RNA from tsv file") {
     val rnaseq =  new RNAseq(genePath, sc)
     val trainRDD = rnaseq.loadRNA(sc, rnaPath)
-    assert(trainRDD.count == 16)
+    assert(trainRDD.count == 6)
   }
 
   sparkTest("should extract genes from gtf file") {
     val genes = Preprocess.loadTranscripts(sc, genePath)
-    assert(genes.count == 62) // 62 transcripts in file
+    assert(genes.count == 27)
   }
 
 }
+

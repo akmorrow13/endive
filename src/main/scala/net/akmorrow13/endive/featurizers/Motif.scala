@@ -1,98 +1,123 @@
 package net.akmorrow13.endive.featurizers
 
-import java.io.File
-import org.apache.hadoop.mapred.FileAlreadyExistsException
-
-import net.akmorrow13.endive.processing.Preprocess
+import net.akmorrow13.endive.utils.{ Window, LabeledWindow}
+import net.akmorrow13.endive.processing._
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
-import scala.sys.process._
+import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
+import org.bdgenomics.adam.rdd.GenomicRegionPartitioner
+import org.bdgenomics.utils.misc.MathUtils
+import scala.annotation.tailrec
+import scala.beans.BeanProperty
+import org.yaml.snakeyaml.constructor.Constructor
+import org.yaml.snakeyaml.Yaml
 
-class Motif(@transient sc: SparkContext, deepbindPath: String) {
+import scala.collection.JavaConversions._
 
-  def scoreSequences(tfs: List[String], sequences: RDD[String]): RDD[Map[String, Double]] = {
-    val dbScores: RDD[Map[String, Double]] = getDeepBindScores(sequences, tfs)
+class ModelConf extends Serializable {
+  @BeanProperty var values: java.util.LinkedHashSet[ModelPWM] = null
+}
 
-    // TODO: should average over all scoring metrics
-    dbScores
+class ModelPWM extends Serializable {
+  @BeanProperty var encoding_type: String = null
+  @BeanProperty var model_type: String = null
+  @BeanProperty var motif_id: String = null
+
+  @BeanProperty var pwm: Array[Array[Double]] = null
+
+  @BeanProperty var tf_id: String = null
+  @BeanProperty var tf_name: String = null
+  @BeanProperty var tf_species: String = null
+}
+
+
+object Motif {
+  def parseYamlMotifs(filePath: String):  List[Motif] = {
+    assert(filePath.endsWith("yaml"))
+
+    val configfile = scala.io.Source.fromFile(filePath)
+    val configtext = try configfile.mkString finally configfile.close()
+    val yaml = new Yaml(new Constructor(classOf[ModelConf]))
+    val pwms = yaml.load(configtext).asInstanceOf[ModelConf]
+    pwms.values.toList.map(p => Motif(p.getTf_name, p.getPwm.flatten))
+  }
+}
+
+// Note: this code was copied from net.fnothaft.fig. Move back when fig is not broken
+case class Motif(label: String,
+                 pwm: Array[Double]) {
+  require(pwm.length % 4 == 0, "Position weight matrix length must be a multiple of 4.")
+  val length = pwm.length / 4
+
+  // each value must be between 0 and 1
+  pwm.foreach(p => require(p >= 0.0 && p <= 1.0, "P = %f must be between [0, 1].".format(p)))
+
+  // check that each row sums to 1.0
+  (0 until length).foreach(i => {
+    val idx = i * 4
+    val p = pwm(idx) + pwm(idx + 1) + pwm(idx + 2) + pwm(idx + 3)
+    require(MathUtils.fpEquals(p, 1.0),
+      "Probability (p = %f) of row %d was not equal to 1 for length %d motif for %s.".format(p,
+        i,
+        length,
+        label))
+  })
+
+  private def baseToIdx(c: Char): Int = c match {
+    case 'A' => 0
+    case 'C' => 1
+    case 'G' => 2
+    case 'T' => 3
+    case _ => throw new IllegalStateException("Invalid character %s.".format(c))
   }
 
-
-  /**
-   * gets deepbind scores for tfs
-   * WARNING: DEEPBIND DOES NOT HAVE PARAMETERS FOR CREB1
-   * @param sequences
-   * @param tfs
-   * @return
-   */
-  def getDeepBindScores(sequences: RDD[String],
-                        tfs: List[String]): RDD[Map[String, Double]] = {
-
-    // locations of files to read and write from
-    val idLocation = deepbindPath + "/testdb.ids"
-    val seqLocation = deepbindPath + "/testsequences.seq"
-    val scoreLocation = deepbindPath + "/testscores.seq"
-
-    val dbPath = deepbindPath + "/db/db.tsv"
-    val db = Preprocess.loadTsv(sc, dbPath, "Protein")
-
-    // filter db by tfs
-    var filteredDb: RDD[Array[String]] = db.filter(r => tfs.contains(r(1)))
-
-    // filter out tfs not found in database
-    val paramPath = deepbindPath + "/db/params/"
-    val available: String = Seq("ls", s"${paramPath}" ).!!
-    val availableParams: Array[String] = available.split("\n").map(r => {
-      r.dropRight(4)
-    })
-
-    // filter out parameters included in db but not in parameters folder
-    filteredDb = filteredDb.filter(r => availableParams.contains(r(0)))
-
-    // create id page to score sequences of the form:
-    //  - DEEPBIND_ID # NAME ORIGIN
-    try {
-      val ids = filteredDb.map(r => s"${r(0)} # ${r(1)}, ${r(6)}").repartition(1)
-      // save labels to be accessed by deepbind
-      ids.saveAsTextFile(idLocation)
-      val cmd = Seq("mv", s"${idLocation}/part-00000" , s"${idLocation}/part-00000.ids" ).!
-      println("saved ids ", ids.count)
-    } catch {
-      case e: FileAlreadyExistsException => {
-      println("ids file already found. skipping...")
+  def sequenceProbability(sequence: String): Double = {
+    @tailrec def score(seq: Iterator[Char],
+                       pos: Int,
+                       p: Double): Double = {
+      // continue until we run out of bases
+      // if p = 0, we can terminate early
+      if (!seq.hasNext || p == 0.0) {
+        p
+      } else {
+        score(seq, pos + 1, p * pwm(pos * 4 + baseToIdx(seq.next)))
       }
     }
 
-    try {
-      // save sequences
-      sequences
-        .repartition(1)
-        .saveAsTextFile(seqLocation)
-      // rename files to have .seq
-      val cmd = Seq("mv", s"${seqLocation}/part-00000" , s"${seqLocation}/part-00000.seq" ).!
-      println("saved sequences ", sequences.count)
-
-    } catch {
-      case e: FileAlreadyExistsException => {
-        println("seq file already found. skipping...")
-      }
-    }
-
-    // run deepbind if data has not yet been saved
-    if (!new File(scoreLocation).exists()) {
-      val scores = s"${deepbindPath}/deepbind ${idLocation}/part-00000.ids ${seqLocation}/part-00000.seq" #>> new File(scoreLocation) !
-    }
-    // return deepbind scores
-    val labels: Array[String] = filteredDb.map(r => r(1)).collect
-
-    val finalScores = sc.textFile(scoreLocation).filter(l => !l.contains("D")) // filter out first line
-                .map( line => {
-                   labels.zip(line.split("\t"))
-                                .map(r => (r._1, r._2.toDouble))
-                                .groupBy(_._1)
-                                .map(r => (r._1,r._2.map(_._2).sum)).toMap
-                })
-
-    finalScores
+    score(sequence.toIterator, 0, 1.0)
   }
+}
+
+class MotifScorer(@transient sc: SparkContext,
+            sd: SequenceDictionary) extends Serializable {
+
+
+  def scoreMotifs(in: RDD[LabeledWindow],
+                  windowSize: Int,
+                  stride: Int,
+                  tfs: Array[TranscriptionFactors.Value],
+                  motifDB: String): RDD[LabeledWindow] = {
+
+    // transcription factor specific motifs
+    val motifs: RDD[(ReferenceRegion, TranscriptionFactors.Value, PeakRecord)] = Preprocess.loadMotifFolder(sc, motifDB, Some(tfs))
+            .map(r => (r._2.region, r._1, r._2))
+    val windowedMotifs = CellTypeSpecific.window(motifs, sd)
+          .map(r => ((r._1._1, r._1._2), r._2))
+
+    val str = stride
+    val win = windowSize
+
+    val x: RDD[LabeledWindow] = in.filter(r => tfs.contains(r.win.getTf))
+      .keyBy(r => (r.win.getRegion, r.win.getTf))
+      .partitionBy(GenomicRegionPartitioner(Dataset.partitions, sd))
+      .leftOuterJoin(windowedMotifs)
+      .map(r => {
+        val motifs = r._2._2
+        LabeledWindow(Window(r._2._1.win.getTf, r._2._1.win.getCellType,
+          r._2._1.win.getRegion, r._2._1.win.getSequence, r._2._1.win.dnasePeakCount,
+          Some(r._2._1.win.getDnase), Some(r._2._1.win.getRnaseq), motifs), r._2._1.label)
+      })
+    x
+  }
+
 }

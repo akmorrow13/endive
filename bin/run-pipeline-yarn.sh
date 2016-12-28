@@ -11,9 +11,13 @@ shift
 # Figure out where the Scala framework is installed
 FWDIR="$(cd `dirname $0`/..; pwd)"
 
-if [ -z "$1" ]; then
-  echo "Usage: run-main.sh <class> [<args>]" >&2
-  exit 1
+if [[ "$RUN_LOCAL" ]]; then
+    echo "RUN_LOCAL is set, running pipeline locally"
+	$FWDIR/bin/run-main.sh $CLASS "$@"
+	MASTER="local[4]"
+	exit 0
+else
+	MASTER="yarn"
 fi
 
 if [ -z "$OMP_NUM_THREADS" ]; then
@@ -39,16 +43,21 @@ echo "Using SPARK_SUBMIT=$SPARK_SUBMIT"
 
 echo "RUNNING ON THE CLUSTER" 
 # TODO: Figure out a way to pass in either a conf file / flags to spark-submit
-KEYSTONE_MEM=${KEYSTONE_MEM:-1g}
-KEYSTONE_MEM=120g
-export KEYSTONE_MEM
+
+export LD_LIBRARY_PATH=/home/eecs/vaishaal/gcc-build/lib64:/home/eecs/vaishaal/gcc-build/lib:/home/eecs/vaishaal/openblas-install/lib
+export CPATH=/home/eecs/vaishaal/gcc-build/include
+
+echo CORES $SPARK_EXECUTOR_CORES
+echo NUM EXECUTORS $SPARK_NUM_EXECUTORS
 
 # Set some commonly used config flags on the cluster
 "$SPARK_SUBMIT" \
-  --master yarn\
+  --master $MASTER \
   --class $CLASS \
-  --num-executors  12 \
-  --executor-cores 24 \
+  --num-executors $SPARK_NUM_EXECUTORS \
+  --driver-memory 60g \
+  --executor-memory $KEYSTONE_MEM \
+  --executor-cores $SPARK_EXECUTOR_CORES \
   --driver-class-path $JARFILE:$ASSEMBLYJAR:$HOME/hadoop/conf \
   --driver-library-path /opt/amp/gcc/lib64:/opt/amp/openblas/lib:$FWDIR/lib \
   --conf spark.executor.extraLibraryPath=/opt/amp/openblas/lib:$FWDIR/lib \
@@ -63,13 +72,12 @@ export KEYSTONE_MEM
   --conf spark.yarn.am.waitTime=200 \
   --conf spark.driver.maxResultSize=0 \
   --conf spark.yarn.maxAppAttempts=1 \
+  --conf spark.hadoop.validateOutputSpecs=false \
   --conf spark.yarn.appMasterEnv.OMP_NUM_THREADS=1 \
   --conf spark.network.timeout=600 \
   --conf spark.executorEnv.OMP_NUM_THREADS=1 \
   --conf spark.storage.memoryFraction=0.6 \
   --conf spark.network.timeout=300s \
-  --driver-memory 60g \
-  --executor-memory 100g \
   --jars $ASSEMBLYJAR \
   $JARFILE \
   "$@"
