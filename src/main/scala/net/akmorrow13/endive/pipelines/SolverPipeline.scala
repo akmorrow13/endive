@@ -116,8 +116,14 @@ object SolverPipeline extends Serializable with Logging {
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
 
     println(conf.featuresOutput)
-    val featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc).cache()
-    featuresRDD.count()
+    var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
+
+    if (conf.negativeSamplingFreq < 1.0) {
+      val positives = featuresRDD.filter(_.labeledWindow.label > 0)
+      val negatives = featuresRDD.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq)
+      featuresRDD = positives.union(negatives)
+    }
+    featuresRDD = featuresRDD.cache()
     println("FILTERING ")
     println(featuresRDD.first.labeledWindow.win.cellType.id)
     println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
@@ -129,6 +135,12 @@ object SolverPipeline extends Serializable with Logging {
     val trainFeatures = trainFeaturizedWindows.map(_.features)
     val trainLabels = labelExtractor(trainFeaturizedWindows.map(_.labeledWindow.label)).get
 
+    println("FEATURE COUNT " + trainFeatures.count())
+    println("LABEL COUNT " + trainLabels.count())
+    println("ZIPPED COUNT " + trainFeatures.zip(trainLabels).count())
+    println("FIRST FEATURE SIZE " + trainFeatures.first.size)
+    println("FIRST LABELED SIZE " + trainLabels.first.size)
+    println("REG " + conf.lambda) 
 
     // Currently hardcoded to just do exact solve (after accumulating XtX)
     val model = new BlockLeastSquaresEstimator(conf.approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
