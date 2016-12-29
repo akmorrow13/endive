@@ -7,6 +7,9 @@ from sklearn import metrics
 from joblib import Parallel, delayed
 import multiprocessing
 
+predictionsPath = "hdfs://amp-spark-master.amp:8020/user/akmorrow/predictions"
+modelPath = "/home/eecs/akmorrow/endive-models"
+
 BASE_KERNEL_PIPELINE_CONFIG = \
 {
     "reference": "/home/eecs/akmorrow/ADAM/endive/workfiles/hg19.2bit",
@@ -46,6 +49,7 @@ def make_gaussian_filter_gen(gamma, alphabet_size=4, kmer_size=8, seed=0):
 def run_kitchensink_featurize_pipeline(windowPath,
                filterPath,
                logpath,
+               featuresOutput, # ="/user/vaishaal/tmp/features",
                filter_gen_gen=make_gaussian_filter_gen,
                gamma = 1.0,
                sample = 0.01,
@@ -53,7 +57,6 @@ def run_kitchensink_featurize_pipeline(windowPath,
                num_partitions=337,
                kmer_size=8,
                num_filters=256,
-               featuresOutput="/user/vaishaal/tmp/features",
                seed=0,
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
@@ -91,6 +94,8 @@ def run_kitchensink_featurize_pipeline(windowPath,
 def run_solver_pipeline(featuresPath,
                logpath,
                hdfsclient,
+               predictionsPath, #="/user/vaishaal/tmp",
+               modelPath, #="/home/eecs/vaishaal/endive-models",
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
                executor_mem=EXECUTOR_MEM,
@@ -99,9 +104,7 @@ def run_solver_pipeline(featuresPath,
                valCellTypes=[],
                reg=0.1,
                negativeSamplingFreq=1.0,
-               predictionsPath="/user/vaishaal/tmp",
                valDuringSolve=False,
-               modelPath="/home/eecs/vaishaal/endive-models",
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
@@ -135,13 +138,13 @@ def run_solver_pipeline(featuresPath,
 def run_test_pipeline(featuresPath,
                logpath,
                hdfsclient,
+               predictionsPath, # ="/user/vaishaal/tmp",
+               modelPath, # ="/home/eecs/vaishaal/endive-models",
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
                executor_mem=EXECUTOR_MEM,
                use_yarn=True,
                reg=0.1,
-               predictionsPath="/user/vaishaal/tmp",
-               modelPath="/home/eecs/vaishaal/endive-models",
                delete_predictions_from_hdfs=False,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
@@ -287,13 +290,12 @@ def roc_result(y_test, y_test_pred, y_train=None, y_train_pred=None):
 
 
 
-def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, 
+def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes,                                    logPath, 
                    numHoldOutChr=1, 
                    numHoldOutCell=1,
                    num_folds=1,
                    regs=[0.1],
                    negativeSamplingFreqs=[1.0],
-                   logPath = "/tmp/log", 
                    seed=0,
                    executor_mem='100g',
                    cores_per_executor=32,
@@ -315,6 +317,8 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes,
             train_res, val_res = run_solver_pipeline(feature_path,
                            logPath,
                            hdfsclient,
+                           predictionsPath,
+                           modelPath,                          
                            executor_mem=executor_mem,
                            num_executors=num_executors,
                            cores_per_executor=cores_per_executor,
