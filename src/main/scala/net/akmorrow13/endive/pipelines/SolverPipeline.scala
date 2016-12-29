@@ -115,13 +115,13 @@ object SolverPipeline extends Serializable with Logging {
 
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
 
-    println(conf.featuresOutput)
     var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
 
     if (conf.negativeSamplingFreq < 1.0) {
       val positives = featuresRDD.filter(_.labeledWindow.label > 0)
       val negatives = featuresRDD.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq)
       featuresRDD = positives.union(negatives)
+	.repartition(2000)
     }
     featuresRDD = featuresRDD.cache()
     println("FILTERING ")
@@ -143,15 +143,19 @@ object SolverPipeline extends Serializable with Logging {
     println("REG " + conf.lambda) 
 
     // Currently hardcoded to just do exact solve (after accumulating XtX)
-    val model = new BlockLeastSquaresEstimator(conf.approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
-
+    val model =
+      if (conf.mixtureWeight > 0) {
+        new PerClassWeightedLeastSquaresEstimator(conf.approxDim, 1, conf.lambda, conf.mixtureWeight).fit(trainFeatures, trainLabels)
+      } else {
+        new BlockLeastSquaresEstimator(conf.approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
+      }
 
     if (conf.valDuringSolve) {
       val trainPredictions:RDD[Double] = model(trainFeatures).map(x => x(1))
       trainPredictions.count()
       val trainScalarLabels = trainLabels.map(x => if(x(1) == 1) 1 else 0)
       val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
-      println("WRITING TRAIN PREDICTIONS TO DISK")
+      println(s"WRITING TRAIN PREDICTIONS TO DISK AT ${trainPredictionsOutput}")
       val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
       val valFeaturizedWindows = valFeaturizedWindowsOpt.get
       val valFeatures = valFeaturizedWindows.map(_.features)
