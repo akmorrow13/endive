@@ -113,7 +113,7 @@ object SolverPipeline extends Serializable with Logging {
 
 
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
-
+    println(conf.saveTestPredictions)
     var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
 
     println(featuresRDD.first.labeledWindow.win.cellType.id)
@@ -165,6 +165,7 @@ object SolverPipeline extends Serializable with Logging {
       println("Saving model to disk")
       saveModel(model, conf.modelOutput)
 
+     try {
       // save test predictions if specified
       if (conf.saveTestPredictions != null) {
         val first = valFeaturizedWindows.first.labeledWindow.win
@@ -182,7 +183,13 @@ object SolverPipeline extends Serializable with Logging {
           sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_true")
 
       }
+    } catch {
+	case e: Exception => {
+		println("failed saving output predicted features")
+		println(e.getMessage)
+	}
     }
+    } 
   }
 
 

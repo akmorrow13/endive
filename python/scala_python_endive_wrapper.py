@@ -8,6 +8,7 @@ from joblib import Parallel, delayed
 import multiprocessing
 
 predictionsPath = "hdfs://amp-spark-master.amp:8020/user/akmorrow/predictions"
+saveTestPredictionsLocation = "hdfs://amp-bdg-master.amplab.net:8020/user/akmorrow/predictions/"
 modelPath = "/home/eecs/akmorrow/endive-models"
 
 BASE_KERNEL_PIPELINE_CONFIG = \
@@ -118,6 +119,7 @@ def run_solver_pipeline(featuresPath,
     kernel_pipeline_config["lambda"] = reg
     kernel_pipeline_config["negativeSamplingFreq"] = negativeSamplingFreq
     kernel_pipeline_config["mixtureWeight"] = mixtureWeight
+    kernel_pipeline_config["saveTestPredictions"] = saveTestPredictionsLocation
     
     pythonrun.run(kernel_pipeline_config,
               logpath,
@@ -345,6 +347,7 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes,            
                 result['test_chromosomes'] = test_chromosomes
                 result['test_celltypes'] = test_cell_types
                 results.append(result)
+                print(result)
     return pd.DataFrame(results)
 
 
