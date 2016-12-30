@@ -5,6 +5,7 @@ import net.akmorrow13.endive.processing._
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion}
+<<<<<<< HEAD
 import org.bdgenomics.adam.rdd.GenomicRegionPartitioner
 import org.bdgenomics.utils.misc.MathUtils
 import scala.annotation.tailrec
