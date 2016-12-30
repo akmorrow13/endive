@@ -84,7 +84,7 @@ object SolverPipeline extends Serializable with Logging {
     }
   }
 
-  def trainValSplit(featuresRDD: RDD[FeaturizedLabeledWindow], valChromosomes: Array[String], valCellTypes: Array[Int], valDuringSolve: Boolean): (RDD[FeaturizedLabeledWindow], Option[RDD[FeaturizedLabeledWindow]])  = {
+  def trainValSplit(featuresRDD: RDD[FeaturizedLabeledWindow], valChromosomes: Array[String], valCellTypes: Array[Int], valDuringSolve: Boolean, numPartitions: Int): (RDD[FeaturizedLabeledWindow], Option[RDD[FeaturizedLabeledWindow]])  = {
       // hold out a (chromosome, celltype) pair for val
       val trainFeaturizedWindows = featuresRDD.filter { r => 
                   val chrm:String = r.labeledWindow.win.getRegion.referenceName
@@ -108,7 +108,6 @@ object SolverPipeline extends Serializable with Logging {
         } else {
           None
         }
-
       (trainFeaturizedWindows, valFeaturizedWindowsOpt)
   }
 
@@ -117,30 +116,28 @@ object SolverPipeline extends Serializable with Logging {
 
     var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
 
-    if (conf.negativeSamplingFreq < 1.0) {
-      val positives = featuresRDD.filter(_.labeledWindow.label > 0)
-      val negatives = featuresRDD.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq)
-      featuresRDD = positives.union(negatives)
-	.repartition(2000)
-    }
-    featuresRDD = featuresRDD.cache()
-    println("FILTERING ")
     println(featuresRDD.first.labeledWindow.win.cellType.id)
     println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
 
-    val (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve)
+    var (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve, conf.numPartitions)
+
+
+    if (conf.negativeSamplingFreq < 1.0) {
+      println("NEGATIVE SAMPLING")
+      val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0)
+      val negatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq)
+      trainFeaturizedWindows = positives.union(negatives)
+        .repartition(2000)
+    }
+
+    trainFeaturizedWindows = trainFeaturizedWindows.repartition(conf.numPartitions).cache()
+    valFeaturizedWindowsOpt = valFeaturizedWindowsOpt.map(_.repartition(conf.numPartitions).cache())
+
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
 
     val trainFeatures = trainFeaturizedWindows.map(_.features)
     val trainLabels = labelExtractor(trainFeaturizedWindows.map(_.labeledWindow.label)).get
-
-    println("FEATURE COUNT " + trainFeatures.count())
-    println("LABEL COUNT " + trainLabels.count())
-    println("ZIPPED COUNT " + trainFeatures.zip(trainLabels).count())
-    println("FIRST FEATURE SIZE " + trainFeatures.first.size)
-    println("FIRST LABELED SIZE " + trainLabels.first.size)
-    println("REG " + conf.lambda) 
 
     // Currently hardcoded to just do exact solve (after accumulating XtX)
     val model =

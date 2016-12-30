@@ -104,6 +104,7 @@ def run_solver_pipeline(featuresPath,
                valCellTypes=[],
                reg=0.1,
                negativeSamplingFreq=1.0,
+               mixtureWeight=-1.0,         
                valDuringSolve=False,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
@@ -116,7 +117,8 @@ def run_solver_pipeline(featuresPath,
     kernel_pipeline_config["modelOutput"] = modelPath
     kernel_pipeline_config["lambda"] = reg
     kernel_pipeline_config["negativeSamplingFreq"] = negativeSamplingFreq
-
+    kernel_pipeline_config["mixtureWeight"] = mixtureWeight
+    
     pythonrun.run(kernel_pipeline_config,
               logpath,
               solver_pipeline_class,
@@ -127,11 +129,11 @@ def run_solver_pipeline(featuresPath,
               use_yarn=True)
 
     if valDuringSolve:
-        train_preds = load_hdfs_vector(predictionsPath + "/trainPreds", hdfsclient=hdfsclient, shape=(-1, 2))
+        train_preds = load_hdfs_vector_parallel(predictionsPath + "/trainPreds", hdfsclient=hdfsclient, shape=(-1, 2))
         valCellTypesStr = map(str, valCellTypes)
         val_pred_name = predictionsPath + "/valPreds_{0}_{1}".format(','.join(valChromosomes), ','.join(valCellTypesStr))
         print val_pred_name
-        val_preds = load_hdfs_vector(val_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
+        val_preds = load_hdfs_vector_parallel(val_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
         return (train_preds, val_preds)
     return ([], [])
 
@@ -197,6 +199,7 @@ def load_test_metadata(metadataPath, hdfsclient, tmpPath="/tmp/"):
 
 def load_hdfs_vector(hdfsPath, hdfsclient, tmpPath="/tmp/", shape=None):
     status = list(hdfsclient.copyToLocal([hdfsPath], tmpPath))[0]
+    print status
     fname = os.path.basename(os.path.normpath(hdfsPath))
     print status['error']
     vectors = []
@@ -296,6 +299,7 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes,            
                    num_folds=1,
                    regs=[0.1],
                    negativeSamplingFreqs=[1.0],
+                   mixtureWeight=-1.0,
                    seed=0,
                    executor_mem='100g',
                    cores_per_executor=32,
@@ -324,6 +328,7 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes,            
                            cores_per_executor=cores_per_executor,
                            reg=reg,
                            negativeSamplingFreq=neg,
+                           mixtureWeight=mixtureWeight,                              
                            valCellTypes=[8],
                            valChromosomes=["chr10"],
                            valDuringSolve=True)
