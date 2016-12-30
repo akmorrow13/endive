@@ -299,7 +299,7 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes,            
                    num_folds=1,
                    regs=[0.1],
                    negativeSamplingFreqs=[1.0],
-                   mixtureWeight=-1.0,
+                   mixtureWeights=[-1.0],
                    seed=0,
                    executor_mem='100g',
                    cores_per_executor=32,
@@ -317,30 +317,34 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes,            
         print("HOLDING OUT CELL TYPES {0}".format(test_cell_types))
         for neg in negativeSamplingFreqs:
           for reg in regs:
-            print("RUNING SOLVER WITH REG={0}".format(reg))
-            train_res, val_res = run_solver_pipeline(feature_path,
-                           logPath,
-                           hdfsclient,
-                           predictionsPath,
-                           modelPath,                          
-                           executor_mem=executor_mem,
-                           num_executors=num_executors,
-                           cores_per_executor=cores_per_executor,
-                           reg=reg,
-                           negativeSamplingFreq=neg,
-                           mixtureWeight=mixtureWeight,                              
-                           valCellTypes=[8],
-                           valChromosomes=["chr10"],
-                           valDuringSolve=True)
-
-            train_metrics = compute_metrics(train_res[:, 1], train_res[:, 0], tag='train')
-            val_metrics = compute_metrics(val_res[:, 1], val_res[:, 0], tag='val')
-            result = dict(train_metrics.items() + val_metrics.items() + other_meta.items())
-            result['reg'] = reg
-            result['negativeSamplingFreq'] = neg
-            result['test_chromosomes'] = test_chromosomes
-            result['test_celltypes'] = test_cell_types
-            results.append(result)
+            for mixtureWeight in mixtureWeights:
+                print("RUNING SOLVER WITH REG={0}".format(reg))
+                print("AND MIXTUREWEIGHT={0}".format(mixtureWeight))
+                
+                train_res, val_res = run_solver_pipeline(feature_path,
+                               logPath,
+                               hdfsclient,
+                               predictionsPath,
+                               modelPath,                          
+                               executor_mem=executor_mem,
+                               num_executors=num_executors,
+                               cores_per_executor=cores_per_executor,
+                               reg=reg,
+                               negativeSamplingFreq=neg,
+                               mixtureWeight=mixtureWeight,                           
+                               valCellTypes=[8],
+                               valChromosomes=["chr10"],
+                               valDuringSolve=True)
+                
+                train_metrics = compute_metrics(train_res[:, 1], train_res[:, 0], tag='train')
+                val_metrics = compute_metrics(val_res[:, 1], val_res[:, 0], tag='val')
+                result = dict(train_metrics.items() + val_metrics.items() + other_meta.items())
+                result['reg'] = reg
+                print(mixtureWeight)
+                result['negativeSamplingFreq'] = neg
+                result['test_chromosomes'] = test_chromosomes
+                result['test_celltypes'] = test_cell_types
+                results.append(result)
     return pd.DataFrame(results)
 
 

@@ -7,7 +7,7 @@ PROJECT = endive
 PROJECT_VERSION = 0.1
 TARGET_JAR = target/scala-$(SCALA_VERSION)/$(PROJECT)-assembly-$(PROJECT_VERSION).jar
 
-CC = g++ -I/home/eecs/vaishaal/eigen3
+CC = g++ -I/home/eecs/akmorrow/Programs/eigen3
 
 
 # Auto-detect architecture
