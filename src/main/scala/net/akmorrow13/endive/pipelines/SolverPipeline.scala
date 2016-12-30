@@ -148,23 +148,41 @@ object SolverPipeline extends Serializable with Logging {
       }
 
     if (conf.valDuringSolve) {
-      val trainPredictions:RDD[Double] = model(trainFeatures).map(x => x(1))
+      val trainPredictions: RDD[Double] = model(trainFeatures).map(x => x(1))
       trainPredictions.count()
-      val trainScalarLabels = trainLabels.map(x => if(x(1) == 1) 1 else 0)
+      val trainScalarLabels = trainLabels.map(x => if (x(1) == 1) 1 else 0)
       val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
       println(s"WRITING TRAIN PREDICTIONS TO DISK AT ${trainPredictionsOutput}")
       val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
       val valFeaturizedWindows = valFeaturizedWindowsOpt.get
       val valFeatures = valFeaturizedWindows.map(_.features)
-      val valPredictions:RDD[Double] = model(valFeatures).map(x => x(1))
+      val valPredictions: RDD[Double] = model(valFeatures).map(x => x(1))
       valPredictions.count()
       val valScalarLabels = valFeaturizedWindows.map(_.labeledWindow.label)
       val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
       val zippedValPreds = valScalarLabels.zip(valPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
-    }
 
-    println("Saving model to disk")
-    saveModel(model, conf.modelOutput)
+      println("Saving model to disk")
+      saveModel(model, conf.modelOutput)
+
+      // save test predictions if specified
+      if (conf.saveTestPredictions != null) {
+        val first = valFeaturizedWindows.first.labeledWindow.win
+        val cellType = first.getCellType.toString
+        val tf = first.getTf.toString
+        val chr = first.getRegion.referenceName
+
+        // create sequence dictionary, used to save files
+        val reference = new TwoBitFile(new LocalFileByteAccess(new File(conf.reference)))
+        val sd: SequenceDictionary = reference.sequences
+
+        saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).zip(valPredictions).filter(_._2 > 0.0001),
+          sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_predicted")
+        saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).map(r => (r, r.label.toDouble)).filter(_._2 > 0),
+          sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_true")
+
+      }
+    }
   }
 
 
@@ -250,6 +268,31 @@ def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
   }
 
 
+  /**
+   * Saves predictions and labeled windows as a FeatureRDD.
+   * @param labeledWindows RDD of windows and labels
+   * @param sd SequenceDictionary required to create FeatureRDD
+   * @param path path to save FeatureRDD
+   */
+  def saveAsFeatures(labeledWindows: RDD[(LabeledWindow, Double)],
+                     sd: SequenceDictionary,
+                     path: String): Unit = {
+    val features =
+      labeledWindows
+        .map(r => {
+          Feature.newBuilder()
+            .setFeatureId(s"${r._1.win.region.toString}-score:${r._1.label}")
+            .setPhase(r._1.label)
+            .setScore(r._2)
+            .setContigName(r._1.win.region.referenceName)
+            .setStart(r._1.win.region.start)
+            .setEnd(r._1.win.region.end)
+            .build()
+        })
+
+    val featureRDD = new FeatureRDD(features, sd)
+    featureRDD.save(path, false)
+  }
 
 }
 
