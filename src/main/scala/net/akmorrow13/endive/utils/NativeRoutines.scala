@@ -20,7 +20,6 @@ class NativeRoutines extends Serializable {
   @native
   def fastfood(gaussian: Array[Double],
                radamacher: Array[Double],
-               uniform: Array[Double],
                chiSquared: Array[Double],
                patchMatrix: Array[Double],
                seed: Int,

@@ -17,7 +17,6 @@ import utils.external.NativeRoutines
 
 class FastfoodBatch(
   val g: DenseVector[Double], // should be out long
-  val b: DenseVector[Double], // should be out long
   val out: Int, // Num output features
   val seed: Int = 11, // rng seed
   val sigma: Double = 1.0 // rng seed
@@ -48,7 +47,7 @@ class FastfoodBatch(
     assert(FWHT.isPower2(in.cols))
     /*  Since we need to do FWHT over each patch we should first convert the data such that each patch is contigious in memory (a column since breeze is column major */
     val patchMatrixCols = in.t.toArray
-    val outArray = extLib.fastfood(g.data, B.data, b.data, S.data, patchMatrixCols, seed, out, in.cols, in.rows)
+    val outArray = extLib.fastfood(g.data, B.data, S.data, patchMatrixCols, seed, out, in.cols, in.rows)
     val dm = new DenseMatrix(out, in.rows, outArray)
     val dmt = new DenseMatrix(in.rows, out, dm.t.toArray)
     val scale = 1.0/(sigma*sqrt(in.cols))

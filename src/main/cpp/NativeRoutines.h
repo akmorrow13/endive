@@ -26,10 +26,10 @@ JNIEXPORT jdoubleArray JNICALL Java_utils_external_NativeRoutines_fwht
 /*
  * Class:     utils_external_NativeRoutines
  * Method:    fastfood
- * Signature: ([D[D[D[D[DIIII)[D
+ * Signature: ([D[D[D[DIIII)[D
  */
 JNIEXPORT jdoubleArray JNICALL Java_utils_external_NativeRoutines_fastfood
-  (JNIEnv *, jobject, jdoubleArray, jdoubleArray, jdoubleArray, jdoubleArray, jdoubleArray, jint, jint, jint, jint);
+  (JNIEnv *, jobject, jdoubleArray, jdoubleArray, jdoubleArray, jdoubleArray, jint, jint, jint, jint);
 
 /*
  * Class:     utils_external_NativeRoutines

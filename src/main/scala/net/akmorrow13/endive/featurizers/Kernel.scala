@@ -6,13 +6,22 @@ import org.apache.spark.rdd.RDD
 import workflow.Transformer
 import breeze.numerics._
 import net.akmorrow13.endive.processing.Dataset
+import nodes.stats.FastfoodBatch
+import org.apache.commons.math3.random.MersenneTwister
+import breeze.stats.distributions._
+
 
 class KernelApproximator(filters: DenseMatrix[Double],
                          nonLin: Double => Double = (x: Double) => x ,
                          ngramSize: Int,
                          alphabetSize: Int,
                          offset:Option[DenseVector[Double]] = None,
-                         seqSize: Int = Dataset.windowSize)
+                         seqSize: Int = Dataset.windowSize,
+                         fastfood: Boolean = false,
+                         gamma: Double = 1.0,
+                         seed: Int = 0)
+
+
   extends Transformer[DenseVector[Double], DenseVector[Double]] with Serializable {
 
 
@@ -21,18 +30,21 @@ class KernelApproximator(filters: DenseMatrix[Double],
    println(s"mapping partitions alphsize: ${alphabetSize}, outsize: ${outSize}, ngramsize: ${ngramSize}")
 
   override def apply(in: RDD[DenseVector[Double]]): RDD[DenseVector[Double]] = {
-    in.mapPartitions(convolvePartitions(_, filters, nonLin, offset, ngramSize, outSize, alphabetSize))
+    in.mapPartitions(convolvePartitions(_, filters, nonLin, offset, ngramSize, outSize, alphabetSize, fastfood, gamma, seed))
   }
 
   def apply(in: DenseVector[Double]): DenseVector[Double]= {
-    convolve(in, filters, nonLin, offset, alphabetSize)
+    convolve(in, filters, nonLin, offset, alphabetSize, fastfood, gamma, seed)
   }
 
   def convolve(seq: DenseVector[Double],
     filters: DenseMatrix[Double],
     nonLin: Double => Double,
     offset: Option[DenseVector[Double]],
-    alphabetSize: Int): DenseVector[Double] = {
+    alphabetSize: Int,
+    fastfood: Boolean,
+    gamma: Double,
+    seed: Int): DenseVector[Double] = {
 
     /* Make the ngram */
     val ngrams: DenseMatrix[Double] = KernelApproximator.makeNgrams(seq, ngramSize, alphabetSize)
@@ -40,8 +52,19 @@ class KernelApproximator(filters: DenseMatrix[Double],
     println("NGRAM SIZE " + ngrams.rows + "," + ngrams.cols + "\n")
     println("FILTER SIZE " + filters.rows + "," + filters.cols + "\n")
 
+
     /* Actually do the convolution */
-    val convRes: DenseMatrix[Double] = ngrams * filters.t
+    val convRes: DenseMatrix[Double] = 
+    if (fastfood) {
+      // Just take first filter
+      val filtersFF  = filters(::, 0)
+      val numOutputFeatures = filters.rows
+      val ff = new FastfoodBatch(filtersFF, numOutputFeatures, seed, gamma)
+      ff(ngrams)
+    } else {
+      ngrams * filters.t
+    }
+
 
     /* Apply non linearity element wise */
     var i = 0
@@ -68,9 +91,12 @@ class KernelApproximator(filters: DenseMatrix[Double],
     offset:Option[DenseVector[Double]],
     ngramSize: Int,
     outSize: Int,
-    alphabetSize: Int): Iterator[DenseVector[Double]] = {
+    alphabetSize: Int,
+    fastfood: Boolean,
+    gamma: Double,
+    seed: Int): Iterator[DenseVector[Double]] = {
       val ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
-      seq.map(convolve(_, filters, nonLin, offset, alphabetSize))
+      seq.map(convolve(_, filters, nonLin, offset, alphabetSize, fastfood, gamma, seed))
     }
   }
 

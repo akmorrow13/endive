@@ -38,7 +38,6 @@ JNIEXPORT jdoubleArray JNICALL Java_utils_external_NativeRoutines_fastfood(
     jobject obj,
     jdoubleArray gaussian,
     jdoubleArray radamacher,
-    jdoubleArray uniform,
     jdoubleArray chiSquared,
     jdoubleArray patchMatrix,
     jint seed,
@@ -47,7 +46,7 @@ JNIEXPORT jdoubleArray JNICALL Java_utils_external_NativeRoutines_fastfood(
     jint numPatches)
 {
   double* out;
-
+  printf("RUNNING FAST FOOD IN C++ Land \n");
   int ret = posix_memalign((void**) &out, 32, outSize*numPatches*sizeof(double));
   if (ret != 0) {
     throw std::runtime_error("Ran out of memory!");
@@ -55,7 +54,6 @@ JNIEXPORT jdoubleArray JNICALL Java_utils_external_NativeRoutines_fastfood(
 
   jdouble* patchMatrixV = env->GetDoubleArrayElements(patchMatrix, 0);
   jdouble* radamacherV = env->GetDoubleArrayElements(radamacher, 0);
-  jdouble* uniformV= env->GetDoubleArrayElements(uniform, 0);
   jdouble* gaussianV = env->GetDoubleArrayElements(gaussian, 0);
   jdouble* chiSquaredV = env->GetDoubleArrayElements(chiSquared, 0);
 
@@ -63,7 +61,6 @@ JNIEXPORT jdoubleArray JNICALL Java_utils_external_NativeRoutines_fastfood(
   Map< Array<double, Dynamic, Dynamic> > outM(out, outSize, numPatches);
   Map< Array<double, Dynamic, Dynamic> > mf(patchMatrixV, inSize, numPatches);
   Map< Array<double, Dynamic, 1> > radamacherVector(radamacherV, outSize);
-  Map< Array<double, Dynamic, 1> > uniformVector(uniformV, outSize);
   Map< Array<double, Dynamic, 1> > gaussianVector(gaussianV, outSize);
   Map< Array<double, Dynamic, 1> > chisquaredVector(chiSquaredV, outSize);
   for (int i = 0; i < outSize; i += inSize) {
@@ -86,7 +83,6 @@ JNIEXPORT jdoubleArray JNICALL Java_utils_external_NativeRoutines_fastfood(
   free(out);
   env->ReleaseDoubleArrayElements(patchMatrix, patchMatrixV, JNI_ABORT);
   env->ReleaseDoubleArrayElements(radamacher, radamacherV, JNI_ABORT);
-  env->ReleaseDoubleArrayElements(uniform, uniformV, JNI_ABORT);
   env->ReleaseDoubleArrayElements(gaussian, gaussianV, JNI_ABORT);
   env->ReleaseDoubleArrayElements(chiSquared, chiSquaredV, JNI_ABORT);
   return result;
