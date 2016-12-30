@@ -43,7 +43,7 @@ import java.io.File
 
 
 
-object DnaseKernelPipeline  extends Serializable with Logging {
+object DnaseKernelPipeline extends Serializable with Logging {
 
   /**
    * A very basic pipeline that *doesn't* featurize the data
@@ -256,30 +256,4 @@ object DnaseKernelPipeline  extends Serializable with Logging {
       DenseVector.vertcat(seqString: _*)
   }
 
-  /**
-   * Saves predictions and labeled windows as a FeatureRDD.
-   * @param labeledWindows RDD of windows and labels
-   * @param predictions RDD of double predictions
-   * @param sd SequenceDictionary required to create FeatureRDD
-   * @param path path to save FeatureRDD
-   */
-  def saveAsFeatures(labeledWindows: RDD[LabeledWindow],
-                     predictions: RDD[Double],
-                     sd: SequenceDictionary,
-                     path: String): Unit = {
-    val features =
-      labeledWindows.zip(predictions)
-        .map(r => {
-          Feature.newBuilder()
-            .setPhase(r._1.label)
-            .setScore(r._2)
-            .setContigName(r._1.win.region.referenceName)
-            .setStart(r._1.win.region.start)
-            .setEnd(r._1.win.region.end)
-            .build()
-        })
-
-    val featureRDD = new FeatureRDD(features, sd)
-    featureRDD.save(path, false)
-  }
 }
