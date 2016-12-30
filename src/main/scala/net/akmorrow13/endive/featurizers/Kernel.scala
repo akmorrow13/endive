@@ -36,6 +36,10 @@ class KernelApproximator(filters: DenseMatrix[Double],
 
     /* Make the ngram */
     val ngrams: DenseMatrix[Double] = KernelApproximator.makeNgrams(seq, ngramSize, alphabetSize)
+
+    println("NGRAM SIZE " + ngrams.rows + "," + ngrams.cols + "\n")
+    println("FILTER SIZE " + filters.rows + "," + filters.cols + "\n")
+
     /* Actually do the convolution */
     val convRes: DenseMatrix[Double] = ngrams * filters.t
 

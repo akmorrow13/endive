@@ -63,6 +63,7 @@ def run_kitchensink_featurize_pipeline(windowPath,
 
     kernel_pipeline_config = base_config.copy()
     filter_gen = make_gaussian_filter_gen(gamma=gamma, alphabet_size=alphabet_size, kmer_size=kmer_size)
+    print "ALPHABET SIZE ", alphabet_size
 
     w = filter_gen(num_filters)
     np.savetxt(filterPath, w, delimiter=",")
@@ -75,6 +76,8 @@ def run_kitchensink_featurize_pipeline(windowPath,
     kernel_pipeline_config["readFiltersFromDisk"] = True
     kernel_pipeline_config["featuresOutput"] = featuresOutput
     kernel_pipeline_config["seed"] = seed
+    kernel_pipeline_config["alphabetSize"] = alphabet_size
+    print kernel_pipeline_config
 
 
     pythonrun.run(kernel_pipeline_config,

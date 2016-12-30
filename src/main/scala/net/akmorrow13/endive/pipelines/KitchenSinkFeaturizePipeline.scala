@@ -74,9 +74,9 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
     // set parameters
     val seed = 0
-    val kmerSize = 8
+    val kmerSize = conf.kmerLength
     val approxDim = conf.approxDim
-    val alphabetSize = Dataset.alphabet.size
+    val alphabetSize = conf.alphabetSize
 
     val dataPath = conf.aggregatedSequenceOutput
     val referencePath = conf.reference
@@ -106,8 +106,12 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
       val dataDimension = scala.io.Source.fromFile(conf.filtersPath).getLines.next.split(",").size
 
       // Make sure read in filter params are consistent with our world view
+      println("DATA DIMENSION " + dataDimension)
+      println("KMER SIZE " + kmerSize)
+      println("ALPHABET SIZE " +  alphabetSize)
       assert(numFilters == approxDim)
       assert(dataDimension ==  kmerSize * alphabetSize)
+
 
       val WRaw = scala.io.Source.fromFile(conf.filtersPath).getLines.toArray.flatMap(_.split(",")).map(_.toDouble)
       val W:DenseMatrix[Double] = new DenseMatrix(approxDim, kmerSize * alphabetSize, WRaw)
@@ -124,8 +128,10 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
     }
 
     // generate approximation features
-    val allFeaturized = featurize(allData, W, kmerSize).cache()
+    val allFeaturized = featurizeWithDnaseNaive(sc, allData, W, kmerSize).cache()
     println("FEATURES OUTPUT IS " + conf.featuresOutput)
+    println("NUM FEATURES " + allFeaturized.first.features.size)
+    println("NUM EXAMPLES " + allFeaturized.count)
     allFeaturized.map(_.toString).saveAsTextFile(conf.featuresOutput)
   }
 
@@ -152,4 +158,25 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
     })
 
   }
-}
+
+  def featurizeWithDnaseNaive(sc: SparkContext,
+                         rdd: RDD[LabeledWindow],
+                         W: DenseMatrix[Double],
+                         kmerSize: Int) = {
+
+    val raw_seq = rdd.map(x => KernelApproximator.stringToVector(x.win.sequence))
+    val raw_dnase = rdd.map(x => x.win.dnase)
+    val raw_features = raw_seq.zip(raw_dnase).map(x => DenseVector.vertcat(x._1, x._2))
+    val raw_features_windows = raw_features.zip(rdd)
+    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize, alphabetSize=1, seqSize=1200)
+    raw_features_windows.map(f => {
+      FeaturizedLabeledWindow(f._2, kernelApprox(f._1))
+    })
+  }
+
+
+
+
+
+  }
+
