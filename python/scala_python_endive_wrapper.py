@@ -78,6 +78,8 @@ def run_kitchensink_featurize_pipeline(windowPath,
     kernel_pipeline_config["readFiltersFromDisk"] = True
     kernel_pipeline_config["featuresOutput"] = featuresOutput
     kernel_pipeline_config["seed"] = seed
+    kernel_pipeline_config["alphabetSize"] = alphabet_size
+    print kernel_pipeline_config
 
 
     pythonrun.run(kernel_pipeline_config,

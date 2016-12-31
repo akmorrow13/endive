@@ -17,6 +17,7 @@ class EndiveConf extends Serializable {
   @BeanProperty var aggregatedSequenceOutput: String = null
   @BeanProperty var rnaseqOutput: String = null
   @BeanProperty var featurizedOutput: String = null
+  @BeanProperty var alphabetSize: Int = 4
 
 
   /* location of sequence motif data */
@@ -45,6 +46,7 @@ class EndiveConf extends Serializable {
   @BeanProperty var numPartitions: Int = 400
   @BeanProperty var negativeSamplingFreq: Double = 1.0
   @BeanProperty var filtersPath: String  = "/tmp/filters.csv"
+  @BeanProperty var useDnase: Boolean = true
 
   /* train test split for solve */
   @BeanProperty var valChromosomes: Array[String] = Array()
