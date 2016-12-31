@@ -127,7 +127,6 @@ object SolverPipeline extends Serializable with Logging {
       val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0)
       val negatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq)
       trainFeaturizedWindows = positives.union(negatives)
-        .repartition(2000)
     }
 
     trainFeaturizedWindows = trainFeaturizedWindows.repartition(conf.numPartitions).cache()

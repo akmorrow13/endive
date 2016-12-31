@@ -10,6 +10,7 @@ import multiprocessing
 predictionsPath = "hdfs://amp-spark-master.amp:8020/user/akmorrow/predictions"
 saveTestPredictionsLocation = "hdfs://amp-bdg-master.amplab.net:8020/user/akmorrow/predictions/"
 modelPath = "/home/eecs/akmorrow/endive-models"
+partitions = 2000
 
 BASE_KERNEL_PIPELINE_CONFIG = \
 {
@@ -80,6 +81,7 @@ def run_kitchensink_featurize_pipeline(windowPath,
     kernel_pipeline_config["featuresOutput"] = featuresOutput
     kernel_pipeline_config["seed"] = seed
     kernel_pipeline_config["alphabetSize"] = alphabet_size
+    kernel_pipeline_config["numPartitions"] = partitions
     print kernel_pipeline_config
 
 
