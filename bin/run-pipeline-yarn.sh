@@ -76,7 +76,7 @@ echo NUM EXECUTORS $SPARK_NUM_EXECUTORS
   --conf spark.yarn.appMasterEnv.OMP_NUM_THREADS=1 \
   --conf spark.network.timeout=600 \
   --conf spark.executorEnv.OMP_NUM_THREADS=1 \
-  --conf spark.storage.memoryFraction=0.6 \
+  --conf spark.storage.memoryFraction=0.82 \
   --conf spark.network.timeout=300s \
   --jars $ASSEMBLYJAR \
   $JARFILE \

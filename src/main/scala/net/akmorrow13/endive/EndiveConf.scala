@@ -78,6 +78,7 @@ class EndiveConf extends Serializable {
 
   /* Featurization parameters */
   @BeanProperty var kmerLength: Int = 8
+  @BeanProperty var dnaseKmerLength : Int = 100
   @BeanProperty var sequenceLength: Int = 100
 
   /* Kernel approximation feature parameters */

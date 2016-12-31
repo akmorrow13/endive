@@ -43,15 +43,25 @@ def make_gaussian_filter_gen(gamma, alphabet_size=4, kmer_size=8, seed=0):
         return out
     return gaussian_filter_gen
 
+def make_dnase_gaussian_filter_gen(gamma, dnase_gamma, kmer_size=8, dnase_kmer_size=100, seed=0):
+    np.random.seed(seed)
+    def gaussian_filter_gen(num_filters):
+        seq_out = np.random.randn(num_filters,kmer_size*4).astype('float32') * gamma
+        dnase_out = np.random.randn(num_filters, dnase_kmer_size*2).astype('float32') * dnase_gamma
+
+        return np.hstack((seq_out, dnase_out))
+    return gaussian_filter_gen
+
 def run_kitchensink_featurize_pipeline(windowPath,
                filterPath,
                logpath,
-               filter_gen_gen=make_gaussian_filter_gen,
                gamma = 1.0,
+               dnase_gamma = 1.0,
                sample = 0.01,
                alphabet_size=4,
                num_partitions=337,
                kmer_size=8,
+               dnase_kmer_size=100,
                num_filters=256,
                featuresOutput="/user/vaishaal/tmp/features",
                seed=0,
@@ -62,16 +72,16 @@ def run_kitchensink_featurize_pipeline(windowPath,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
-    filter_gen = make_gaussian_filter_gen(gamma=gamma, alphabet_size=alphabet_size, kmer_size=kmer_size)
-    print "ALPHABET SIZE ", alphabet_size
-
+    filter_gen = make_dnase_gaussian_filter_gen(gamma=gamma, dnase_gamma=dnase_gamma, kmer_size=kmer_size, dnase_kmer_size=dnase_kmer_size)
     w = filter_gen(num_filters)
+    print "W SHAPE ", w.shape
     np.savetxt(filterPath, w, delimiter=",")
     kernel_pipeline_config["filtersPath"] = filterPath
     kernel_pipeline_config["numPartitions"] = num_partitions
     kernel_pipeline_config["aggregatedSequenceOutput"] = windowPath
     kernel_pipeline_config["featurizeSample"] = sample
     kernel_pipeline_config["kmerLength"] = kmer_size
+    kernel_pipeline_config["dnaseKmerLength"] = dnase_kmer_size
     kernel_pipeline_config["approxDim"] = num_filters
     kernel_pipeline_config["readFiltersFromDisk"] = True
     kernel_pipeline_config["featuresOutput"] = featuresOutput

@@ -127,30 +127,6 @@ object DnaseKernelPipeline  extends Serializable with Logging {
    * are appended to the one hot sequence encoding. For example, if positive 1 has A with DNASE count of 3 positive
    * strands, the encoding is 0003.
    *
-   * @param matrix: data matrix with sequences
-   * @param W: random matrix
-   * @param kmerSize: length of kmers to be created
-   */
-  def featurize(matrix: RDD[LabeledWindow],
-                            W: DenseMatrix[Double],
-                            kmerSize: Int): RDD[FeaturizedLabeledWindow] = {
-
-    val kernelApprox = new KernelApproximator(W, Math.cos, kmerSize, Dataset.alphabet.size)
-
-    matrix.map(f => {
-      val kx = (kernelApprox({
-        KernelApproximator.stringToVector(f.win.sequence)
-      }))
-      FeaturizedLabeledWindow(f, kx)
-    })
-
-  }
-
-  /**
-   * Takes a region of the genome and one hot enodes sequences (eg A = 0001). If DNASE is enabled positive strands
-   * are appended to the one hot sequence encoding. For example, if positive 1 has A with DNASE count of 3 positive
-   * strands, the encoding is 0003.
-   *
    * @param sc: Spark Context
    * @param rdd: data matrix with sequences
    * @return
@@ -162,7 +138,7 @@ object DnaseKernelPipeline  extends Serializable with Logging {
    			 dnaseSize: Int,
                          approxDim: Int): RDD[FeaturizedLabeledWindow] = {
 
-    val kernelApprox_seq = new KernelApproximator(W_sequence, Math.cos, kmerSize, Dataset.alphabet.size)
+    val kernelApprox_seq = new KernelApproximator(sc, W_sequence, Math.cos, kmerSize, Dataset.alphabet.size)
 
     val gaussian = new Gaussian(0, 1)
 
@@ -170,7 +146,7 @@ object DnaseKernelPipeline  extends Serializable with Logging {
     val approximators = Array(100, 50, 25, 12, 6)
       .map(r => {
         val W = DenseMatrix.rand(approxDim, r, gaussian)
-        new KernelApproximator(W, Math.cos, r, 1)
+        new KernelApproximator(sc, W, Math.cos, r, 1)
       })
 
 
@@ -213,10 +189,10 @@ object DnaseKernelPipeline  extends Serializable with Logging {
                          W_dnase: Option[DenseMatrix[Double]] = None,
                          dnaseSize: Option[Int] = None): RDD[FeaturizedLabeledWindow] = {
 
-    val kernelApprox_seq = new KernelApproximator(W_sequence, Math.cos, kmerSize, Dataset.alphabet.size)
+    val kernelApprox_seq = new KernelApproximator(sc, W_sequence, Math.cos, kmerSize, Dataset.alphabet.size)
 
     if (W_dnase.isDefined && dnaseSize.isDefined) {
-      val kernelApprox_dnase = new KernelApproximator(W_dnase.get, Math.cos, dnaseSize.get, 1)
+      val kernelApprox_dnase = new KernelApproximator(sc, W_dnase.get, Math.cos, dnaseSize.get, 1)
       println(s"seqSize, ${rdd.first.win.dnase.slice(0, Dataset.windowSize).size}")
       rdd.map(f => {
         val k_seq = kernelApprox_seq(KernelApproximator.stringToVector(f.win.sequence))

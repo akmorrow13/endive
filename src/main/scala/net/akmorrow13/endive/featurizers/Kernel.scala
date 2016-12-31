@@ -9,9 +9,12 @@ import net.akmorrow13.endive.processing.Dataset
 import nodes.stats.FastfoodBatch
 import org.apache.commons.math3.random.MersenneTwister
 import breeze.stats.distributions._
+import net.jafama.FastMath
+import org.apache.spark.{SparkConf, SparkContext, Accumulator}
 
 
-class KernelApproximator(filters: DenseMatrix[Double],
+class KernelApproximator(sc: SparkContext,
+                        filters: DenseMatrix[Double],
                          nonLin: Double => Double = (x: Double) => x ,
                          ngramSize: Int,
                          alphabetSize: Int,
@@ -29,12 +32,20 @@ class KernelApproximator(filters: DenseMatrix[Double],
   val outSize = seqSize - ngramSize + 1
    println(s"mapping partitions alphsize: ${alphabetSize}, outsize: ${outSize}, ngramsize: ${ngramSize}")
 
+  val make_grams_accum = sc.accumulator(0.0, "Make NGRAMS:")
+  val dgemm_accum = sc.accumulator(0.0, "Dgemm")
+
+  val phase_cosine_accum = sc.accumulator(0.0, "Cosine")
+
+  val pool_accum = sc.accumulator(0.0, "Image Create")
+  val accs = List(make_grams_accum, dgemm_accum, phase_cosine_accum, pool_accum)
+
   override def apply(in: RDD[DenseVector[Double]]): RDD[DenseVector[Double]] = {
-    in.mapPartitions(convolvePartitions(_, filters, nonLin, offset, ngramSize, outSize, alphabetSize, fastfood, gamma, seed))
+    in.mapPartitions(convolvePartitions(_, filters, nonLin, offset, ngramSize, outSize, alphabetSize, fastfood, gamma, seed, accs))
   }
 
   def apply(in: DenseVector[Double]): DenseVector[Double]= {
-    convolve(in, filters, nonLin, offset, alphabetSize, fastfood, gamma, seed)
+    convolve(in, filters, nonLin, offset, alphabetSize, fastfood, gamma, seed, accs)
   }
 
   def convolve(seq: DenseVector[Double],
@@ -44,15 +55,19 @@ class KernelApproximator(filters: DenseMatrix[Double],
     alphabetSize: Int,
     fastfood: Boolean,
     gamma: Double,
-    seed: Int): DenseVector[Double] = {
+    seed: Int,
+    accs: List[Accumulator[Double]]): DenseVector[Double] = {
 
     /* Make the ngram */
+
+    val makePatchesStart = System.nanoTime()
     val ngrams: DenseMatrix[Double] = KernelApproximator.makeNgrams(seq, ngramSize, alphabetSize)
+    accs(0) += timeElapsed(makePatchesStart)
 
     println("NGRAM SIZE " + ngrams.rows + "," + ngrams.cols + "\n")
     println("FILTER SIZE " + filters.rows + "," + filters.cols + "\n")
 
-
+    val dgemmStart = System.nanoTime()
     /* Actually do the convolution */
     val convRes: DenseMatrix[Double] = 
     if (fastfood) {
@@ -64,26 +79,48 @@ class KernelApproximator(filters: DenseMatrix[Double],
     } else {
       ngrams * filters.t
     }
+    accs(1) += timeElapsed(dgemmStart)
 
 
+
+    val cosineStart = System.nanoTime()
     /* Apply non linearity element wise */
     var i = 0
     while (i < convRes.rows) {
       var j = 0
       while (j < convRes.cols) {
         val phase = offset.map(x => x(i)).getOrElse(0.0)
-        convRes(i,j) = nonLin(convRes(i,j) + phase)
+        convRes(i,j) = FastMath.cos(convRes(i,j) + phase)
         j += 1
       }
      i += 1
     }
 
+    accs(2) += timeElapsed(cosineStart)
+
+
     /* sum across spatial dimension */
-    val outV =  sum(convRes, Axis._0).toDenseVector
+    val outV = DenseVector.zeros[Double](filters.rows)
+
+    val poolStart = System.nanoTime()
+    i = 0
+    while (i < convRes.rows) {
+      var j = 0
+      while (j < convRes.cols) {
+        outV(i)  += convRes(i,j)
+        j += 1
+      }
+     i += 1
+    }
+
+    accs(3) += timeElapsed(poolStart)
+
     outV *= sqrt(2) * 1.0/sqrt(filters.rows)
 
     outV
   }
+
+  def timeElapsed(ns: Long) : Double = (System.nanoTime - ns).toDouble / 1e9
 
   def convolvePartitions(seq: Iterator[DenseVector[Double]],
     filters: DenseMatrix[Double],
@@ -94,9 +131,10 @@ class KernelApproximator(filters: DenseMatrix[Double],
     alphabetSize: Int,
     fastfood: Boolean,
     gamma: Double,
-    seed: Int): Iterator[DenseVector[Double]] = {
+    seed: Int,
+    accs: List[Accumulator[Double]]): Iterator[DenseVector[Double]] = {
       val ngramMat = new DenseMatrix[Double](outSize, ngramSize*alphabetSize)
-      seq.map(convolve(_, filters, nonLin, offset, alphabetSize, fastfood, gamma, seed))
+      seq.map(convolve(_, filters, nonLin, offset, alphabetSize, fastfood, gamma, seed, accs))
     }
   }
 

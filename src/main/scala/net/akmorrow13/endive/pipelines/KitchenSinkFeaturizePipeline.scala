@@ -29,7 +29,7 @@ import nodes.util.{Cacher, MaxClassifier, ClassLabelIndicatorsFromIntLabels}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
-import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.{SparkConf, SparkContext, Accumulator}
 import org.bdgenomics.adam.models.SequenceDictionary
 import org.bdgenomics.adam.rdd.feature.FeatureRDD
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
@@ -40,6 +40,7 @@ import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
+import net.jafama.FastMath
 import nodes.learning.LogisticRegressionEstimator
 import java.io._
 
@@ -102,16 +103,9 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
       val numFilters = scala.io.Source.fromFile(conf.filtersPath).getLines.size
       val dataDimension = scala.io.Source.fromFile(conf.filtersPath).getLines.next.split(",").size
 
-      // Make sure read in filter params are consistent with our world view
-      println("DATA DIMENSION " + dataDimension)
-      println("KMER SIZE " + kmerSize)
-      println("ALPHABET SIZE " +  alphabetSize)
-      assert(numFilters == approxDim)
-      assert(dataDimension ==  kmerSize * alphabetSize)
-
-
       val WRaw = scala.io.Source.fromFile(conf.filtersPath).getLines.toArray.flatMap(_.split(",")).map(_.toDouble)
-      val W:DenseMatrix[Double] = new DenseMatrix(approxDim, kmerSize * alphabetSize, WRaw)
+      val W:DenseMatrix[Double] = new DenseMatrix(approxDim, kmerSize * alphabetSize + conf.dnaseKmerLength*2, WRaw)
+      println(s"W HAS ${W.rows} rows and ${W.cols} cols")
       W
     } else {
       // Only gaussian filter generation is supported (for now)
@@ -125,8 +119,7 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
     }
 
     // generate approximation features
-    val allFeaturized = featurize(allData, W, kmerSize, conf.gamma,  conf.seed, W.rows).cache()
-
+    val allFeaturized =  featurizeWithDnaseSeparate(sc, allData, W, conf.kmerLength, conf.dnaseKmerLength, conf.seed)
     allFeaturized.map(_.toString).saveAsTextFile(conf.featuresOutput)
   }
 
@@ -139,47 +132,103 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
    * @param W: random matrix
    * @param kmerSize: length of kmers to be created
    */
-  def featurize(matrix: RDD[LabeledWindow],
+  def featurize(sc: SparkContext,
+                            matrix: RDD[LabeledWindow],
                             W: DenseMatrix[Double],
                             kmerSize: Int,
                             gamma: Double,
                             seed: Int,
-                            numOutputFeatures: Int): RDD[FeaturizedLabeledWindow] = {
+                            numOutputFeatures: Int): (RDD[FeaturizedLabeledWindow], List[Accumulator[Double]])  = {
 
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val uniform = new Uniform(0, 2*math.Pi)
     val phase = DenseVector.rand(numOutputFeatures, uniform)
 
-    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize, alphabetSize=4, offset=Some(phase), fastfood=true, seed=seed, gamma=gamma)
+    val kernelApprox = new KernelApproximator(sc, W, Math.cos, ngramSize = kmerSize, alphabetSize=4, offset=Some(phase), fastfood=true, seed=seed, gamma=gamma)
 
-    matrix.map(f => {
+    val featurized = matrix.map(f => {
       val kx = (kernelApprox({
         KernelApproximator.stringToVector(f.win.sequence)
       }))
       FeaturizedLabeledWindow(f, kx)
-    })
+    }).cache()
 
+    (featurized, kernelApprox.accs)
   }
 
-  def featurizeWithDnaseNaive(sc: SparkContext,
+  /**
+   * Takes a region of the genome and one hot enodes sequences (eg A = 0001). If DNASE is enabled positive strands
+   * are appended to the one hot sequence encoding. For example, if positive 1 has A with DNASE count of 3 positive
+   * strands, the encoding is 0003.
+   *
+   * @param matrix: data matrix with sequences
+   * @param W: random matrix
+   * @param kmerSize: length of kmers to be created
+   */
+  def featurizeWithDnase(sc: SparkContext,
+                            matrix: RDD[LabeledWindow],
+                            W: DenseMatrix[Double],
+                            kmerSize: Int,
+                            gamma: Double,
+                            seed: Int,
+                            numOutputFeatures: Int): (RDD[FeaturizedLabeledWindow], List[Accumulator[Double]])  = {
+
+    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+    val uniform = new Uniform(0, 2*math.Pi)
+    val phase = DenseVector.rand(numOutputFeatures, uniform)
+    
+    val kernelApprox = new KernelApproximator(sc, W, Math.cos, ngramSize = kmerSize, alphabetSize=4, offset=Some(phase), fastfood=true, seed=seed, gamma=gamma)
+
+    val featurized = matrix.map(f => {
+      val kx = (kernelApprox({
+        KernelApproximator.stringToVector(f.win.sequence)
+      }))
+      FeaturizedLabeledWindow(f, kx)
+    }).cache()
+
+    (featurized, kernelApprox.accs)
+  }
+
+
+  def featurizeWithDnaseSeparate(sc: SparkContext,
                          rdd: RDD[LabeledWindow],
                          W: DenseMatrix[Double],
                          kmerSize: Int,
+                         dnaseKmerSize: Int,
                          seed: Int = 0) = {
 
-    val raw_seq = rdd.map(x => KernelApproximator.stringToVector(x.win.sequence))
-    val raw_dnase = rdd.map(x => x.win.dnase)
-    val raw_features = raw_seq.zip(raw_dnase).map(x => DenseVector.vertcat(x._1, x._2))
-    val raw_features_windows = raw_features.zip(rdd)
-    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize, alphabetSize=1, seqSize=1200)
-    raw_features_windows.map(f => {
-      FeaturizedLabeledWindow(f._2, kernelApprox(f._1))
+    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+    val numOutputFeatures = W.rows
+    val uniform = new Uniform(0, 2*math.Pi)
+    val phase0 = DenseVector.rand(numOutputFeatures, uniform)
+    val phase1 = DenseVector.rand(numOutputFeatures, uniform)
+    val phase2 = DenseVector.rand(numOutputFeatures, uniform)
+
+    val seq_end = kmerSize * 4
+    val dnase_pos_end = (kmerSize * 4) + dnaseKmerSize
+    val dnase_neg_end = W.cols
+
+    val W_seq = W(::, 0 until kmerSize * 4)
+    val W_dnase_pos = W(::, kmerSize * 4 until (kmerSize * 4) + dnaseKmerSize)
+    val W_dnase_neg = W(::, ((kmerSize * 4) + dnaseKmerSize until  W.cols))
+
+    val kernelApproxDnase_pos = new KernelApproximator(sc, W_dnase_pos, FastMath.cos, ngramSize = dnaseKmerSize, alphabetSize=1,  offset=Some(phase0))
+
+    val kernelApproxDnase_neg = new KernelApproximator(sc, W_dnase_neg, FastMath.cos, ngramSize = dnaseKmerSize , alphabetSize=1, offset=Some(phase1))
+
+    val kernelApprox_seq = new KernelApproximator(sc, W_seq, FastMath.cos, ngramSize = kmerSize, alphabetSize=4, offset=Some(phase2))
+
+    val featurized = rdd.map({ x =>
+      val raw_seq = KernelApproximator.stringToVector(x.win.sequence)
+      val raw_dnase_pos = x.win.dnase.slice(0, Dataset.windowSize)
+      val raw_dnase_neg  = x.win.dnase.slice(Dataset.windowSize, Dataset.windowSize*2)
+
+      val dnase_pos_lift = kernelApproxDnase_pos(raw_dnase_pos)
+      val dnase_neg_lift = kernelApproxDnase_neg(raw_dnase_neg)
+      val seq_lift = kernelApprox_seq(raw_seq)
+      val all_lift = dnase_pos_lift :* dnase_neg_lift :* seq_lift
+      FeaturizedLabeledWindow(x, all_lift)
     })
-  }
-
-
-
-
-
-  }
-
+  featurized
+}
+}

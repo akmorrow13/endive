@@ -64,7 +64,7 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
   }
 
   def run(sc: SparkContext, conf: EndiveConf) {
-
+    /*
     println("STARTING DATA SET CREATION PIPELINE")
 
     // create new sequence with reference path
@@ -179,6 +179,7 @@ object TestSingleTFDatasetCreationPipeline extends Serializable  {
       fullMatrix.map(_.toString).saveAsTextFile(saveLocation)
       fullMatrix.unpersist()
     }
+    */
   }
 
 }
