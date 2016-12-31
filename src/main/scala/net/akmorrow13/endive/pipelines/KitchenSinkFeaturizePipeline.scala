@@ -74,9 +74,9 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
     // set parameters
     val seed = 0
-    val kmerSize = 8
+    val kmerSize = conf.kmerLength
     val approxDim = conf.approxDim
-    val alphabetSize = Dataset.alphabet.size
+    val alphabetSize = conf.alphabetSize
 
     val dataPath = conf.aggregatedSequenceOutput
     val referencePath = conf.reference
@@ -87,13 +87,10 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
 
     // load data for a specific transcription factor
     var allData: RDD[LabeledWindow] =
-      LabeledWindowLoader(dataPath, sc).setName("_All data")
+      LabeledWindowLoader(dataPath, sc).cache().setName("_All data")
     if (conf.featurizeSample < 1.0)  {
       allData = allData.sample(false, conf.featurizeSample)
     }
-
-  	allData = allData.repartition(conf.numPartitions).cache()
-
 
     println("Sampling Frequency " + conf.featurizeSample)
 
@@ -106,8 +103,12 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
       val dataDimension = scala.io.Source.fromFile(conf.filtersPath).getLines.next.split(",").size
 
       // Make sure read in filter params are consistent with our world view
+      println("DATA DIMENSION " + dataDimension)
+      println("KMER SIZE " + kmerSize)
+      println("ALPHABET SIZE " +  alphabetSize)
       assert(numFilters == approxDim)
       assert(dataDimension ==  kmerSize * alphabetSize)
+
 
       val WRaw = scala.io.Source.fromFile(conf.filtersPath).getLines.toArray.flatMap(_.split(",")).map(_.toDouble)
       val W:DenseMatrix[Double] = new DenseMatrix(approxDim, kmerSize * alphabetSize, WRaw)
@@ -124,8 +125,8 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
     }
 
     // generate approximation features
-    val allFeaturized = featurize(allData, W, kmerSize).cache()
-    println("FEATURES OUTPUT IS " + conf.featuresOutput)
+    val allFeaturized = featurize(allData, W, kmerSize, conf.gamma,  conf.seed, W.rows).cache()
+
     allFeaturized.map(_.toString).saveAsTextFile(conf.featuresOutput)
   }
 
@@ -140,9 +141,16 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
    */
   def featurize(matrix: RDD[LabeledWindow],
                             W: DenseMatrix[Double],
-                            kmerSize: Int): RDD[FeaturizedLabeledWindow] = {
+                            kmerSize: Int,
+                            gamma: Double,
+                            seed: Int,
+                            numOutputFeatures: Int): RDD[FeaturizedLabeledWindow] = {
 
-    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize, alphabetSize=4)
+    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+    val uniform = new Uniform(0, 2*math.Pi)
+    val phase = DenseVector.rand(numOutputFeatures, uniform)
+
+    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize, alphabetSize=4, offset=Some(phase), fastfood=true, seed=seed, gamma=gamma)
 
     matrix.map(f => {
       val kx = (kernelApprox({
@@ -152,4 +160,26 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
     })
 
   }
-}
+
+  def featurizeWithDnaseNaive(sc: SparkContext,
+                         rdd: RDD[LabeledWindow],
+                         W: DenseMatrix[Double],
+                         kmerSize: Int,
+                         seed: Int = 0) = {
+
+    val raw_seq = rdd.map(x => KernelApproximator.stringToVector(x.win.sequence))
+    val raw_dnase = rdd.map(x => x.win.dnase)
+    val raw_features = raw_seq.zip(raw_dnase).map(x => DenseVector.vertcat(x._1, x._2))
+    val raw_features_windows = raw_features.zip(rdd)
+    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize, alphabetSize=1, seqSize=1200)
+    raw_features_windows.map(f => {
+      FeaturizedLabeledWindow(f._2, kernelApprox(f._1))
+    })
+  }
+
+
+
+
+
+  }
+

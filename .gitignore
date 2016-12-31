@@ -28,5 +28,6 @@ deepbind/db/params
 *~
 *#*
 
+eigen3/*
 # test files
 test/resources
