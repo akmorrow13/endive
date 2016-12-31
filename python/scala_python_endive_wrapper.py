@@ -67,7 +67,6 @@ def run_kitchensink_featurize_pipeline(windowPath,
 
     kernel_pipeline_config = base_config.copy()
     # filter_gen = make_gaussian_filter_gen(gamma=gamma, alphabet_size=alphabet_size, kmer_size=kmer_size)
-    print "ALPHABET SIZE ", alphabet_size
 
     # w = filter_gen(num_filters)
     # np.savetxt(filterPath, w, delimiter=",")
