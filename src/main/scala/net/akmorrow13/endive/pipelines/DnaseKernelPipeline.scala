@@ -115,10 +115,11 @@ object DnaseKernelPipeline extends Serializable with Logging {
       println("NEGATIVE SAMPLING")
       val chr = allData.first.win.getRegion.referenceName
       println(s"holding out ${chr}")
-      val positives = allData.filter(r => r.label > 0)
-      val negatives = allData.filter(r => r.label == 0 && r.win.getRegion.referenceName != chr).sample(false, conf.negativeSamplingFreq)
-      val test = allData.filter(r => r.label == 0 && r.win.getRegion.referenceName == chr)
-      allData = positives.union(negatives).union(test)
+
+      val test = allData.filter(r => r.win.getRegion.referenceName == chr)
+      allData = EndiveUtils.subselectSamples(sc, 
+			allData.filter(r => r.win.getRegion.referenceName != chr), sd)
+			.union(test)
       featuresOutput = featuresOutput + s"_test_${chr}"
     }
 
@@ -132,18 +133,16 @@ object DnaseKernelPipeline extends Serializable with Logging {
     // generate random matrix
     val W_sequence = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
      
-    for (gamma <- List(0.1, 10.0, 100.0)) {
     // generate approximation features
     val allFeaturized = 
      if (conf.useDnase) {
-	featurizeWithWaveletDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim, gamma)
+	featurizeWithWaveletDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim)
      } else {
-       featurizeWithDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim, gamma)
+       featurizeWithDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim)
      }
 
     println(s"saving to: ${featuresOutput}")
-    allFeaturized.map(_.toString).saveAsTextFile(featuresOutput + s"_gamma_${gamma}_dim_${approxDim}")
-    }
+    allFeaturized.map(_.toString).saveAsTextFile(featuresOutput + s"_dim_${approxDim}")
 
   }
 
