@@ -153,34 +153,43 @@ object SolverPipeline extends Serializable with Logging {
       val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
       println(s"WRITING TRAIN PREDICTIONS TO DISK AT ${trainPredictionsOutput}")
       val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
-      val valFeaturizedWindows = valFeaturizedWindowsOpt.get
+      var valFeaturizedWindows = valFeaturizedWindowsOpt.get
+      // filter out dnase with < mean
+      valFeaturizedWindows = valFeaturizedWindows //.filter(_.labeledWindow.win.dnase.sum > 1)
+    //  val hardNegatives  = valFeaturizedWindows.filter(_.labeledWindow.win.dnase.sum <= 1).map(r => (r.labeledWindow.label, 0.0))
+
       val valFeatures = valFeaturizedWindows.map(_.features)
       val valPredictions: RDD[Double] = model(valFeatures).map(x => x(1))
       valPredictions.count()
       val valScalarLabels = valFeaturizedWindows.map(_.labeledWindow.label)
       val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
-      val zippedValPreds = valScalarLabels.zip(valPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
+
+      val zippedValPreds = valScalarLabels.zip(valPredictions) //.union(hardNegatives)
+      zippedValPreds.map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
 
       println("Saving model to disk")
       saveModel(model, conf.modelOutput)
 
+      val evalTest = new BinaryClassificationMetrics(zippedValPreds.map(r => (r._1.toDouble, r._2)))
+      Metrics.printMetrics(evalTest)
+
      try {
       // save test predictions if specified
+      println(conf.saveTestPredictions)
       if (conf.saveTestPredictions != null) {
         val first = valFeaturizedWindows.first.labeledWindow.win
         val cellType = first.getCellType.toString
         val tf = first.getTf.toString
         val chr = first.getRegion.referenceName
-
+        
         // create sequence dictionary, used to save files
         val reference = new TwoBitFile(new LocalFileByteAccess(new File(conf.reference)))
         val sd: SequenceDictionary = reference.sequences
-
+        println(sd)
         saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).zip(valPredictions).filter(_._2 > 0.0001),
           sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_predicted")
         saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).map(r => (r, r.label.toDouble)).filter(_._2 > 0),
           sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_true")
-
       }
     } catch {
 	case e: Exception => {

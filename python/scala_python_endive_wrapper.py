@@ -339,7 +339,7 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes,            
                                negativeSamplingFreq=neg,
                                mixtureWeight=mixtureWeight,                           
                                valCellTypes=[8],
-                               valChromosomes=["chr10"],
+                               valChromosomes=test_chromosomes,
                                valDuringSolve=True)
                 
                 train_metrics = compute_metrics(train_res[:, 1], train_res[:, 0], tag='train')

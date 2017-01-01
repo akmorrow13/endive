@@ -93,6 +93,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val dnasePath = conf.dnaseNarrow
     val referencePath = conf.reference
 
+    var featuresOutput = conf.featuresOutput
     println(s"dim ${approxDim}")
 
     if (dataPath == null || referencePath == null) {
@@ -112,29 +113,37 @@ object DnaseKernelPipeline extends Serializable with Logging {
 
     if (conf.negativeSamplingFreq < 1.0) {
       println("NEGATIVE SAMPLING")
-      val positives = allData.filter(_.label > 0)
-      val negatives = allData.filter(_.label == 0).sample(false, conf.negativeSamplingFreq)
-      allData = positives.union(negatives)
+      val chr = allData.first.win.getRegion.referenceName
+      println(s"holding out ${chr}")
+      val positives = allData.filter(r => r.label > 0)
+      val negatives = allData.filter(r => r.label == 0 && r.win.getRegion.referenceName != chr).sample(false, conf.negativeSamplingFreq)
+      val test = allData.filter(r => r.label == 0 && r.win.getRegion.referenceName == chr)
+      allData = positives.union(negatives).union(test)
+      featuresOutput = featuresOutput + s"_test_${chr}"
     }
 
     allData.repartition(1500).cache()
-
+     
+    
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
     //val dnaseMax = allData.map(r => r.win.getDnase.max).max.round.toInt
 
     // generate random matrix
     val W_sequence = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
-
+     
+    for (gamma <- List(0.1, 10.0, 100.0)) {
     // generate approximation features
     val allFeaturized = 
      if (conf.useDnase) {
-	featurizeWithWaveletDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim)
+	featurizeWithWaveletDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim, gamma)
      } else {
-       featurizeWithDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim)
+       featurizeWithDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim, gamma)
      }
 
-    allFeaturized.map(_.toString).saveAsTextFile(conf.featuresOutput)
+    println(s"saving to: ${featuresOutput}")
+    allFeaturized.map(_.toString).saveAsTextFile(featuresOutput + s"_gamma_${gamma}_dim_${approxDim}")
+    }
 
   }
 
@@ -176,7 +185,8 @@ object DnaseKernelPipeline extends Serializable with Logging {
                          W_sequence: DenseMatrix[Double],
                          kmerSize: Int,
    			 dnaseSize: Int,
-                         approxDim: Int): RDD[FeaturizedLabeledWindow] = {
+                         approxDim: Int,
+			 gamma: Double = 1.0): RDD[FeaturizedLabeledWindow] = {
 
     val kernelApprox_seq = new KernelApproximator(W_sequence, FastMath.cos, kmerSize, Dataset.alphabet.size, fastfood=false)
 
@@ -187,7 +197,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
       .map(r => {
         val W_pos = DenseMatrix.rand(approxDim, r, gaussian)
 	val W_neg = DenseMatrix.rand(approxDim, r, gaussian)
-        (new KernelApproximator(W_pos, FastMath.cos, r, 1, fastfood=false), new KernelApproximator(W_neg, FastMath.cos, r, 1, fastfood=false))
+        (new KernelApproximator(W_pos, FastMath.cos, r, 1, fastfood=false, gamma=gamma), new KernelApproximator(W_neg, FastMath.cos, r, 1, fastfood=false, gamma=gamma))
       })
 
 
@@ -227,7 +237,8 @@ object DnaseKernelPipeline extends Serializable with Logging {
                          W_sequence: DenseMatrix[Double],
                          kmerSize: Int,
                          dnaseSize: Int,
-                         approxDim: Int): RDD[FeaturizedLabeledWindow] = {
+                         approxDim: Int,
+			 gamma: Double = 1.0): RDD[FeaturizedLabeledWindow] = {
 
     val kernelApprox_seq = new KernelApproximator(W_sequence, FastMath.cos, kmerSize, Dataset.alphabet.size)
 
@@ -235,9 +246,9 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val W_dnase_pos = DenseMatrix.rand(approxDim, dnaseSize, gaussian)
     val W_dnase_neg = DenseMatrix.rand(approxDim, dnaseSize, gaussian)
 
-    val kernelApprox_dnase_pos = new KernelApproximator(W_dnase_pos, FastMath.cos, dnaseSize, 1, fastfood=false)
-    val kernelApprox_dnase_neg = new KernelApproximator(W_dnase_neg, FastMath.cos, dnaseSize, 1, fastfood=false)
-    println(s"seqSize, ${rdd.first.win.dnase.slice(0, Dataset.windowSize).size}")
+    val kernelApprox_dnase_pos = new KernelApproximator(W_dnase_pos, FastMath.cos, dnaseSize, 1, fastfood=false, gamma=gamma)
+    val kernelApprox_dnase_neg = new KernelApproximator(W_dnase_neg, FastMath.cos, dnaseSize, 1, fastfood=false, gamma=gamma)
+
     rdd.map(f => {
       val k_seq = kernelApprox_seq(KernelApproximator.stringToVector(f.win.sequence))
       val k_dnase_pos = kernelApprox_dnase_pos(f.win.dnase.slice(0, Dataset.windowSize))
