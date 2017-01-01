@@ -115,6 +115,7 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
 
     println(conf.featuresOutput)
+    println("RUNNING NEGATIVE THRESHOLDING")
     var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
 
     println(featuresRDD.first.labeledWindow.win.cellType.id)
@@ -123,31 +124,49 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
     var (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve, conf.numPartitions)
 
 
-    if (conf.negativeSamplingFreq < 1.0) {
-      println("NEGATIVE SAMPLING")
-    }
-    var i = 0
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
 
+      val numTrainPositives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).count()
+      val numTrainNegatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).count()
+
+      val numTestPositives = valFeaturizedWindowsOpt.map(_.filter(_.labeledWindow.label > 0).count()).getOrElse(0.0)
+      val numTestNegatives = valFeaturizedWindowsOpt.map(_.filter(_.labeledWindow.label == 0).count()).getOrElse(0.0)
+
+      println(s"NUMBER OF TRAIN (POS, NEG) is ${numTrainPositives}, ${numTrainNegatives}")
+      println(s"NUMBER OF TEST (POS, NEG) is ${numTestPositives}, ${numTestNegatives}")
+
 
     val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).cache()
-    val negatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq).cache()
+    val negativesSampled = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq).cache()
 
-    println("NUM POSITIVES " + positives.count())
-    println("NUM NEGATIVES " + negatives.count())
+    val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).cache()
 
-    var trainFeaturizedWindowsSampled = positives.union(negatives)
+    println("NUM SAMPLED NEGATIVES " + negativesSampled.count())
+    println("NUM FULL SAMPLED NEGATIVES " + negativesFull.count())
+    val valFeaturizedWindows = valFeaturizedWindowsOpt.get
+    val valFeatures = valFeaturizedWindows.map(_.features)
+
+    var trainFeaturizedWindowsSampled = positives.union(negativesSampled).repartition(conf.numPartitions).cache()
+    var i =0;
     val models:Seq[BlockLinearMapper] =
     (0 until conf.numItersHardNegative).map({ x => 
           val trainFeatures = trainFeaturizedWindowsSampled.map(_.features)
           val trainLabels = labelExtractor(trainFeaturizedWindowsSampled.map(_.labeledWindow.label)).get
           val d = trainFeatures.first.size
           val model = new BlockLeastSquaresEstimator(d, 1, conf.lambda).fit(trainFeatures, trainLabels)
-          val predictions:RDD[Int]  =  MaxClassifier(model(negatives.map(_.features)))
-          val missed = negatives.zip(predictions).filter(x => x._2 == 1).map(_._1)
-          trainFeaturizedWindowsSampled = trainFeaturizedWindowsSampled.union(missed)
-          println(s"neg Iteration: ${i}, misssed: ${missed.count()}")
+          val predictions:RDD[Int]  =  MaxClassifier(model(negativesFull.map(_.features)))
+          val predictionsPositives:RDD[Int]  =  MaxClassifier(model(positives.map(_.features)))
+          val numMissedPositives = predictionsPositives.filter(_ == 0).count()
+          val missed = negativesFull.zip(predictions).filter(x => x._2 == 1).map(_._1)
+
+          val predictionsVal:RDD[Int] = MaxClassifier(model(valFeatures))
+          val valResults = predictionsVal.zip(valFeaturizedWindows)
+          val valPosMissed = valResults.filter({x => x._2.labeledWindow.label == 1 && x._1 == 0}).count()
+          val valNegMissed = valResults.filter({x => x._2.labeledWindow.label == 0 && x._1 == 1}).count()
+          trainFeaturizedWindowsSampled = trainFeaturizedWindowsSampled.union(missed).repartition(conf.numPartitions).cache()
+          println(s"neg Iteration: ${i}, misssed neg: ${missed.count()}, missed pos: ${numMissedPositives}, missed pos(val): ${valPosMissed}, missed neg(val) ${valNegMissed}")
+          i = i + 1
           model
     })
 
