@@ -250,7 +250,7 @@ def make_submission_output(outfile, test_preds, meta_df):
     meta_df['chr_int'] = meta_df['chr'].map(lambda x: int(x.replace('chr', '').replace('X', '24').replace('Y', '25')))
     meta_df['start'] = pd.to_numeric(meta_df['start'])
     sorted_test = meta_df.sort_values(['chr_int', 'start'])[['chr', 'start', 'end']]
-    prob_pred = (test_preds[:,1] - min(test_preds[:,1]))/max(test_preds[:,1] - min(test_preds[:,1]))
+    prob_pred = (test_preds[:,1] - min(test_preds[:,1]))/(max(test_preds[:,1]) - min(test_preds[:,1]))
     sorted_test['prob'] = prob_pred
     sorted_test.to_csv(outfile, sep='\t', header=False)
 
