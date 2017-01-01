@@ -138,14 +138,16 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
 
 
     val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).cache()
-    val negatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq).cache()
+    val negativesSampled = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq).cache()
 
-    println("NUM POSITIVES " + positives.count())
-    println("NUM NEGATIVES " + negatives.count())
+    val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).cache()
+
+    println("NUM SAMPLED NEGATIVES " + negativesSampled.count())
+    println("NUM FULL SAMPLED NEGATIVES " + negativesFull.count())
     val valFeaturizedWindows = valFeaturizedWindowsOpt.get
     val valFeatures = valFeaturizedWindows.map(_.features)
 
-    var trainFeaturizedWindowsSampled = positives.union(negatives).repartition(conf.numPartitions).cache()
+    var trainFeaturizedWindowsSampled = positives.union(negativesSampled).repartition(conf.numPartitions).cache()
     var i =0;
     val models:Seq[BlockLinearMapper] =
     (0 until conf.numItersHardNegative).map({ x => 
@@ -153,10 +155,10 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
           val trainLabels = labelExtractor(trainFeaturizedWindowsSampled.map(_.labeledWindow.label)).get
           val d = trainFeatures.first.size
           val model = new BlockLeastSquaresEstimator(d, 1, conf.lambda).fit(trainFeatures, trainLabels)
-          val predictions:RDD[Int]  =  MaxClassifier(model(negatives.map(_.features)))
+          val predictions:RDD[Int]  =  MaxClassifier(model(negativesFull.map(_.features)))
           val predictionsPositives:RDD[Int]  =  MaxClassifier(model(positives.map(_.features)))
           val numMissedPositives = predictionsPositives.filter(_ == 0).count()
-          val missed = negatives.zip(predictions).filter(x => x._2 == 1).map(_._1)
+          val missed = negativesFull.zip(predictions).filter(x => x._2 == 1).map(_._1)
 
           val predictionsVal:RDD[Int] = MaxClassifier(model(valFeatures))
           val valResults = predictionsVal.zip(valFeaturizedWindows)
