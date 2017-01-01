@@ -188,10 +188,36 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
       val valScalarLabels = valFeaturizedWindows.map(_.labeledWindow.label)
       val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
       val zippedValPreds = valScalarLabels.zip(valPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
+
+      try {
+        // save test predictions if specified
+        println(conf.saveTestPredictions)
+        if (conf.saveTestPredictions != null) {
+          val first = valFeaturizedWindows.first.labeledWindow.win
+          val cellType = first.getCellType.toString
+          val tf = first.getTf.toString
+          val chr = first.getRegion.referenceName
+
+          // create sequence dictionary, used to save files
+          val reference = new TwoBitFile(new LocalFileByteAccess(new File(conf.reference)))
+          val sd: SequenceDictionary = reference.sequences
+          println(sd)
+          SolverPipeline.saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).zip(valPredictions).filter(_._2 > 0.0001),
+            sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_predicted.adam")
+          SolverPipeline.saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).map(r => (r, r.label.toDouble)).filter(_._2 > 0),
+            sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_true.adam")
+        }
+      } catch {
+        case e: Exception => {
+          println("failed saving output predicted features")
+          println(e.getMessage)
+        }
+      }
     }
 
     println("Saving model to disk")
     saveModel(model, conf.modelOutput)
+
   }
 
 
