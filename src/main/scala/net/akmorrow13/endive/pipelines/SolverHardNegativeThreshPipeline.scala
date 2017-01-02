@@ -190,7 +190,10 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
       val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
       val valFeaturizedWindows = valFeaturizedWindowsOpt.get
       val valFeatures = valFeaturizedWindows.map(_.features)
-      val valPredictions:RDD[Double] = model(valFeatures).map(x => x(1))
+      var valPredictions: RDD[Double] = model(valFeatures).map(x => x(1))
+      val (min, max) = (valPredictions.min(), valPredictions.max())
+      valPredictions = valPredictions.map(r => ((r - min)/(max - min)))
+
       valPredictions.count()
       val valScalarLabels = valFeaturizedWindows.map(_.labeledWindow.label)
       val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
