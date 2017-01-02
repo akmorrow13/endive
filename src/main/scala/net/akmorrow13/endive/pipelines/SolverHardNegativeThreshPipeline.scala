@@ -150,6 +150,8 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
     val valFeatures = valFeaturizedWindows.map(_.features)
 
     var trainFeaturizedWindowsSampled = positives.union(negativesSampled).repartition(conf.numPartitions).cache()
+    trainFeaturizedWindowsSampled.count
+
     var i =0;
     val models:Seq[BlockLinearMapper] =
     (0 until conf.numItersHardNegative).map({ x => 
@@ -158,22 +160,31 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
           val d = trainFeatures.first.size
           val model = new BlockLeastSquaresEstimator(d, 1, conf.lambda).fit(trainFeatures, trainLabels)
 
+          // get train missed positives and negativs
           val negPredictions: RDD[Int] = MaxClassifier(model(negativesFull.map(_.features)))
           val posPredictions: RDD[Int] = MaxClassifier(model(positives.map(_.features)))
           val missedPos: RDD[FeaturizedLabeledWindow] = positives.zip(posPredictions).filter(_._2 == 0).map(_._1)
           val missedNegs: RDD[FeaturizedLabeledWindow] = negativesFull.zip(negPredictions).filter(x => x._2 == 1).map(_._1)
+              .sample(false, 1/(i+2))
+      
           val missed = missedPos.union(missedNegs)
 
           val predictionsVal: RDD[Int] = MaxClassifier(model(valFeatures))
           val valResults = predictionsVal.zip(valFeaturizedWindows)
+          valResults.cache()
+          valResults.count()
+
           val valMissedPos = valResults.filter({x => x._2.labeledWindow.label == 1 && x._1 == 0}).count()
           val valMissedNegs = valResults.filter({x => x._2.labeledWindow.label == 0 && x._1 == 1}).count()
+
           trainFeaturizedWindowsSampled = trainFeaturizedWindowsSampled.union(missed).repartition(conf.numPartitions).cache()
-          println(s"neg Iteration: ${i}, misssed neg: ${missedNegs.count()} out of ${negCount}, " +
+          println(s"neg Iteration: ${i}, missed neg: ${missedNegs.count()} out of ${negCount}, " +
             s"missed pos: ${missedPos.count} out of ${posCount}, " +
-            s"missed pos(val): ${valMissedPos} out of ${valResults.filter(x => x._2.labeledWindow.label == 1).count}" +
-            s", missed neg(val) ${valMissedNegs} out of ${valResults.filter(x => x._2.labeledWindow.label == 0).count}")
+            s"missed pos(val): ${valMissedPos} out of ${numTestPositives}" +
+            s", missed neg(val) ${valMissedNegs} out of ${numTestNegatives}")
           i = i + 1
+
+          valResults.unpersist()
           model
     })
 
