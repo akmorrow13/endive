@@ -205,9 +205,9 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
           val reference = new TwoBitFile(new LocalFileByteAccess(new File(conf.reference)))
           val sd: SequenceDictionary = reference.sequences
           println(sd)
-          SolverPipeline.saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).zip(valPredictions).filter(_._2 > 0.0001),
+          SolverPipeline.saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).zip(valPredictions).filter(_._2 >= 0.5),
             sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_predicted.adam")
-          SolverPipeline.saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).map(r => (r, r.label.toDouble)).filter(_._2 > 0),
+          SolverPipeline.saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).map(r => (r, r.label.toDouble)).filter(_._2 >= 0.5),
             sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_true.adam")
         }
       } catch {
