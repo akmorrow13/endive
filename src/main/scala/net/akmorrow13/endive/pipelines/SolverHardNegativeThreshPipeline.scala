@@ -164,11 +164,12 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
           val model = new BlockLeastSquaresEstimator(d, 1, conf.lambda).fit(trainFeatures, trainLabels)
 
           // get train missed positives and negativs
-          val negPredictions: RDD[Int] = MaxClassifier(model(negativesFull.map(_.features)))
+          val negPredictions: RDD[Double] = model(negativesFull.map(_.features)).map(r => r(0))
           val posPredictions: RDD[Int] = MaxClassifier(model(positives.map(_.features)))
           val missedPos: RDD[FeaturizedLabeledWindow] = positives.zip(posPredictions).filter(_._2 == 0).map(_._1)
-          val missedNegs: RDD[FeaturizedLabeledWindow] = negativesFull.zip(negPredictions).filter(x => x._2 == 1).map(_._1)
-              .sample(false, 1/(i+2))
+          val missedNegs: RDD[FeaturizedLabeledWindow] =
+            sc.parallelize(negativesFull.zip(negPredictions).map(r => FeaturizedLabeledWindowWithScore(r._1, r._2))
+              .top(1000))
       
           val missed = missedPos.union(missedNegs)
 
