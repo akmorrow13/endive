@@ -8,7 +8,6 @@ from joblib import Parallel, delayed
 import multiprocessing
 
 predictionsPath = "hdfs://amp-spark-master.amp:8020/user/akmorrow/predictions"
-saveTestPredictionsLocation = "hdfs://amp-bdg-master.amplab.net:8020/user/akmorrow/predictions/"
 modelPath = "/home/eecs/akmorrow/endive-models"
 partitions = 2000
 
@@ -111,6 +110,7 @@ def run_solver_pipeline(featuresPath,
                reg=0.1,
                negativeSamplingFreq=1.0,
                mixtureWeight=-1.0,         
+               predictedOutput=None,         
                valDuringSolve=False,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
@@ -124,7 +124,8 @@ def run_solver_pipeline(featuresPath,
     kernel_pipeline_config["lambda"] = reg
     kernel_pipeline_config["negativeSamplingFreq"] = negativeSamplingFreq
     kernel_pipeline_config["mixtureWeight"] = mixtureWeight
-    kernel_pipeline_config["saveTestPredictions"] = saveTestPredictionsLocation
+    if (predictedOutput != None):
+        kernel_pipeline_config["saveTestPredictions"] = predictedOutput
     
     pythonrun.run(kernel_pipeline_config,
               logpath,
@@ -309,6 +310,7 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes,            
                    mixtureWeights=[-1.0],
                    seed=0,
                    executor_mem='100g',
+                   predicted_output=None,
                    cores_per_executor=32,
                    num_executors=14,
                    other_meta={}):
@@ -341,6 +343,7 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes,            
                                mixtureWeight=mixtureWeight,                           
                                valCellTypes=[8],
                                valChromosomes=test_chromosomes,
+                               predictedOutput=None,
                                valDuringSolve=True)
                 
                 train_metrics = compute_metrics(train_res[:, 1], train_res[:, 0], tag='train')

@@ -169,7 +169,7 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
           val missedPos: RDD[FeaturizedLabeledWindow] = positives.zip(posPredictions).filter(_._2 == 0).map(_._1)
           val missedNegs: RDD[FeaturizedLabeledWindow] =
             sc.parallelize(negativesFull.zip(negPredictions).map(r => FeaturizedLabeledWindowWithScore(r._1, r._2))
-              .top(1000))
+              .top(2000)).map(_._1)
       
           val missed = missedPos.union(missedNegs)
 
