@@ -48,6 +48,7 @@ import java.nio.file._
 import scala.collection.mutable.ArrayBuffer
 import nodes.stats._
 import nodes.util._
+import java.util.Random
 
 
 object SolverHardNegativeThreshPipeline extends Serializable with Logging {
@@ -73,7 +74,7 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
       val yaml = new Yaml(new Constructor(classOf[EndiveConf]))
       val appConfig = yaml.load(configtext).asInstanceOf[EndiveConf]
       EndiveConf.validate(appConfig)
-      val conf = new SparkConf().setAppName("ENDIVE")
+      val conf = new SparkConf().setAppName(appConfig.expName)
       conf.setIfMissing("spark.master", "local[4]")
       Logger.getLogger("org").setLevel(Level.INFO)
       Logger.getLogger("akka").setLevel(Level.INFO)
@@ -116,7 +117,7 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
 
     println(conf.featuresOutput)
     println("RUNNING NEGATIVE THRESHOLDING")
-    var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
+    var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc).cache()
 
     println(featuresRDD.first.labeledWindow.win.cellType.id)
     println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
@@ -138,16 +139,27 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
 
 
     val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).cache()
-    val negativesSampled = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq).cache()
-
     val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).cache()
+    val rand = new Random(conf.seed)
+    var trainFeaturizedWindowsSampled =
+    if (conf.negativeSamplingFreq != 1.0) {
+      val samplingIndices = (0 until negativesFull.count().toInt).map(x =>  (x, rand.nextFloat() < conf.negativeSamplingFreq)).filter(_._2).map(_._1).toSet
+      val samplingIndicesB = sc.broadcast(samplingIndices)
 
-    println("NUM SAMPLED NEGATIVES " + negativesSampled.count())
+      val negativesSampled = negativesFull.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1)
+
+      println("NUM SAMPLED NEGATIVES " + negativesSampled.count())
+      positives.union(negativesSampled).repartition(conf.numPartitions).cache()
+    } else {
+      trainFeaturizedWindows
+    }
+
+
     println("NUM FULL SAMPLED NEGATIVES " + negativesFull.count())
     val valFeaturizedWindows = valFeaturizedWindowsOpt.get
     val valFeatures = valFeaturizedWindows.map(_.features)
+    val valLabels = valFeaturizedWindows.map(_.labeledWindow.label)
 
-    var trainFeaturizedWindowsSampled = positives.union(negativesSampled).repartition(conf.numPartitions).cache()
     var i =0;
     val models:Seq[BlockLinearMapper] =
     (0 until conf.numItersHardNegative).map({ x => 
@@ -165,7 +177,12 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
           val valPosMissed = valResults.filter({x => x._2.labeledWindow.label == 1 && x._1 == 0}).count()
           val valNegMissed = valResults.filter({x => x._2.labeledWindow.label == 0 && x._1 == 1}).count()
           trainFeaturizedWindowsSampled = trainFeaturizedWindowsSampled.union(missed).repartition(conf.numPartitions).cache()
+          val valScores:RDD[Double] = model(valFeatures).map(x => x(1))
+
+          val evalTest = new BinaryClassificationMetrics(valScores.zip(valLabels.map(_.toDouble)))
+
           println(s"neg Iteration: ${i}, misssed neg: ${missed.count()}, missed pos: ${numMissedPositives}, missed pos(val): ${valPosMissed}, missed neg(val) ${valNegMissed}")
+          Metrics.printMetrics(evalTest)
           i = i + 1
           model
     })
