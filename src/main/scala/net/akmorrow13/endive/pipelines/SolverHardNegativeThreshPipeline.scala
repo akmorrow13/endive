@@ -138,9 +138,11 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
 
 
     val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).cache()
+    val posCount = positives.count
     val negativesSampled = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq).cache()
 
     val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).cache()
+    val negCount = negativesFull.count
 
     println("NUM SAMPLED NEGATIVES " + negativesSampled.count())
     println("NUM FULL SAMPLED NEGATIVES " + negativesFull.count())
@@ -155,17 +157,22 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
           val trainLabels = labelExtractor(trainFeaturizedWindowsSampled.map(_.labeledWindow.label)).get
           val d = trainFeatures.first.size
           val model = new BlockLeastSquaresEstimator(d, 1, conf.lambda).fit(trainFeatures, trainLabels)
-          val predictions:RDD[Int]  =  MaxClassifier(model(negativesFull.map(_.features)))
-          val predictionsPositives:RDD[Int]  =  MaxClassifier(model(positives.map(_.features)))
-          val numMissedPositives = predictionsPositives.filter(_ == 0).count()
-          val missed = negativesFull.zip(predictions).filter(x => x._2 == 1).map(_._1)
 
-          val predictionsVal:RDD[Int] = MaxClassifier(model(valFeatures))
+          val negPredictions: RDD[Int] = MaxClassifier(model(negativesFull.map(_.features)))
+          val posPredictions: RDD[Int] = MaxClassifier(model(positives.map(_.features)))
+          val missedPos: RDD[FeaturizedLabeledWindow] = positives.zip(posPredictions).filter(_._2 == 0).map(_._1)
+          val missedNegs: RDD[FeaturizedLabeledWindow] = negativesFull.zip(negPredictions).filter(x => x._2 == 1).map(_._1)
+          val missed = missedPos.union(missedNegs)
+
+          val predictionsVal: RDD[Int] = MaxClassifier(model(valFeatures))
           val valResults = predictionsVal.zip(valFeaturizedWindows)
-          val valPosMissed = valResults.filter({x => x._2.labeledWindow.label == 1 && x._1 == 0}).count()
-          val valNegMissed = valResults.filter({x => x._2.labeledWindow.label == 0 && x._1 == 1}).count()
+          val valMissedPos = valResults.filter({x => x._2.labeledWindow.label == 1 && x._1 == 0}).count()
+          val valMissedNegs = valResults.filter({x => x._2.labeledWindow.label == 0 && x._1 == 1}).count()
           trainFeaturizedWindowsSampled = trainFeaturizedWindowsSampled.union(missed).repartition(conf.numPartitions).cache()
-          println(s"neg Iteration: ${i}, misssed neg: ${missed.count()}, missed pos: ${numMissedPositives}, missed pos(val): ${valPosMissed}, missed neg(val) ${valNegMissed}")
+          println(s"neg Iteration: ${i}, misssed neg: ${missedNegs.count()} out of ${negCount}, " +
+            s"missed pos: ${missedPos.count} out of ${posCount}, " +
+            s"missed pos(val): ${valMissedPos} out of ${valResults.filter(x => x._2.labeledWindow.label == 1).count}" +
+            s", missed neg(val) ${valMissedNegs} out of ${valResults.filter(x => x._2.labeledWindow.label == 0).count}")
           i = i + 1
           model
     })

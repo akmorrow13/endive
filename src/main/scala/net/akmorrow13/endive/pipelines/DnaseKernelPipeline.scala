@@ -117,9 +117,9 @@ object DnaseKernelPipeline extends Serializable with Logging {
       println(s"holding out ${chr}")
 
       val test = allData.filter(r => r.win.getRegion.referenceName == chr)
-      allData = EndiveUtils.subselectSamples(sc, 
-			allData.filter(r => r.win.getRegion.referenceName != chr), sd)
-			.union(test)
+      allData = EndiveUtils.subselectRandomSamples(sc,
+			allData.filter(r => r.win.getRegion.referenceName != chr))
+			  .union(test)
       featuresOutput = featuresOutput + s"_test_${chr}"
     }
 
@@ -131,7 +131,8 @@ object DnaseKernelPipeline extends Serializable with Logging {
       val win = r.win.setDnase(r.win.getDnase / dnaseMaxPos)
       LabeledWindow(win, r.label)
     })
-    
+    println(s"max for dnase went from ${dnaseMaxPos} to ${allData.map(r => r.win.dnase.max).max}")
+
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
     //val dnaseMax = allData.map(r => r.win.getDnase.max).max.round.toInt
