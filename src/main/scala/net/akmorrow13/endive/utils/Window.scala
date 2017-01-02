@@ -85,6 +85,10 @@ case class Window(tf: TranscriptionFactors.Value,
   }
 }
 
+case class FeaturizedLabeledWindowWithScore(featured: FeaturizedLabeledWindow, score: Double) extends Ordered[FeaturizedLabeledWindowWithScore] {
+  def compare(that: FeaturizedLabeledWindowWithScore): Int = this.score.compareTo(that.score)
+}
+
 
 case class FeaturizedLabeledWindow(labeledWindow: LabeledWindow, features: DenseVector[Double]) {
 
