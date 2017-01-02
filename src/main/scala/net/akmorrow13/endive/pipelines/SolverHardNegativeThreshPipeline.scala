@@ -15,6 +15,8 @@
  */
 package net.akmorrow13.endive.pipelines
 
+import java.util.Random
+
 import breeze.linalg._
 import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveConf
@@ -140,10 +142,21 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
 
     val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).cache()
     val posCount = positives.count
-    val negativesSampled = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq).cache()
 
     val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).cache()
     val negCount = negativesFull.count
+
+    val negativesSampled =
+    if (conf.negativeSamplingFreq < 1.0) {
+      val rand = new Random(conf.seed)
+
+      val samplingIndices = (0 until negativesFull.count().toInt).map(x =>  (x, rand.nextFloat() < conf.negativeSamplingFreq)).filter(_._2).map(_._1).toSet
+      val samplingIndicesB = sc.broadcast(samplingIndices)
+      val negativesSampled = negativesFull.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1)
+      negativesSampled
+    } else negativesFull
+
+
 
     println("NUM SAMPLED NEGATIVES " + negativesSampled.count())
     println("NUM FULL SAMPLED NEGATIVES " + negCount)

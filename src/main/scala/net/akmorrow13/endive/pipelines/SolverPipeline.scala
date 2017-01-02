@@ -15,6 +15,8 @@
  */
 package net.akmorrow13.endive.pipelines
 
+import java.util.Random
+
 import breeze.linalg._
 import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveConf
@@ -124,8 +126,13 @@ object SolverPipeline extends Serializable with Logging {
 
     if (conf.negativeSamplingFreq < 1.0) {
       println("NEGATIVE SAMPLING")
+      val rand = new Random(conf.seed)
+      val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0)
+      val samplingIndices = (0 until negativesFull.count().toInt).map(x =>  (x, rand.nextFloat() < conf.negativeSamplingFreq)).filter(_._2).map(_._1).toSet
+      val samplingIndicesB = sc.broadcast(samplingIndices)
+      val negatives = negativesFull.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1)
+
       val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0)
-      val negatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq)
       trainFeaturizedWindows = positives.union(negatives)
     }
 
