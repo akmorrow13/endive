@@ -95,7 +95,6 @@ def generateTrainTestSplit[T: ClassTag](allData: RDD[((String, CellTypes.Value),
 
   def subselectRandomSamples(sc: SparkContext,
                              rdd: RDD[LabeledWindow],
-                             sd: SequenceDictionary,
                              sampleFreq: Double = DEFAULTSAMPLING,
                              randomSeed: Int = DEFAULTSEED): RDD[LabeledWindow] = {
 

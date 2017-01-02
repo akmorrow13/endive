@@ -123,8 +123,13 @@ object DnaseKernelPipeline extends Serializable with Logging {
     }
 
     allData.repartition(1500).cache()
+    // normalize dnase
+    val dnaseMaxPos = allData.map(r => r.win.dnase.max).max
+    allData = allData.map(r => {
+      val win = r.win.setDnase(r.win.getDnase / dnaseMaxPos)
+      LabeledWindow(win, r.label)
+    })
      
-    
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
     //val dnaseMax = allData.map(r => r.win.getDnase.max).max.round.toInt
