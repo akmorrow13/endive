@@ -122,19 +122,20 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
     println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
 
     var (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve, conf.numPartitions)
-
+    trainFeaturizedWindows.cache()
+    valFeaturizedWindowsOpt.get.cache()
 
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
 
-      val numTrainPositives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).count()
-      val numTrainNegatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).count()
+    val numTrainPositives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).count()
+    val numTrainNegatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).count()
 
-      val numTestPositives = valFeaturizedWindowsOpt.map(_.filter(_.labeledWindow.label > 0).count()).getOrElse(0.0)
-      val numTestNegatives = valFeaturizedWindowsOpt.map(_.filter(_.labeledWindow.label == 0).count()).getOrElse(0.0)
+    val numTestPositives = valFeaturizedWindowsOpt.map(_.filter(_.labeledWindow.label > 0).count()).getOrElse(0.0)
+    val numTestNegatives = valFeaturizedWindowsOpt.map(_.filter(_.labeledWindow.label == 0).count()).getOrElse(0.0)
 
-      println(s"NUMBER OF TRAIN (POS, NEG) is ${numTrainPositives}, ${numTrainNegatives}")
-      println(s"NUMBER OF TEST (POS, NEG) is ${numTestPositives}, ${numTestNegatives}")
+    println(s"NUMBER OF TRAIN (POS, NEG) is ${numTrainPositives}, ${numTrainNegatives}")
+    println(s"NUMBER OF TEST (POS, NEG) is ${numTestPositives}, ${numTestNegatives}")
 
 
     val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).cache()
@@ -145,12 +146,14 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
     val negCount = negativesFull.count
 
     println("NUM SAMPLED NEGATIVES " + negativesSampled.count())
-    println("NUM FULL SAMPLED NEGATIVES " + negativesFull.count())
+    println("NUM FULL SAMPLED NEGATIVES " + negCount)
     val valFeaturizedWindows = valFeaturizedWindowsOpt.get
     val valFeatures = valFeaturizedWindows.map(_.features)
 
     var trainFeaturizedWindowsSampled = positives.union(negativesSampled).repartition(conf.numPartitions).cache()
-    trainFeaturizedWindowsSampled.count
+    println(s"train features: ${trainFeaturizedWindowsSampled.count}")
+    
+    trainFeaturizedWindows.unpersist()
 
     var i =0;
     val models:Seq[BlockLinearMapper] =
@@ -183,6 +186,10 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
             s"missed pos(val): ${valMissedPos} out of ${numTestPositives}" +
             s", missed neg(val) ${valMissedNegs} out of ${numTestNegatives}")
           i = i + 1
+
+          val evalTest = new BinaryClassificationMetrics(valResults.map(r => (r._1.toDouble, r._2.labeledWindow.label.toDouble)))
+	  println("test eval")
+          Metrics.printMetrics(evalTest)
 
           valResults.unpersist()
           model
