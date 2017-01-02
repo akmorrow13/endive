@@ -117,9 +117,9 @@ object DnaseKernelPipeline extends Serializable with Logging {
       println(s"holding out ${chr}")
 
       val test = allData.filter(r => r.win.getRegion.referenceName == chr)
-      allData = EndiveUtils.subselectSamples(sc, 
-			allData.filter(r => r.win.getRegion.referenceName != chr), sd)
-			.union(test)
+      allData = EndiveUtils.subselectRandomSamples(sc,
+			allData.filter(r => r.win.getRegion.referenceName != chr))
+			  .union(test)
       featuresOutput = featuresOutput + s"_test_${chr}"
     }
 

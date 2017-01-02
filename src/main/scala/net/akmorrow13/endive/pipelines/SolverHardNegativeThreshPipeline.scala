@@ -160,7 +160,7 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
 
           val negPredictions: RDD[Int] = MaxClassifier(model(negativesFull.map(_.features)))
           val posPredictions: RDD[Int] = MaxClassifier(model(positives.map(_.features)))
-          val missedPos: RDD[FeaturizedLabeledWindow] = positives.zip(posPredictions).filter(_._1 == 0).map(_._1)
+          val missedPos: RDD[FeaturizedLabeledWindow] = positives.zip(posPredictions).filter(_._2 == 0).map(_._1)
           val missedNegs: RDD[FeaturizedLabeledWindow] = negativesFull.zip(negPredictions).filter(x => x._2 == 1).map(_._1)
           val missed = missedPos.union(missedNegs)
 
