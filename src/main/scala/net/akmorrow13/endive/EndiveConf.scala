@@ -12,6 +12,7 @@ class EndiveConf extends Serializable {
   @BeanProperty var sequenceLoc: String = null
   @BeanProperty var rnaseqLoc: String = null
   @BeanProperty var dnaseLoc: String = null
+  @BeanProperty var expName: String = "Endive"
 
   /* output files */
   @BeanProperty var aggregatedSequenceOutput: String = null
@@ -83,7 +84,7 @@ class EndiveConf extends Serializable {
 
   /* Kernel approximation feature parameters */
   @BeanProperty var approxDim: Int = 256
-  @BeanProperty var numItersHardNegative: Int = 20
+  @BeanProperty var numItersHardNegative: Int = 1
 
   /* Save predictions */
   @BeanProperty var saveTrainPredictions: String = null
