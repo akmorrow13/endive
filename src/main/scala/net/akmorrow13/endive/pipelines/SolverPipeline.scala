@@ -125,10 +125,19 @@ object SolverPipeline extends Serializable with Logging {
 
     if (conf.negativeSamplingFreq < 1.0) {
       println("NEGATIVE SAMPLING")
-      val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0)
-      val negatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq)
+      val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).cache()
+      val negatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).sample(false, conf.negativeSamplingFreq).cache()
       trainFeaturizedWindows = positives.union(negatives)
     }
+      val numTrainPositives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).count()
+      val numTrainNegatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).count()
+
+      val numTestPositives = valFeaturizedWindowsOpt.map(_.filter(_.labeledWindow.label > 0).count()).getOrElse(0.0)
+      val numTestNegatives = valFeaturizedWindowsOpt.map(_.filter(_.labeledWindow.label == 0).count()).getOrElse(0.0)
+
+      println(s"NUMBER OF TRAIN (POS, NEG) is ${numTrainPositives}, ${numTrainNegatives}")
+      println(s"NUMBER OF TEST (POS, NEG) is ${numTestPositives}, ${numTestNegatives}")
+
 
     trainFeaturizedWindows = trainFeaturizedWindows.repartition(conf.numPartitions).cache()
     valFeaturizedWindowsOpt = valFeaturizedWindowsOpt.map(_.repartition(conf.numPartitions).cache())
@@ -139,8 +148,10 @@ object SolverPipeline extends Serializable with Logging {
     val trainFeatures = trainFeaturizedWindows.map(_.features)
     val trainLabels = labelExtractor(trainFeaturizedWindows.map(_.labeledWindow.label)).get
 
+    val d = trainFeatures.first.size
+
     // Currently hardcoded to just do exact solve (after accumulating XtX)
-    val model = new BlockLeastSquaresEstimator(conf.approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
+    val model = new BlockLeastSquaresEstimator(d, 1, conf.lambda).fit(trainFeatures, trainLabels)
 
 
     if (conf.valDuringSolve) {
