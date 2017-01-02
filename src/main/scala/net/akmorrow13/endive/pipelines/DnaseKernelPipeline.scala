@@ -124,13 +124,15 @@ object DnaseKernelPipeline extends Serializable with Logging {
     }
 
     allData.repartition(1500).cache()
+    allData.count()
     // normalize dnase
     val dnaseMaxPos = allData.map(r => r.win.dnase.max).max
     allData = allData.map(r => {
       val win = r.win.setDnase(r.win.getDnase / dnaseMaxPos)
       LabeledWindow(win, r.label)
     })
-     
+    println(s"max for dnase went from ${dnaseMaxPos} to ${allData.map(r => r.win.dnase.max).max}")
+
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
     //val dnaseMax = allData.map(r => r.win.getDnase.max).max.round.toInt
@@ -147,7 +149,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
      }
 
     println(s"saving to: ${featuresOutput}")
-    allFeaturized.map(_.toString).saveAsTextFile(featuresOutput + s"_dim_${approxDim}")
+    allFeaturized.map(_.toString).saveAsTextFile(featuresOutput + s"_dim_${approxDim}_samp_${conf.negativeSamplingFreq}")
 
   }
 

@@ -84,7 +84,7 @@ class EndiveConf extends Serializable {
   /* Kernel approximation feature parameters */
   @BeanProperty var approxDim: Int = 256
   @BeanProperty var mixtureWeight: Double = -1.0
-  @BeanProperty var numItersHardNegative: Int = 20
+  @BeanProperty var numItersHardNegative: Int = 4
 
   /* Save predictions */
   @BeanProperty var saveTrainPredictions: String = null

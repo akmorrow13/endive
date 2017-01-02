@@ -181,9 +181,9 @@ object SolverPipeline extends Serializable with Logging {
           val reference = new TwoBitFile(new LocalFileByteAccess(new File(conf.reference)))
           val sd: SequenceDictionary = reference.sequences
           println(sd)
-          saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).zip(valPredictions).filter(_._2 > 0.0001),
+          saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).zip(valPredictions).filter(_._2 >= 0.5),
             sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_predicted.adam")
-          saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).map(r => (r, r.label.toDouble)).filter(_._2 > 0),
+          saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).map(r => (r, r.label.toDouble)).filter(_._2 >= 0.5),
             sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_true.adam")
         }
       } catch {
@@ -295,7 +295,7 @@ def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
           Feature.newBuilder()
             .setFeatureId(s"${r._1.win.region.toString}-score:${r._1.label}")
             .setPhase(r._1.label)
-            .setScore(r._2)
+            .setScore(r._2 * 1000)
             .setContigName(r._1.win.region.referenceName)
             .setStart(r._1.win.region.start)
             .setEnd(r._1.win.region.end)
@@ -303,6 +303,7 @@ def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
         })
 
     val featureRDD = new FeatureRDD(features, sd)
+    println(s"saving features to path ${path}")
     featureRDD.save(path, false)
   }
 
