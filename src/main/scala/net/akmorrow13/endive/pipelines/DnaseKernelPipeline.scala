@@ -15,6 +15,8 @@
  */
 package net.akmorrow13.endive.pipelines
 
+import java.util.Random
+
 import breeze.linalg._
 import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveConf
@@ -113,14 +115,21 @@ object DnaseKernelPipeline extends Serializable with Logging {
 
     if (conf.negativeSamplingFreq < 1.0) {
       println("NEGATIVE SAMPLING")
+      val rand = new Random(conf.seed)
+
       val chr = allData.first.win.getRegion.referenceName
       println(s"holding out ${chr}")
 
       val test = allData.filter(r => r.win.getRegion.referenceName == chr)
-      allData = EndiveUtils.subselectRandomSamples(sc,
-			allData.filter(r => r.win.getRegion.referenceName != chr))
-			  .union(test)
-      featuresOutput = featuresOutput + s"_test_${chr}"
+      val negativesFull = allData.filter(r => r.label == 0 && r.win.getRegion.referenceName != chr )
+      val samplingIndices = (0 until negativesFull.count().toInt).map(x =>  (x, rand.nextFloat() < conf.negativeSamplingFreq))
+        .filter(_._2).map(_._1).toSet
+      val samplingIndicesB = sc.broadcast(samplingIndices)
+
+      val negatives = negativesFull.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1)
+      val positives = allData.filter(r => r.label > 0  && r.win.getRegion.referenceName != chr)
+
+      allData = negatives.union(positives).union(test)
     }
 
     allData.repartition(1500).cache()
