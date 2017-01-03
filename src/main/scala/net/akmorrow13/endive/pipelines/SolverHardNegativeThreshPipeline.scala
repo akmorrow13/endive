@@ -130,13 +130,9 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
 
-    val numTrainPositives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).count()
-    val numTrainNegatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).count()
-
     val numTestPositives = valFeaturizedWindowsOpt.map(_.filter(_.labeledWindow.label > 0).count()).getOrElse(0.0)
     val numTestNegatives = valFeaturizedWindowsOpt.map(_.filter(_.labeledWindow.label == 0).count()).getOrElse(0.0)
 
-    println(s"NUMBER OF TRAIN (POS, NEG) is ${numTrainPositives}, ${numTrainNegatives}")
     println(s"NUMBER OF TEST (POS, NEG) is ${numTestPositives}, ${numTestNegatives}")
 
 
@@ -146,11 +142,14 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
     val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).cache()
     val negCount = negativesFull.count
 
+    println(s"NUMBER OF TRAIN (POS, NEG) is ${posCount}, ${negCount}")
+
+
     val negativesSampled =
     if (conf.negativeSamplingFreq < 1.0) {
       val rand = new Random(conf.seed)
 
-      val samplingIndices = (0 until negativesFull.count().toInt).map(x =>  (x, rand.nextFloat() < conf.negativeSamplingFreq)).filter(_._2).map(_._1).toSet
+      val samplingIndices = (0 until negCount.toInt).map(x =>  (x, rand.nextFloat() < conf.negativeSamplingFreq)).filter(_._2).map(_._1).toSet
       val samplingIndicesB = sc.broadcast(samplingIndices)
       val negativesSampled = negativesFull.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1)
       negativesSampled
