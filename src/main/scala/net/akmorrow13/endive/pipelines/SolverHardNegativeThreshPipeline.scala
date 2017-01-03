@@ -252,9 +252,9 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
           val sd: SequenceDictionary = reference.sequences
           println(sd)
           SolverPipeline.saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).zip(valPredictions).filter(_._2 >= 0.5),
-            sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_predicted.adam")
+            sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_predicted.bed")
           SolverPipeline.saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).map(r => (r, r.label.toDouble)).filter(_._2 >= 0.5),
-            sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_true.adam")
+            sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_true.bed")
         }
       } catch {
         case e: Exception => {
