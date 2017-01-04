@@ -109,6 +109,10 @@ class EndiveConf extends Serializable {
 
   @BeanProperty var saveTestPredictions: String = null
 
+  // which board is being tested?
+  @BeanProperty var ladderBoard: Boolean = false
+  @BeanProperty var testBoard: Boolean = false
+
 }
 
 object EndiveConf {

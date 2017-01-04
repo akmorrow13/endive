@@ -269,7 +269,7 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
       }
     }
 
-    println("Saving model to disk")
+    println(s"Saving model to disk at ${conf.modelOutput}")
     saveModel(model, conf.modelOutput)
 
   }

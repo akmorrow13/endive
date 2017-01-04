@@ -30,7 +30,7 @@ import org.apache.log4j.{Level, Logger}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.SequenceDictionary
+import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
 import org.bdgenomics.adam.rdd.feature.FeatureRDD
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.adam.util.TwoBitFile
@@ -101,13 +101,20 @@ object TestPipeline extends Serializable with Logging {
       .map(xy => (xy._1.labeledWindow.win.getRegion, xy._2 ))
       .collect
 
-    val sorted: Array[String] =
-      (array.filter(_._1.referenceName == "chr1") ++ array.filter(_._1.referenceName == "chr21") ++ array.filter(_._1.referenceName == "chr8"))
-      .map(r => s"${r._1.referenceName}\t${r._1.start}\t${r._1.end}\t${r._2}\n")
-
+    val sorted: Array[String] = (
+      if (conf.ladderBoard) {
+        (array.filter(_._1.referenceName == "chr1") ++ array.filter(_._1.referenceName == "chr21") ++ array.filter(_._1.referenceName == "chr8"))
+      } else if (conf.testBoard) {
+        // chronological ordering
+        array
+      } else  {
+        throw new Exception("either ladderBoard or testBoard must be specified")
+      }).map(r => s"${r._1.referenceName}\t${r._1.start}\t${r._1.end}\t${r._2}\n")
+    
     val writer = new PrintWriter(new File(testPredictionsOutput))
     sorted.foreach(r => writer.write(r))
     writer.close()
+
   }
 
 def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
