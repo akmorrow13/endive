@@ -5,6 +5,9 @@ import net.akmorrow13.endive.processing.{Chromosomes, CellTypes}
 import scala.reflect.{BeanProperty, ClassTag}
 
 class EndiveConf extends Serializable {
+  /* for test */
+  @BeanProperty var test: Boolean = false
+
   @BeanProperty var createWindows: Boolean = false
   /* These are required if createWindows is False */
 
@@ -84,7 +87,7 @@ class EndiveConf extends Serializable {
   /* Kernel approximation feature parameters */
   @BeanProperty var approxDim: Int = 256
   @BeanProperty var mixtureWeight: Double = -1.0
-  @BeanProperty var numItersHardNegative: Int = 4
+  @BeanProperty var numItersHardNegative: Int = 10
 
   /* Save predictions */
   @BeanProperty var saveTrainPredictions: String = null

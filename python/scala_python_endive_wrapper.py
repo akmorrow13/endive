@@ -26,8 +26,8 @@ dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatas
 
 featurization_pipeline_class = "net.akmorrow13.endive.pipelines.DnaseKernelPipeline"
 
-# solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverHardNegativeThreshPipeline"
-solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
+solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverHardNegativeThreshPipeline"
+# solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
 test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
 
 pipeline_jar = os.path.relpath("../target/scala-2.10/endive-assembly-0.1.jar")
@@ -145,22 +145,26 @@ def run_solver_pipeline(featuresPath,
         return (train_preds, val_preds)
     return ([], [])
 
-def run_test_pipeline(featuresPath,
+def run_test_pipeline(featuresPath, # features for test windows
                logpath,
                hdfsclient,
-               predictionsPath, # ="/user/vaishaal/tmp",
-               modelPath, # ="/home/eecs/vaishaal/endive-models",
+               predictionsPath, # saves metadata and test preditions to /testMetaData and /testPreds
+               modelPath, 
+               approxDim,
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
                executor_mem=EXECUTOR_MEM,
                use_yarn=True,
-               reg=0.1,
                delete_predictions_from_hdfs=False,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
     kernel_pipeline_config["featuresOutput"] = featuresPath
+    kernel_pipeline_config["modelOutput"] = modelPath
+    kernel_pipeline_config["approxDim"] = approxDim
     kernel_pipeline_config["predictionsOutput"] = predictionsPath
+    print(kernel_pipeline_config)
+    
     pythonrun.run(kernel_pipeline_config,
               logpath,
               test_pipeline_class,
@@ -261,7 +265,7 @@ def make_submission_output(outfile, test_preds, meta_df):
     meta_df['chr_int'] = meta_df['chr'].map(lambda x: int(x.replace('chr', '').replace('X', '24').replace('Y', '25')))
     meta_df['start'] = pd.to_numeric(meta_df['start'])
     sorted_test = meta_df.sort_values(['chr_int', 'start'])[['chr', 'start', 'end']]
-    prob_pred = (test_preds[:,1] - min(test_preds[:,1]))/max(test_preds[:,1] - min(test_preds[:,1]))
+    prob_pred = (test_preds[:,1] - min(test_preds[:,1]))/(max(test_preds[:,1]) - min(test_preds[:,1]))
     sorted_test['prob'] = prob_pred
     sorted_test.to_csv(outfile, sep='\t', header=False)
 

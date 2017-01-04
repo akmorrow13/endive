@@ -107,11 +107,14 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
     val sd: SequenceDictionary = reference.sequences
 
-
     // load data for a specific transcription factor
     var allData: RDD[LabeledWindow] =
+      if (conf.test) {
+      LabeledWindowLoader(dataPath, sc).setName("_All data")
+     } else {
       LabeledWindowLoader(dataPath, sc).setName("_All data")
         .filter(_.label >= 0)
+     }
 
     if (conf.negativeSamplingFreq < 1.0) {
       println("NEGATIVE SAMPLING")
@@ -133,7 +136,8 @@ object DnaseKernelPipeline extends Serializable with Logging {
     }
 
     allData.repartition(1500).cache()
-    allData.count()
+    println(s"all element count: ${allData.count()}")
+/*
     // normalize dnase
     val dnaseMaxPos = allData.map(r => r.win.dnase.max).max
     allData = allData.map(r => {
@@ -141,7 +145,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
       LabeledWindow(win, r.label)
     })
     println(s"max for dnase went from ${dnaseMaxPos} to ${allData.map(r => r.win.dnase.max).max}")
-
+*/
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
     //val dnaseMax = allData.map(r => r.win.getDnase.max).max.round.toInt
@@ -157,7 +161,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
        featurizeWithDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim)
      }
 
-    println(s"saving to: ${featuresOutput}")
+    println(s"saving records to to: ${featuresOutput}")
     allFeaturized.map(_.toString).saveAsTextFile(featuresOutput + s"_dim_${approxDim}_samp_${conf.negativeSamplingFreq}")
 
   }

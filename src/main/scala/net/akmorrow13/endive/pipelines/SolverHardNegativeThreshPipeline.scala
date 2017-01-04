@@ -133,10 +133,12 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
     println(s"NUMBER OF TEST (POS, NEG) is ${numTestPositives}, ${numTestNegatives}")
 
 
-    val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).cache()
+    val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0)
+    positives.setName("positives").cache()
     val posCount = positives.count
 
-    val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).cache()
+    val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0)
+    negativesFull.setName("negativesFull").cache()
     val negCount = negativesFull.count
 
     println(s"NUMBER OF TRAIN (POS, NEG) is ${posCount}, ${negCount}")
@@ -156,11 +158,13 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
     val valFeaturizedWindows = valFeaturizedWindowsOpt.get
     val valFeatures = valFeaturizedWindows.map(_.features)
 
-    var trainFeaturizedWindowsSampled = positives.union(negativesSampled).repartition(conf.numPartitions).cache()
+    var trainFeaturizedWindowsSampled = positives.union(negativesSampled).repartition(conf.numPartitions)
     println(s"train features: ${trainFeaturizedWindowsSampled.count}")
+    trainFeaturizedWindowsSampled.setName("trainFeaturizedWindowsSampled").cache()
     
     trainFeaturizedWindows.unpersist()
 
+    println(s"iterations: ${conf.numItersHardNegative}")
     var i = 0;
     val models:Seq[BlockLinearMapper] =
     (0 until conf.numItersHardNegative).map({ x => 
@@ -176,12 +180,12 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
           val negMax: RDD[Int] = MaxClassifier(negPredictions)
           val posMax: RDD[Int] = MaxClassifier(posPredictions)
 
-          val missedPos: RDD[FeaturizedLabeledWindow] = positives.zip(posMax).filter(_._2 == 0).map(_._1)
+          val missedPos: RDD[FeaturizedLabeledWindow] = positives.zip(posMax).filter(_._2 == 0).map(_._1).sample(false, 1/(i+1))
           val missedNegs: RDD[FeaturizedLabeledWindow] = negativesFull.zip(negMax).filter(_._2 == 1).map(_._1)
-              .sample(false, 10000)
+              .sample(false, 1/(i+2))
 
-          val missed = missedPos.union(missedNegs)
-
+//          val missed = missedPos.union(missedNegs)
+	  val missed = missedNegs
           val valPredictions = model(valFeatures)
           val predictionsVal: RDD[Int] = MaxClassifier(valPredictions)
           val valResults = predictionsVal.zip(valFeaturizedWindows)
@@ -191,8 +195,9 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
           val valMissedPos = valResults.filter({x => x._2.labeledWindow.label == 1 && x._1 == 0}).count()
           val valMissedNegs = valResults.filter({x => x._2.labeledWindow.label == 0 && x._1 == 1}).count()
 
+          println(s"train size before: ${trainFeaturizedWindowsSampled.count()}") 
           trainFeaturizedWindowsSampled = trainFeaturizedWindowsSampled.union(missed).repartition(conf.numPartitions)
-          trainFeaturizedWindowsSampled.setName("trainFeaturizedWindowsSampled").cache()
+          println(s"train size after: ${trainFeaturizedWindowsSampled.count()}")
 
           println(s"neg Iteration: ${i}, missed neg: ${missedNegs.count()} out of ${negCount}, " +
             s"missed pos: ${missedPos.count} out of ${posCount}, " +
@@ -230,8 +235,8 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
       val valFeaturizedWindows = valFeaturizedWindowsOpt.get
       val valFeatures = valFeaturizedWindows.map(_.features)
       var valPredictions: RDD[Double] = model(valFeatures).map(x => x(1))
-      val (min, max) = (valPredictions.min(), valPredictions.max())
-      valPredictions = valPredictions.map(r => ((r - min)/(max - min)))
+  //    val (min, max) = (valPredictions.min(), valPredictions.max())
+  //    valPredictions = valPredictions.map(r => ((r - min)/(max - min)))
 
       valPredictions.count()
       val valScalarLabels = valFeaturizedWindows.map(_.labeledWindow.label)
