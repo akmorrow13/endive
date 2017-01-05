@@ -5,6 +5,9 @@ import net.akmorrow13.endive.processing.{Chromosomes, CellTypes}
 import scala.reflect.{BeanProperty, ClassTag}
 
 class EndiveConf extends Serializable {
+  /* for test */
+  @BeanProperty var test: Boolean = false
+
   @BeanProperty var createWindows: Boolean = false
   /* These are required if createWindows is False */
 
@@ -83,7 +86,8 @@ class EndiveConf extends Serializable {
 
   /* Kernel approximation feature parameters */
   @BeanProperty var approxDim: Int = 256
-  @BeanProperty var numItersHardNegative: Int = 20
+  @BeanProperty var mixtureWeight: Double = -1.0
+  @BeanProperty var numItersHardNegative: Int = 10
 
   /* Save predictions */
   @BeanProperty var saveTrainPredictions: String = null
@@ -103,6 +107,13 @@ class EndiveConf extends Serializable {
   @BeanProperty var cellTypes: String = null
   @BeanProperty var hasSequences: Boolean = true
 
+  @BeanProperty var saveTestPredictions: String = null
+
+  // which board is being tested?
+  @BeanProperty var ladderBoard: Boolean = false
+  @BeanProperty var testBoard: Boolean = false
+
+  @BeanProperty var modelBlockSize: Int = 256
 }
 
 object EndiveConf {
@@ -110,10 +121,6 @@ object EndiveConf {
     /* Add line for required arugments here to validate
      * TODO: This is a kludge but idk what else to do
      */
-
-    if (conf.reference == null) {
-      throw new IllegalArgumentException("Refrence path is mandatory")
-    }
 
     if (conf.heldoutChr > Chromosomes.toVector.length - 1) {
       throw new IllegalArgumentException("chrPerFold must be less than 23")

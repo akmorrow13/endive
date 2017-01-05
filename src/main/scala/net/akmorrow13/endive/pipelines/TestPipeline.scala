@@ -30,7 +30,7 @@ import org.apache.log4j.{Level, Logger}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.SequenceDictionary
+import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
 import org.bdgenomics.adam.rdd.feature.FeatureRDD
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.adam.util.TwoBitFile
@@ -42,7 +42,7 @@ import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
 import nodes.learning._
 
-import java.io.{File, BufferedWriter, FileWriter}
+import java.io.{PrintWriter, File, BufferedWriter, FileWriter}
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file._
 import scala.collection.mutable.ArrayBuffer
@@ -86,31 +86,38 @@ object TestPipeline extends Serializable with Logging {
 
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
     val testFeaturizedWindows = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
-    val model = loadModel(conf.modelOutput, conf.approxDim)
+    val model = loadModel(conf.modelOutput, conf.modelBlockSize)
     val testFeatures = testFeaturizedWindows.map(_.features)
 
     println(testFeatures.count())
     println(testFeatures.first.size)
-    val testPredictions:RDD[Double] = model(testFeatures).map(x => x(1))
+    var testPredictions:RDD[Double] = model(testFeatures).map(x => x(1))
+    val (min, max) = (testPredictions.min(), testPredictions.max())
+    testPredictions = testPredictions.map(r => (r-min)/(max-min))
     testPredictions.count()
-    val testScalarLabels = testFeaturizedWindows.map(_.labeledWindow.label)
-    val testPredictionsOutput = conf.predictionsOutput + s"/testPreds"
-    val zippedTestPreds = testScalarLabels.zip(testPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(testPredictionsOutput)
-    val testMetadataOutput = conf.predictionsOutput + s"/testMetaData"
-    testFeaturizedWindows.zip(testPredictions).map { xy =>
-      val x = xy._1 
-      val y = xy._2
-      val win = x.labeledWindow.win
-      val chr = x.labeledWindow.win.getRegion.referenceName
-      val start = x.labeledWindow.win.getRegion.start
-      val end  = x.labeledWindow.win.getRegion.end
-      val cell  = CellTypes.toVector(x.labeledWindow.win.cellType.id)
-      val pred = y
-      s"${chr},${start},${end},${cell},${pred}"
-  }.saveAsTextFile(testMetadataOutput)
+
+    val testPredictionsOutput = conf.predictionsOutput
+    val array = testFeaturizedWindows.zip(testPredictions).sortBy(_._1.labeledWindow.win.getRegion)
+      .map(xy => (xy._1.labeledWindow.win.getRegion, xy._2 ))
+      .collect
+
+    val sorted: Array[String] = (
+      if (conf.ladderBoard) {
+        (array.filter(_._1.referenceName == "chr1") ++ array.filter(_._1.referenceName == "chr21") ++ array.filter(_._1.referenceName == "chr8"))
+      } else if (conf.testBoard) {
+        // chronological ordering
+        array
+      } else  {
+        throw new Exception("either ladderBoard or testBoard must be specified")
+      }).map(r => s"${r._1.referenceName}\t${r._1.start}\t${r._1.end}\t${r._2}\n")
+
+    val writer = new PrintWriter(new File(testPredictionsOutput))
+    sorted.foreach(r => writer.write(r))
+    writer.close()
+
   }
 
-def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
+  def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
     val files = ArrayBuffer.empty[Path]
     /* Hard coded rn */
     val numClasses = 2
