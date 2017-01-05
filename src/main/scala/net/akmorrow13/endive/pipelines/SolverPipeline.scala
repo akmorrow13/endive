@@ -32,11 +32,13 @@ import org.apache.log4j.{Level, Logger}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.SequenceDictionary
+import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
 import org.bdgenomics.adam.rdd.feature.FeatureRDD
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
+import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.formats.avro._
+import org.bdgenomics.adam.rdd._
 import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
@@ -118,11 +120,41 @@ object SolverPipeline extends Serializable with Logging {
     println(conf.saveTestPredictions)
     var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
 
-    println(featuresRDD.first.labeledWindow.win.cellType.id)
-    println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
-
     var (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve, conf.numPartitions)
 
+    // filter by motifs
+    val motifB = sc.broadcast(sc.loadFeatures(conf.getMotifDBPath)
+      .rdd.map(r => (ReferenceRegion(r.getContigName, r.getStart - 300, r.getEnd + 300), r)).collect)
+
+    val trainPositives = trainFeaturizedWindows
+      .filter(r => !motifB.value.map(m => m._1.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
+    val trainNegatives = trainFeaturizedWindows
+      .filter(r => motifB.value.map(m => m._1.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
+
+    val train = trainPositives.map(r => (r.labeledWindow.label.toDouble, 1.0))
+              .union(trainNegatives.map(r => (r.labeledWindow.label.toDouble, 0.0)))
+
+    train.map(x => s"${x._1},${x._2}").saveAsTextFile(conf.predictionsOutput + "/trainPreds")
+
+    val testPositives = valFeaturizedWindowsOpt.get
+      .filter(r => !motifB.value.map(m => m._1.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
+    val testNegatives = valFeaturizedWindowsOpt.get
+      .filter(r => motifB.value.map(m => m._1.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
+
+    val test = testPositives.map(r => (r.labeledWindow.label.toDouble, 1.0))
+      .union(testNegatives.map(r => (r.labeledWindow.label.toDouble, 0.0)))
+
+    test.map(x => s"${x._1},${x._2}")
+      .saveAsTextFile(conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}")
+
+    val evalTrain = new BinaryClassificationMetrics(train.map(r => (r._2, r._1)))
+    println("Train Results: \n ")
+    Metrics.printMetrics(evalTrain)
+    val evalTest = new BinaryClassificationMetrics(test.map(r => (r._2, r._1)))
+    println("Test Results: \n ")
+    Metrics.printMetrics(evalTest)
+
+    sys.exit(0)
 
     if (conf.negativeSamplingFreq < 1.0) {
       println("NEGATIVE SAMPLING")

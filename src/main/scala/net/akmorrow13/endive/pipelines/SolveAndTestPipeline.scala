@@ -46,7 +46,7 @@ import java.io.{PrintWriter, File}
 
 
 
-object DnaseKernelPipeline extends Serializable with Logging {
+object SolveAndTestPipeline extends Serializable with Logging {
 
   /**
    * A very basic pipeline that *doesn't* featurize the data
