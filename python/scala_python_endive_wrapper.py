@@ -20,7 +20,7 @@ BASE_KERNEL_PIPELINE_CONFIG = \
 }
 
 EXECUTOR_MEM = '100g'
-NUM_EXECUTORS = 12
+NUM_EXECUTORS = 14
 CORES_PER_EXECUTOR = 24
 
 dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatasetCreationPipeline"
@@ -28,6 +28,10 @@ dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatas
 featurization_pipeline_class = "net.akmorrow13.endive.pipelines.DnaseKernelPipeline"
 
 solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
+filter_generation_class = "net.akmorrow13.endive.pipelines.FilterGenerate"
+
+solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverHardNegativeThreshPipeline"
+logistic_solver_pipeline_class = "net.akmorrow13.endive.pipelines.LogisticSolverHardNegativeThreshPipeline"
 test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
 
 pipeline_jar = os.path.relpath("../target/scala-2.10/endive-assembly-0.1.jar")
@@ -57,7 +61,42 @@ def make_dnase_gaussian_filter_gen(gamma, dnase_gamma, kmer_size=8, dnase_kmer_s
         return np.hstack((seq_out, dnase_out))
     return gaussian_filter_gen
 
+def run_filter_generation(windowPath,
+               filterPath,
+               kmer_size=8,
+               dnase_kmer_size=100,
+               num_filters=256,
+               featuresOutput="/user/vaishaal/tmp/features",
+               seed=0,
+               cores_per_executor=CORES_PER_EXECUTOR,
+               num_executors=NUM_EXECUTORS,
+               executor_mem=EXECUTOR_MEM,
+               use_yarn=True,
+               base_config=BASE_KERNEL_PIPELINE_CONFIG):
+
+    kernel_pipeline_config = base_config.copy()
+    kernel_pipeline_config["aggregatedSequenceOutput"] = windowPath
+    kernel_pipeline_config["filtersPath"] = filterPath
+    kernel_pipeline_config["kmerLength"] = kmer_size
+    kernel_pipeline_config["dnaseKmerLength"] = dnase_kmer_size
+    kernel_pipeline_config["approxDim"] = num_filters
+    kernel_pipeline_config["seed"] = seed
+
+    pythonrun.run(kernel_pipeline_config,
+              "/tmp/log_w",
+              filter_generation_class,
+              pipeline_jar,
+              executor_mem,
+              cores_per_executor,
+              num_executors,
+              use_yarn=True)
+
+
+    W = genfromtxt(filterPath, delimiter=",", dtype="float64")
+    W = W.reshape(num_filters, dnase_kmer_size*2 + kmer_size*4)
+    return W
 def run_kitchensink_featurize_pipeline(windowPath,
+               w,
                filterPath,
                logpath,
                featuresOutput, # ="/user/vaishaal/tmp/features",
@@ -71,6 +110,7 @@ def run_kitchensink_featurize_pipeline(windowPath,
                dnase_kmer_size=100,
                num_filters=256,
                seed=0,
+               normalizeDnase=False,
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
                executor_mem=EXECUTOR_MEM,
@@ -78,9 +118,8 @@ def run_kitchensink_featurize_pipeline(windowPath,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
-    filter_gen = make_dnase_gaussian_filter_gen(gamma=gamma, dnase_gamma=dnase_gamma, kmer_size=kmer_size, dnase_kmer_size=dnase_kmer_size)
-    w = filter_gen(num_filters)
     print "W SHAPE ", w.shape
+    print "NORMALIZE DNASE ", normalizeDnase
     np.savetxt(filterPath, w, delimiter=",")
     kernel_pipeline_config["filtersPath"] = filterPath
     kernel_pipeline_config["numPartitions"] = num_partitions
@@ -95,6 +134,7 @@ def run_kitchensink_featurize_pipeline(windowPath,
     kernel_pipeline_config["alphabetSize"] = alphabet_size
     kernel_pipeline_config["numPartitions"] = partitions
     print kernel_pipeline_config
+    kernel_pipeline_config["normalizeDnase"] = normalizeDnase
 
 
     kernel_pipeline_config["expName"] = "featurize_pipeline" + str(kernel_pipeline_config)
@@ -112,7 +152,6 @@ def run_kitchensink_featurize_pipeline(windowPath,
 def run_solver_pipeline(featuresPath,
                logpath,
                hdfsclient,
-               predictionsPath, #="/user/vaishaal/tmp",
                modelPath, #="/home/eecs/vaishaal/endive-models",
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
@@ -123,7 +162,8 @@ def run_solver_pipeline(featuresPath,
                reg=0.1,
                seed=0,
                negativeSamplingFreq=1.0,
-               predictedOutput=None,
+               numItersHardNegative=1,
+               predictionsPath="/user/vaishaal/tmp",
                valDuringSolve=False,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
@@ -136,7 +176,7 @@ def run_solver_pipeline(featuresPath,
     kernel_pipeline_config["modelOutput"] = modelPath
     kernel_pipeline_config["lambda"] = reg
     kernel_pipeline_config["negativeSamplingFreq"] = negativeSamplingFreq
-    kernel_pipeline_config["numItersHardNegative"] = 1
+    kernel_pipeline_config["numItersHardNegative"] = numItersHardNegative
     kernel_pipeline_config["seed"] = seed
     if (predictedOutput != None):
         kernel_pipeline_config["saveTestPredictions"] = predictedOutput
@@ -155,8 +195,7 @@ def run_solver_pipeline(featuresPath,
         train_preds = load_hdfs_vector_parallel(predictionsPath + "/trainPreds", hdfsclient=hdfsclient, shape=(-1, 2))
         valCellTypesStr = map(str, valCellTypes)
         val_pred_name = predictionsPath + "/valPreds_{0}_{1}".format(','.join(valChromosomes), ','.join(valCellTypesStr))
-        print val_pred_name
-        val_preds = load_hdfs_vector_parallel(val_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
+        val_preds = load_hdfs_vector(val_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
         return (train_preds, val_preds)
     return ([], [])
 
@@ -176,6 +215,7 @@ def run_test_pipeline(featuresPath, # features for test windows
     kernel_pipeline_config["featuresOutput"] = featuresPath
     kernel_pipeline_config["modelOutput"] = modelPath
     kernel_pipeline_config["approxDim"] = approxDim
+    kernel_pipeline_config["ladderBoard"] = True
     kernel_pipeline_config["predictionsOutput"] = predictionsPath
     kernel_pipeline_config["expName"] = "test_pipeline " + str(kernel_pipeline_config)
     pythonrun.run(kernel_pipeline_config,
@@ -188,7 +228,7 @@ def run_test_pipeline(featuresPath, # features for test windows
               use_yarn=True)
 
     test_pred_name = predictionsPath + "/testPreds"
-    test_preds = load_hdfs_vector_parallel(test_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
+    test_preds = load_hdfs_vector_parallel(test_pred_name, hdfsclient=hdfsclient, shape=(-1, 3))
     test_meta_name = predictionsPath + "/testMetaData"
     test_meta  = load_test_metadata(test_meta_name, hdfsclient=hdfsclient)
     kernel_pipeline_config["ladderBoard"] = ladderBoard
@@ -237,15 +277,16 @@ def load_hdfs_vector(hdfsPath, hdfsclient, tmpPath="/tmp/", shape=None):
         return
 
     for part in os.listdir(tmpPath + fname):
-        print(part)
         partName = tmpPath + fname + "/" + part
         if (os.stat(partName).st_size == 0):
             continue
-        part_vector = np.ravel(genfromtxt(partName, delimiter=",", dtype='float16'))
+        part_vector = np.ravel(genfromtxt(partName, delimiter=",", dtype='float32'))
         vectors.append(part_vector)
 
     ov = np.concatenate(vectors)
     if (shape != None):
+        print(ov.shape)
+        print(shape)
         ov = ov.reshape(shape)
 
     os.system("rm -rf " + tmpPath + fname)
@@ -272,6 +313,9 @@ def load_hdfs_vector_parallel(hdfsPath, hdfsclient, tmpPath="/tmp/", shape=None)
     # this part is now in parallel
     vectors = Parallel(n_jobs=num_cores)(delayed(parse_part)(i, tmpPath, fname) for i in parts)
     ov = np.concatenate(vectors)
+    print("SHAPE IS")
+    print(ov.shape)
+    print(shape)
     if (shape != None):
         ov = ov.reshape(shape)
     os.system("rm -rf " + tmpPath + fname)
@@ -329,14 +373,18 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, logPath,
                    num_folds=1,
                    regs=[0.1],
                    negativeSamplingFreqs=[1.0],
+                   numItersHardNegative=1,
                    seed=0,
                    executor_mem='100g',
                    predicted_output=None,
                    cores_per_executor=32,
                    num_executors=14,
+                   cutoff=None,
                    other_meta={}):
     results = []
     np.random.seed(seed=seed)
+    train_results = []
+    val_results = []
     for fold in range(num_folds):
         print("FOLD " + str(fold))
         test_cell_types = []
@@ -377,8 +425,12 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, logPath,
 
 
 
-def compute_metrics(predictions, labels, tag=''):
+def compute_metrics(predictions, labels, cutoff=None, tag=''):
     predictions = predictions[np.where(labels >= 0)]
+    if (cutoff != None):
+      print("APPLYING CUTOFF")
+      bottom = np.argsort(predictions)[:predictions.shape[0] - cutoff]
+      predictions[bottom] = np.min(predictions)
     labels = labels[np.where(labels >= 0)]
     print("COMPUTING {0} metrics".format(tag))
     result = {}

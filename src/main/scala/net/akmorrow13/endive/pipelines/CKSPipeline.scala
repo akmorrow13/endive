@@ -43,7 +43,7 @@ object CSKPipeline extends Serializable  {
       val yaml = new Yaml(new Constructor(classOf[EndiveConf]))
       val appConfig = yaml.load(configtext).asInstanceOf[EndiveConf]
       EndiveConf.validate(appConfig)
-      val conf = new SparkConf().setAppName("ENDIVE")
+      val conf = new SparkConf().setAppName(appConfig.expName)
       conf.setIfMissing("spark.master" ,  "local[4]" )
       val sc = new SparkContext(conf)
       run(sc, appConfig)

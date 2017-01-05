@@ -40,6 +40,7 @@ class EndiveConf extends Serializable {
   @BeanProperty var gamma: Double = 1.0
   @BeanProperty var seed: Int = 0
   @BeanProperty var readFiltersFromDisk: Boolean = false
+  @BeanProperty var normalizeDnase: Boolean = false
 
   @BeanProperty var valDuringSolve: Boolean = true
   @BeanProperty var writePredictionsToDisk: Boolean = true

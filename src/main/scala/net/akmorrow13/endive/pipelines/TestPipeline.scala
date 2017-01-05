@@ -42,11 +42,13 @@ import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
 import nodes.learning._
 
+
 import java.io.{PrintWriter, File, BufferedWriter, FileWriter}
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file._
 import scala.collection.mutable.ArrayBuffer
 import nodes.stats._
+import breeze.stats._
 
 
 
@@ -85,13 +87,13 @@ object TestPipeline extends Serializable with Logging {
   }
 
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
-    val testFeaturizedWindows = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
+    val testFeaturizedWindows = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc).cache()
     val model = loadModel(conf.modelOutput, conf.modelBlockSize)
     val testFeatures = testFeaturizedWindows.map(_.features)
 
     println(testFeatures.count())
     println(testFeatures.first.size)
-    var testPredictions:RDD[Double] = testFeaturizedWindows.map(x => variance(x.labeledWindow.win.dnase))
+    var testPredictions:RDD[Double] = testFeaturizedWindows.map(x => variance(x.labeledWindow.win.dnase)).cache()
     val (min, max) = (testPredictions.min(), testPredictions.max())
     testPredictions = testPredictions.map(r => (r-min)/(max-min))
     testPredictions.count()

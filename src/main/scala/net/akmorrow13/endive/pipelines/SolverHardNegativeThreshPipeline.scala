@@ -17,15 +17,17 @@ package net.akmorrow13.endive.pipelines
 
 import breeze.linalg._
 import breeze.stats.distributions._
+import com.github.fommil.netlib.BLAS
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.featurizers.RandomDistribution
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils._
-import com.github.fommil.netlib.BLAS
 import nodes.akmorrow13.endive.featurizers.KernelApproximator
+import nodes.learning._
 import nodes.learning.{ BlockLeastSquaresEstimator}
 import nodes.util.{Cacher, MaxClassifier, ClassLabelIndicatorsFromIntLabels}
+import org.apache.commons.math3.random.MersenneTwister
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
@@ -39,16 +41,16 @@ import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
-import org.apache.commons.math3.random.MersenneTwister
-import nodes.learning._
 
+import breeze.numerics._
+import breeze.stats._
 import java.io.{File, BufferedWriter, FileWriter}
-import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file._
-import scala.collection.mutable.ArrayBuffer
+import java.nio.file.attribute.BasicFileAttributes
+import java.util.Random
 import nodes.stats._
 import nodes.util._
-import java.util.Random
+import scala.collection.mutable.ArrayBuffer
 
 
 object SolverHardNegativeThreshPipeline extends Serializable with Logging {
@@ -103,7 +105,7 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
                       val chrm:String = r.labeledWindow.win.getRegion.referenceName
                       val label:Int = r.labeledWindow.label
                       val cellType:Int = r.labeledWindow.win.cellType.id
-                      valChromosomes.contains(chrm)  && valCellTypes.contains(cellType)
+                      valChromosomes.contains(chrm)  && valCellTypes.contains(cellType) && label != -1
           }
           Some(valFeaturizedWindows)
         } else {
@@ -118,94 +120,109 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
     println(conf.featuresOutput)
     println("RUNNING NEGATIVE THRESHOLDING")
     var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc).cache()
-
     println(featuresRDD.first.labeledWindow.win.cellType.id)
     println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
 
-    var (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve, conf.numPartitions)
 
+
+    var (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve, conf.numPartitions)
 
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
 
-      val numTrainPositives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).count()
-      val numTrainNegatives = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).count()
-
       val numTestPositives = valFeaturizedWindowsOpt.map(_.filter(_.labeledWindow.label > 0).count()).getOrElse(0.0)
       val numTestNegatives = valFeaturizedWindowsOpt.map(_.filter(_.labeledWindow.label == 0).count()).getOrElse(0.0)
-
-      println(s"NUMBER OF TRAIN (POS, NEG) is ${numTrainPositives}, ${numTrainNegatives}")
-      println(s"NUMBER OF TEST (POS, NEG) is ${numTestPositives}, ${numTestNegatives}")
 
 
     val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0).cache()
     val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0).cache()
     val rand = new Random(conf.seed)
+
     var trainFeaturizedWindowsSampled =
     if (conf.negativeSamplingFreq != 1.0) {
       val samplingIndices = (0 until negativesFull.count().toInt).map(x =>  (x, rand.nextFloat() < conf.negativeSamplingFreq)).filter(_._2).map(_._1).toSet
       val samplingIndicesB = sc.broadcast(samplingIndices)
-
-      val negativesSampled = negativesFull.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1)
-
-      println("NUM SAMPLED NEGATIVES " + negativesSampled.count())
+      var negativesSampled = negativesFull.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1)
       positives.union(negativesSampled).repartition(conf.numPartitions).cache()
     } else {
       trainFeaturizedWindows
     }
 
+    val numInputFeatures = 4
+    val numOutputFeatures = 256
+    val gamma = 1e-7
+    val W = DenseMatrix.rand(numOutputFeatures, numInputFeatures,  Rand.gaussian) :* gamma
+    val b = DenseVector.rand(numOutputFeatures,  Rand.uniform) :* (2*math.Pi)
 
-    println("NUM FULL SAMPLED NEGATIVES " + negativesFull.count())
-    val valFeaturizedWindows = valFeaturizedWindowsOpt.get
-    val valFeatures = valFeaturizedWindows.map(_.features)
-    val valLabels = valFeaturizedWindows.map(_.labeledWindow.label)
+    def refeaturize(y:FeaturizedLabeledWindow) = {
 
-    var i =0;
-    val models:Seq[BlockLinearMapper] =
-    (0 until conf.numItersHardNegative).map({ x => 
-          val trainFeatures = trainFeaturizedWindowsSampled.map(_.features)
-          val trainLabels = labelExtractor(trainFeaturizedWindowsSampled.map(_.labeledWindow.label)).get
-          val d = trainFeatures.first.size
-          val model = new BlockLeastSquaresEstimator(d, 1, conf.lambda).fit(trainFeatures, trainLabels)
-          val predictions:RDD[Int]  =  MaxClassifier(model(negativesFull.map(_.features)))
-          val predictionsPositives:RDD[Int]  =  MaxClassifier(model(positives.map(_.features)))
-          val numMissedPositives = predictionsPositives.filter(_ == 0).count()
-          val missed = negativesFull.zip(predictions).filter(x => x._2 == 1).map(_._1)
+      val dnase = y.labeledWindow.win.dnase
+      val features = y.features
+      val seq = KernelApproximator.stringToVector(y.labeledWindow.win.sequence)
 
-          val predictionsVal:RDD[Int] = MaxClassifier(model(valFeatures))
-          val valResults = predictionsVal.zip(valFeaturizedWindows)
-          val valPosMissed = valResults.filter({x => x._2.labeledWindow.label == 1 && x._1 == 0}).count()
-          val valNegMissed = valResults.filter({x => x._2.labeledWindow.label == 0 && x._1 == 1}).count()
-          trainFeaturizedWindowsSampled = trainFeaturizedWindowsSampled.union(missed).repartition(conf.numPartitions).cache()
-          val valScores:RDD[Double] = model(valFeatures).map(x => x(1))
+      val meanDnase = mean(dnase)
+      val varDnase = variance(dnase)
 
-          val evalTest = new BinaryClassificationMetrics(valScores.zip(valLabels.map(_.toDouble)))
+      val meanSequence = mean(dnase)
+      val varSequence = variance(dnase)
 
-          println(s"neg Iteration: ${i}, misssed neg: ${missed.count()}, missed pos: ${numMissedPositives}, missed pos(val): ${valPosMissed}, missed neg(val) ${valNegMissed}")
-          Metrics.printMetrics(evalTest)
-          i = i + 1
-          model
-    })
-
-    val model = models(models.size - 1)
-    val trainFeatures = trainFeaturizedWindows.map(_.features)
-    val trainLabels = labelExtractor(trainFeaturizedWindows.map(_.labeledWindow.label)).get
-
-    if (conf.valDuringSolve) {
-      val trainPredictions:RDD[Double] = model(trainFeatures).map(x => x(1))
-      trainPredictions.count()
-      val trainScalarLabels = trainLabels.map(x => if(x(1) == 1) 1 else 0)
-      val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
-      println("WRITING TRAIN PREDICTIONS TO DISK")
-      val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
-      val valFeaturizedWindows = valFeaturizedWindowsOpt.get
-      val valFeatures = valFeaturizedWindows.map(_.features)
-      val valPredictions:RDD[Double] = model(valFeatures).map(x => x(1))
-      valPredictions.count()
-      val valScalarLabels = valFeaturizedWindows.map(_.labeledWindow.label)
-      val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
-      val zippedValPreds = valScalarLabels.zip(valPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
+      val meanSeq = mean(seq)
+      val varSeq = variance(seq)
+      val simpleFeatures = DenseVector(meanDnase, varDnase, meanSequence, varSequence)
+      val simpleFeaturesLift = (simpleFeatures.t * W.t).t
+      simpleFeaturesLift :+= b
+      simpleFeatures
     }
+
+
+    val trainFeatures = trainFeaturizedWindowsSampled map refeaturize
+
+    val allData = valFeaturizedWindowsOpt.get.map(x => x.labeledWindow)
+
+    val numPositives = allData.filter({ x => x.label == 1}).count()
+    val numNegatives = allData.filter({ x => x.label == 0}).count()
+
+    println("NUM train POSITIVES with small variance DNASE " + allData.filter({ x =>
+      x.label == 1 && variance(x.win.dnase) <= 0.005}).count())
+
+    println("NUM train NEGATIVES with small variance DNASE " + allData.filter({ x =>
+      x.label == 0 && variance(x.win.dnase) <= 0.005}).count())
+
+    println("NUM val NEGATIVES " + numNegatives)
+    println("NUM val POSITIVES " + numPositives)
+
+    val valFeaturizedWindows = valFeaturizedWindowsOpt.get
+    println("VAL COUNT " + valFeaturizedWindows.count())
+
+
+    val valFeatures = valFeaturizedWindows map refeaturize
+
+    val valLabels = valFeaturizedWindows.map(_.labeledWindow.label)
+    val trainLabels = trainFeaturizedWindowsSampled.map(_.labeledWindow.label)
+
+
+    val trainVectorLabels = labelExtractor(trainFeaturizedWindowsSampled.map(_.labeledWindow.label)).get
+    val d = trainFeatures.first.size
+    val model = new BlockLeastSquaresEstimator(d, 1, conf.lambda).fit(trainFeatures, trainVectorLabels)
+    var valScores:RDD[Double] = model(valFeatures).map(x => x(1))
+    var trainScores:RDD[Double] = model(trainFeatures).map(x => x(1))
+
+    print("VALIDATION RESULTS ")
+    val evalTest = new BinaryClassificationMetrics(valScores.zip(valLabels.map(_.toDouble)))
+
+    Metrics.printMetrics(evalTest)
+
+    val evalTrain = new BinaryClassificationMetrics(trainScores.zip(trainLabels.map(_.toDouble)))
+
+    print("TRAIN RESULTS ")
+    Metrics.printMetrics(evalTrain)
+
+    val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
+    println("WRITING TRAIN PREDICTIONS TO DISK")
+    val zippedTrainPreds = trainLabels.zip(trainScores).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
+
+    val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
+    val zippedValPreds = valLabels.zip(valScores).map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
 
     println("Saving model to disk")
     saveModel(model, conf.modelOutput)

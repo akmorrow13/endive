@@ -95,9 +95,17 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
       val samplingIndices = (0 until allData.count().toInt).map(x =>  (x, rand.nextFloat() < conf.featurizeSample)).filter(_._2).map(_._1).toSet
       val samplingIndicesB = sc.broadcast(samplingIndices)
 
-      allData = allData.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1)
+      allData = allData.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1).cache()
     }
-
+    allData.count()
+    println("NORMALIZING DNASE")
+      // normalize dnase
+      val dnaseMaxPos = allData.map(r => r.win.dnase.max).max
+      allData = allData.map(r => {
+        val win = r.win.setDnase(r.win.getDnase / dnaseMaxPos)
+        LabeledWindow(win, r.label)
+      })
+      println(s"max for dnase went from ${dnaseMaxPos} to ${allData.map(r => r.win.dnase.max).max}")
     println("Sampling Frequency " + conf.featurizeSample)
 
     // either generate filters or load from disk

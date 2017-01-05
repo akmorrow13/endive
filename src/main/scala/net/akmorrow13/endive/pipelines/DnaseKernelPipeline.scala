@@ -40,6 +40,7 @@ import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
 import java.io.File
+import net.jafama.FastMath
 
 
 
@@ -213,7 +214,7 @@ object DnaseKernelPipeline  extends Serializable with Logging {
                          W_dnase: Option[DenseMatrix[Double]] = None,
                          dnaseSize: Option[Int] = None): RDD[FeaturizedLabeledWindow] = {
 
-    val kernelApprox_seq = new KernelApproximator(W_sequence, Math.cos, kmerSize, Dataset.alphabet.size)
+    val kernelApprox_seq = new KernelApproximator(W_sequence, FastMath.cos, kmerSize, Dataset.alphabet.size)
 
     if (W_dnase.isDefined && dnaseSize.isDefined) {
       val kernelApprox_dnase = new KernelApproximator(W_dnase.get, Math.cos, dnaseSize.get, 1)
