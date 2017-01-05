@@ -8,8 +8,9 @@ from joblib import Parallel, delayed
 import multiprocessing
 
 predictionsPath = "hdfs://amp-spark-master.amp:8020/user/akmorrow/predictions"
-modelPath = "/home/eecs/akmorrow/endive-models"
+modelPath = "/home/eecs/akmorrow/endive-models-2048"
 partitions = 2000
+ladderBoard = True
 
 BASE_KERNEL_PIPELINE_CONFIG = \
 {
@@ -26,8 +27,8 @@ dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatas
 
 featurization_pipeline_class = "net.akmorrow13.endive.pipelines.DnaseKernelPipeline"
 
-solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverHardNegativeThreshPipeline"
-# solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
+#solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverHardNegativeThreshPipeline"
+solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
 test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
 
 pipeline_jar = os.path.relpath("../target/scala-2.10/endive-assembly-0.1.jar")
@@ -155,7 +156,6 @@ def run_test_pipeline(featuresPath, # features for test windows
                num_executors=NUM_EXECUTORS,
                executor_mem=EXECUTOR_MEM,
                use_yarn=True,
-               delete_predictions_from_hdfs=False,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
@@ -163,6 +163,8 @@ def run_test_pipeline(featuresPath, # features for test windows
     kernel_pipeline_config["modelOutput"] = modelPath
     kernel_pipeline_config["approxDim"] = approxDim
     kernel_pipeline_config["predictionsOutput"] = predictionsPath
+    kernel_pipeline_config["ladderBoard"] = ladderBoard
+
     print(kernel_pipeline_config)
     
     pythonrun.run(kernel_pipeline_config,
@@ -173,17 +175,6 @@ def run_test_pipeline(featuresPath, # features for test windows
               cores_per_executor,
               num_executors,
               use_yarn=True)
-
-    test_pred_name = predictionsPath + "/testPreds"
-    test_preds = load_hdfs_vector_parallel(test_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
-    test_meta_name = predictionsPath + "/testMetaData"
-    test_meta  = load_test_metadata(test_meta_name, hdfsclient=hdfsclient)
-
-    if (delete_predictions_from_hdfs):
-        os.system("hadoop fs -rmr ${0}".format(test_pred_name))
-        os.system("hadoop fs -rmr ${0}".format(test_meta_name))
-
-    return test_preds, test_meta
 
 
 def load_test_metadata(metadataPath, hdfsclient, tmpPath="/tmp/"):

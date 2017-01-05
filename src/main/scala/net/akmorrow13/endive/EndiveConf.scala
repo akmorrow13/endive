@@ -113,6 +113,7 @@ class EndiveConf extends Serializable {
   @BeanProperty var ladderBoard: Boolean = false
   @BeanProperty var testBoard: Boolean = false
 
+  @BeanProperty var modelBlockSize: Int = 256
 }
 
 object EndiveConf {
@@ -120,10 +121,6 @@ object EndiveConf {
     /* Add line for required arugments here to validate
      * TODO: This is a kludge but idk what else to do
      */
-
-    if (conf.reference == null) {
-      throw new IllegalArgumentException("Refrence path is mandatory")
-    }
 
     if (conf.heldoutChr > Chromosomes.toVector.length - 1) {
       throw new IllegalArgumentException("chrPerFold must be less than 23")

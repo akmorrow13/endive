@@ -86,7 +86,7 @@ object TestPipeline extends Serializable with Logging {
 
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
     val testFeaturizedWindows = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
-    val model = loadModel(conf.modelOutput, conf.approxDim)
+    val model = loadModel(conf.modelOutput, conf.modelBlockSize)
     val testFeatures = testFeaturizedWindows.map(_.features)
 
     println(testFeatures.count())
