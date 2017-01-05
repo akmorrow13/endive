@@ -153,6 +153,9 @@ object SolverPipeline extends Serializable with Logging {
       .filter(r => (motifB.value.filter(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty && r.labeledWindow.win.getDnase.sum == 0))
       .cache()
 
+    println(s"trainPositives: ${trainFeaturizedWindows.filter(_.labeledWindow.label == 1).count}, trainNegatives: " +
+      s"${trainFeaturizedWindows.filter(_.labeledWindow.label == 0).count}")
+
     println(s"total count in dataset: s${featuresRDD.count}")
     println(s"incorrect negatives (actuall positives) with n" +
       s" dnase: ${trainNegatives.filter(r => (r.labeledWindow.label == 1)).count}" +
@@ -193,9 +196,15 @@ object SolverPipeline extends Serializable with Logging {
       val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
       println(s"WRITING TRAIN PREDICTIONS TO DISK AT ${trainPredictionsOutput}")
 
-      val finalTrain = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}")
-        .union(trainNegatives.map(x => s"${x.labeledWindow.label},${0.0}"))
-      finalTrain.saveAsTextFile(trainPredictionsOutput)
+      val finalTrain = trainScalarLabels.zip(trainPredictions).map(x => (x._1, x._2))
+        .union(trainNegatives.map(x => (x.labeledWindow.label, 0.0)))
+
+      finalTrain.map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
+
+      // train metrics
+      val evalTrain = new BinaryClassificationMetrics(finalTrain.map(x => (x._2, x._1.toDouble)))
+      println("Train Results: \n ")
+      Metrics.printMetrics(evalTrain)
 
       val valFeatures = valFeaturizedWindows.map(_.features)
       var valPredictions: RDD[Double] = model(valFeatures).map(x => x(1))
@@ -204,9 +213,16 @@ object SolverPipeline extends Serializable with Logging {
       val valScalarLabels = valFeaturizedWindows.map(_.labeledWindow.label)
       val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
 
-      valScalarLabels.zip(valPredictions).map(x => s"${x._1},${x._2}")
-        .union(testNegatives.map(x => s"${x.labeledWindow.label},${0.0}"))
-        .saveAsTextFile(valPredictionsOutput)
+      val finalTest = valScalarLabels.zip(valPredictions).map(x => (x._1, x._2))
+        .union(testNegatives.map(x => (x.labeledWindow.label, 0.0)))
+
+      finalTest.map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
+
+      // test metrics
+      val evalTest = new BinaryClassificationMetrics(finalTest.map(x => (x._2, x._1.toDouble)))
+      println("Test Results: \n ")
+      Metrics.printMetrics(evalTest)
+
 
       try {
         // save test predictions if specified
