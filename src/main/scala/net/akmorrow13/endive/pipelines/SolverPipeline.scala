@@ -122,63 +122,6 @@ object SolverPipeline extends Serializable with Logging {
 
     var (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve, conf.numPartitions)
 
-    // filter by motifs
-    val motifs = sc.textFile(conf.getMotifDBPath)
-          .map(r => {
-            val split = r.split('\t')
-            new ReferenceRegion(split(1), split(2).toLong-300L, split(3).toLong+300L)
-          })
-
-    val motifB = sc.broadcast(motifs.collect)
-
-    val trainPositives = trainFeaturizedWindows
-      .filter(r => !motifB.value.map(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
-    val trainNegatives = trainFeaturizedWindows
-      .filter(r => motifB.value.map(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
-
-    val train = trainPositives.map(r => (r.labeledWindow.label.toDouble, 1.0))
-              .union(trainNegatives.map(r => (r.labeledWindow.label.toDouble, 0.0)))
-              .cache()
-
-    // count correct and incorrect negs
-    println(s"train: incorrect negs (actually positive): ${train.filter(r => (r._1 == 1.0 && r._2 == 0.0)).count}," +
-      s" correct negs:${train.filter(r => (r._1 == 0.0 && r._2 == 0.0)).count}")
-
-    // count correct and incorrect pos
-    println(s"train: incorrect positives (actually neg): ${train.filter(r => (r._1 == 0.0 && r._2 == 1.0)).count}," +
-      s" correct pos:${train.filter(r => (r._1 == 1.0 && r._2 == 1.0)).count}")
-
-    train.map(x => s"${x._1},${x._2}").saveAsTextFile(conf.predictionsOutput + "/trainPreds")
-
-    val testPositives = valFeaturizedWindowsOpt.get
-      .filter(r => !motifB.value.map(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
-    val testNegatives = valFeaturizedWindowsOpt.get
-      .filter(r => motifB.value.map(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
-
-
-
-    val test = testPositives.map(r => (r.labeledWindow.label.toDouble, 1.0))
-      .union(testNegatives.map(r => (r.labeledWindow.label.toDouble, 0.0)))
-    // count correct and incorrect negs
-    println(s"test: incorrect negs (actually positive): ${test.filter(r => (r._1 == 1.0 && r._2 == 0.0)).count}," +
-      s" correct negs:${test.filter(r => (r._1 == 0.0 && r._2 == 0.0)).count}")
-
-    // count correct and incorrect pos
-    println(s"test: incorrect positives (actually neg): ${test.filter(r => (r._1 == 0.0 && r._2 == 1.0)).count}," +
-      s" correct pos:${test.filter(r => (r._1 == 1.0 && r._2 == 1.0)).count}")
-
-    test.map(x => s"${x._1},${x._2}")
-      .saveAsTextFile(conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}")
-
-
-    val evalTrain = new BinaryClassificationMetrics(train.map(r => (r._2, r._1)))
-    println("Train Results: \n ")
-    Metrics.printMetrics(evalTrain)
-    val evalTest = new BinaryClassificationMetrics(test.map(r => (r._2, r._1)))
-    println("Test Results: \n ")
-    Metrics.printMetrics(evalTest)
-
-    sys.exit(0)
 
     if (conf.negativeSamplingFreq < 1.0) {
       println("NEGATIVE SAMPLING")
@@ -192,11 +135,42 @@ object SolverPipeline extends Serializable with Logging {
       trainFeaturizedWindows = positives.union(negatives)
     }
 
-    trainFeaturizedWindows = trainFeaturizedWindows.repartition(conf.numPartitions).cache()
-    valFeaturizedWindowsOpt = valFeaturizedWindowsOpt.map(_.repartition(conf.numPartitions).cache())
+    // filter by motifs
+    val motifs = sc.textFile(conf.getMotifDBPath)
+          .map(r => {
+            val split = r.split('\t')
+            new ReferenceRegion(split(1), split(2).toLong-350, split(3).toLong+350)
+          })
 
+    val motifB = sc.broadcast(motifs.collect)
+
+    // trainable points. everything else will be set to negative
+    trainFeaturizedWindows = trainFeaturizedWindows
+      .filter(r => (!motifB.value.filter(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty || r.labeledWindow.win.getDnase.sum > 0))
+      .cache()
+
+    val trainNegatives = trainFeaturizedWindows
+      .filter(r => (motifB.value.filter(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty && r.labeledWindow.win.getDnase.sum == 0))
+      .cache()
+
+    println(s"total count in dataset: s${featuresRDD.count}")
+    println(s"incorrect negatives (actuall positives) with n" +
+      s" dnase: ${trainNegatives.filter(r => (r.labeledWindow.label == 1)).count}" +
+      s"out of ${trainNegatives.count}")
+
+    var valFeaturizedWindows = valFeaturizedWindowsOpt.get
+      .filter(r => (!motifB.value.filter(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty || r.labeledWindow.win.getDnase.sum > 0))
+      .cache()
+
+    val testNegatives = valFeaturizedWindowsOpt.get
+      .filter(r => (motifB.value.filter(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty && r.labeledWindow.win.getDnase.sum == 0))
+      .cache()
+
+
+    trainFeaturizedWindows = trainFeaturizedWindows.repartition(conf.numPartitions).cache()
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
+    valFeaturizedWindows = valFeaturizedWindows.repartition(conf.numPartitions).cache()
 
     val trainFeatures = trainFeaturizedWindows.map(_.features)
     val trainLabels = labelExtractor(trainFeaturizedWindows.map(_.labeledWindow.label)).get
@@ -210,26 +184,29 @@ object SolverPipeline extends Serializable with Logging {
       }
 
     if (conf.valDuringSolve) {
-      val trainPredictions: RDD[Double] = model(trainFeatures).map(x => x(1))
+      var trainPredictions: RDD[Double] = model(trainFeatures).map(x => x(1))
+      val (minTrain, maxTrain) = (trainPredictions.min(), trainPredictions.max())
+      trainPredictions = trainPredictions.map(r => ((r - minTrain)/(maxTrain - minTrain)))
       trainPredictions.count()
-      val trainScalarLabels = trainLabels.map(x => if (x(1) == 1) 1 else 0)
+      val trainScalarLabels = trainFeaturizedWindows.map(_.labeledWindow.label)
+
       val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
       println(s"WRITING TRAIN PREDICTIONS TO DISK AT ${trainPredictionsOutput}")
-      val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
-      var valFeaturizedWindows = valFeaturizedWindowsOpt.get
-      // filter out dnase with < mean
-      valFeaturizedWindows = valFeaturizedWindows //.filter(_.labeledWindow.win.dnase.sum > 1)
-    //  val hardNegatives  = valFeaturizedWindows.filter(_.labeledWindow.win.dnase.sum <= 1).map(r => (r.labeledWindow.label, 0.0))
+
+      val finalTrain = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}")
+        .union(trainNegatives.map(x => s"${x.labeledWindow.label},${0.0}"))
+      finalTrain.saveAsTextFile(trainPredictionsOutput)
 
       val valFeatures = valFeaturizedWindows.map(_.features)
       var valPredictions: RDD[Double] = model(valFeatures).map(x => x(1))
-      val (min, max) = (valPredictions.min(), valPredictions.max())
-      valPredictions = valPredictions.map(r => ((r - min)/(max - min)))
+      val (minTest, maxTest) = (valPredictions.min(), valPredictions.max())
+      valPredictions = valPredictions.map(r => ((r - minTest)/(maxTest - minTest)))
       val valScalarLabels = valFeaturizedWindows.map(_.labeledWindow.label)
       val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
 
-      val zippedValPreds = valScalarLabels.zip(valPredictions) //.union(hardNegatives)
-      zippedValPreds.map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
+      valScalarLabels.zip(valPredictions).map(x => s"${x._1},${x._2}")
+        .union(testNegatives.map(x => s"${x.labeledWindow.label},${0.0}"))
+        .saveAsTextFile(valPredictionsOutput)
 
       try {
         // save test predictions if specified
