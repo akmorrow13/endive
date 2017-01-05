@@ -8,8 +8,9 @@ from joblib import Parallel, delayed
 import multiprocessing
 
 predictionsPath = "hdfs://amp-spark-master.amp:8020/user/akmorrow/predictions"
-modelPath = "/home/eecs/akmorrow/endive-models"
+modelPath = "/home/eecs/akmorrow/endive-models-2048"
 partitions = 2000
+ladderBoard = True
 
 BASE_KERNEL_PIPELINE_CONFIG = \
 {
@@ -26,7 +27,7 @@ dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatas
 
 featurization_pipeline_class = "net.akmorrow13.endive.pipelines.DnaseKernelPipeline"
 
-# solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverHardNegativeThreshPipeline"
+#solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverHardNegativeThreshPipeline"
 solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
 test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
 
@@ -124,6 +125,8 @@ def run_solver_pipeline(featuresPath,
     kernel_pipeline_config["lambda"] = reg
     kernel_pipeline_config["negativeSamplingFreq"] = negativeSamplingFreq
     kernel_pipeline_config["mixtureWeight"] = mixtureWeight
+    kernel_pipeline_config["motifDBPath"] ="/data/anv/DREAMDATA/databases/hg19filtered/EGR1_full_JOLMA2013.bed"
+
     if (predictedOutput != None):
         kernel_pipeline_config["saveTestPredictions"] = predictedOutput
     
@@ -145,22 +148,27 @@ def run_solver_pipeline(featuresPath,
         return (train_preds, val_preds)
     return ([], [])
 
-def run_test_pipeline(featuresPath,
+def run_test_pipeline(featuresPath, # features for test windows
                logpath,
                hdfsclient,
-               predictionsPath, # ="/user/vaishaal/tmp",
-               modelPath, # ="/home/eecs/vaishaal/endive-models",
+               predictionsPath, # saves metadata and test preditions to /testMetaData and /testPreds
+               modelPath, 
+               approxDim,
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
                executor_mem=EXECUTOR_MEM,
                use_yarn=True,
-               reg=0.1,
-               delete_predictions_from_hdfs=False,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
     kernel_pipeline_config["featuresOutput"] = featuresPath
+    kernel_pipeline_config["modelOutput"] = modelPath
+    kernel_pipeline_config["approxDim"] = approxDim
     kernel_pipeline_config["predictionsOutput"] = predictionsPath
+    kernel_pipeline_config["ladderBoard"] = ladderBoard
+
+    print(kernel_pipeline_config)
+    
     pythonrun.run(kernel_pipeline_config,
               logpath,
               test_pipeline_class,
@@ -169,17 +177,6 @@ def run_test_pipeline(featuresPath,
               cores_per_executor,
               num_executors,
               use_yarn=True)
-
-    test_pred_name = predictionsPath + "/testPreds"
-    test_preds = load_hdfs_vector_parallel(test_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
-    test_meta_name = predictionsPath + "/testMetaData"
-    test_meta  = load_test_metadata(test_meta_name, hdfsclient=hdfsclient)
-
-    if (delete_predictions_from_hdfs):
-        os.system("hadoop fs -rmr ${0}".format(test_pred_name))
-        os.system("hadoop fs -rmr ${0}".format(test_meta_name))
-
-    return test_preds, test_meta
 
 
 def load_test_metadata(metadataPath, hdfsclient, tmpPath="/tmp/"):
@@ -261,7 +258,7 @@ def make_submission_output(outfile, test_preds, meta_df):
     meta_df['chr_int'] = meta_df['chr'].map(lambda x: int(x.replace('chr', '').replace('X', '24').replace('Y', '25')))
     meta_df['start'] = pd.to_numeric(meta_df['start'])
     sorted_test = meta_df.sort_values(['chr_int', 'start'])[['chr', 'start', 'end']]
-    prob_pred = (test_preds[:,1] - min(test_preds[:,1]))/max(test_preds[:,1] - min(test_preds[:,1]))
+    prob_pred = (test_preds[:,1] - min(test_preds[:,1]))/(max(test_preds[:,1]) - min(test_preds[:,1]))
     sorted_test['prob'] = prob_pred
     sorted_test.to_csv(outfile, sep='\t', header=False)
 
