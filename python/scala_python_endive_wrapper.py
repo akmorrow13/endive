@@ -7,6 +7,11 @@ from sklearn import metrics
 from joblib import Parallel, delayed
 import multiprocessing
 
+predictionsPath = "hdfs://amp-spark-master.amp:8020/user/akmorrow/predictions"
+modelPath = "/home/eecs/akmorrow/endive-models-2048"
+partitions = 2000
+ladderBoard = True
+
 BASE_KERNEL_PIPELINE_CONFIG = \
 {
     "reference": "/home/eecs/akmorrow/ADAM/endive/workfiles/hg19.2bit",
@@ -20,9 +25,9 @@ CORES_PER_EXECUTOR = 24
 
 dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatasetCreationPipeline"
 
-featurization_pipeline_class = "net.akmorrow13.endive.pipelines.KitchenSinkFeaturizePipeline"
+featurization_pipeline_class = "net.akmorrow13.endive.pipelines.DnaseKernelPipeline"
 
-solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverHardNegativeThreshPipeline"
+solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
 test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
 
 pipeline_jar = os.path.relpath("../target/scala-2.10/endive-assembly-0.1.jar")
@@ -46,6 +51,7 @@ def make_gaussian_filter_gen(gamma, alphabet_size=4, kmer_size=8, seed=0):
 def run_kitchensink_featurize_pipeline(windowPath,
                filterPath,
                logpath,
+               featuresOutput, # ="/user/vaishaal/tmp/features",
                filter_gen_gen=make_gaussian_filter_gen,
                gamma = 1.0,
                sample = 0.01,
@@ -53,7 +59,6 @@ def run_kitchensink_featurize_pipeline(windowPath,
                num_partitions=337,
                kmer_size=8,
                num_filters=256,
-               featuresOutput="/user/vaishaal/tmp/features",
                seed=0,
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
@@ -77,6 +82,7 @@ def run_kitchensink_featurize_pipeline(windowPath,
     kernel_pipeline_config["featuresOutput"] = featuresOutput
     kernel_pipeline_config["seed"] = seed
     kernel_pipeline_config["alphabetSize"] = alphabet_size
+    kernel_pipeline_config["numPartitions"] = partitions
     print kernel_pipeline_config
 
 
@@ -94,6 +100,8 @@ def run_kitchensink_featurize_pipeline(windowPath,
 def run_solver_pipeline(featuresPath,
                logpath,
                hdfsclient,
+               predictionsPath, #="/user/vaishaal/tmp",
+               modelPath, #="/home/eecs/vaishaal/endive-models",
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
                executor_mem=EXECUTOR_MEM,
@@ -102,9 +110,8 @@ def run_solver_pipeline(featuresPath,
                valCellTypes=[],
                reg=0.1,
                negativeSamplingFreq=1.0,
-               predictionsPath="/user/vaishaal/tmp",
+               predictedOutput=None,
                valDuringSolve=False,
-               modelPath="/home/eecs/vaishaal/endive-models",
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
@@ -116,6 +123,8 @@ def run_solver_pipeline(featuresPath,
     kernel_pipeline_config["modelOutput"] = modelPath
     kernel_pipeline_config["lambda"] = reg
     kernel_pipeline_config["negativeSamplingFreq"] = negativeSamplingFreq
+    if (predictedOutput != None):
+        kernel_pipeline_config["saveTestPredictions"] = predictedOutput
 
     pythonrun.run(kernel_pipeline_config,
               logpath,
@@ -127,49 +136,43 @@ def run_solver_pipeline(featuresPath,
               use_yarn=True)
 
     if valDuringSolve:
-        train_preds = load_hdfs_vector(predictionsPath + "/trainPreds", hdfsclient=hdfsclient, shape=(-1, 2))
+        train_preds = load_hdfs_vector_parallel(predictionsPath + "/trainPreds", hdfsclient=hdfsclient, shape=(-1, 2))
         valCellTypesStr = map(str, valCellTypes)
         val_pred_name = predictionsPath + "/valPreds_{0}_{1}".format(','.join(valChromosomes), ','.join(valCellTypesStr))
         print val_pred_name
-        val_preds = load_hdfs_vector(val_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
+        val_preds = load_hdfs_vector_parallel(val_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
         return (train_preds, val_preds)
     return ([], [])
 
-def run_test_pipeline(featuresPath,
+def run_test_pipeline(featuresPath, # features for test windows
                logpath,
                hdfsclient,
+               predictionsPath, # saves metadata and test preditions to /testMetaData and /testPreds
+               modelPath,
+               approxDim,
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
                executor_mem=EXECUTOR_MEM,
                use_yarn=True,
-               reg=0.1,
-               predictionsPath="/user/vaishaal/tmp",
-               modelPath="/home/eecs/vaishaal/endive-models",
-               delete_predictions_from_hdfs=False,
-               base_config=BASE_KERNEL_PIPELINE_CONFIG):
+                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
     kernel_pipeline_config["featuresOutput"] = featuresPath
+    kernel_pipeline_config["modelOutput"] = modelPath
+    kernel_pipeline_config["approxDim"] = approxDim
     kernel_pipeline_config["predictionsOutput"] = predictionsPath
+    kernel_pipeline_config["ladderBoard"] = ladderBoard
+
+    print(kernel_pipeline_config)
+
     pythonrun.run(kernel_pipeline_config,
-              logpath,
-              test_pipeline_class,
-              pipeline_jar,
-              executor_mem,
-              cores_per_executor,
-              num_executors,
-              use_yarn=True)
-
-    test_pred_name = predictionsPath + "/testPreds"
-    test_preds = load_hdfs_vector_parallel(test_pred_name, hdfsclient=hdfsclient, shape=(-1, 2))
-    test_meta_name = predictionsPath + "/testMetaData"
-    test_meta  = load_test_metadata(test_meta_name, hdfsclient=hdfsclient)
-
-    if (delete_predictions_from_hdfs):
-        os.system("hadoop fs -rmr ${0}".format(test_pred_name))
-        os.system("hadoop fs -rmr ${0}".format(test_meta_name))
-
-    return test_preds, test_meta
+                  logpath,
+                  test_pipeline_class,
+                  pipeline_jar,
+                  executor_mem,
+                  cores_per_executor,
+                  num_executors,
+                  use_yarn=True)
 
 
 def load_test_metadata(metadataPath, hdfsclient, tmpPath="/tmp/"):
@@ -290,12 +293,15 @@ def roc_result(y_test, y_test_pred, y_train=None, y_train_pred=None):
 
 
 
-def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, numHoldOutChr=1, numHoldOutCell=1,
+def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, logPath,
+                   numHoldOutChr=1,
+                   numHoldOutCell=1,
                    num_folds=1,
                    regs=[0.1],
                    negativeSamplingFreqs=[1.0],
                    seed=0,
                    executor_mem='100g',
+                   predicted_output=None,
                    cores_per_executor=32,
                    num_executors=14,
                    other_meta={}):
@@ -310,28 +316,33 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, numHoldOutC
         print("HOLDING OUT CHROMOSOMES {0}".format(test_chromosomes))
         print("HOLDING OUT CELL TYPES {0}".format(test_cell_types))
         for neg in negativeSamplingFreqs:
-          for reg in regs:
-            print("RUNING SOLVER WITH REG={0}".format(reg))
-            train_res, val_res = run_solver_pipeline(feature_path,
-                           "/tmp/log",
-                           hdfsclient,
-                           executor_mem=executor_mem,
-                           num_executors=num_executors,
-                           cores_per_executor=cores_per_executor,
-                           reg=reg,
-                           negativeSamplingFreq=neg,
-                           valCellTypes=[8],
-                           valChromosomes=["chr10"],
-                           valDuringSolve=True)
+            for reg in regs:
+                print("RUNING SOLVER WITH REG={0}".format(reg))
+                train_res, val_res = run_solver_pipeline(feature_path,
+                             logPath,
+                             hdfsclient,
+                             predictionsPath,
+                             modelPath,
+                             executor_mem=executor_mem,
+                             num_executors=num_executors,
+                             cores_per_executor=cores_per_executor,
+                             reg=reg,
+                             negativeSamplingFreq=neg,
+                             valCellTypes=[8],
+                             valChromosomes=test_chromosomes,
+                             predictedOutput=None,
+                             valDuringSolve=True)
 
-            train_metrics = compute_metrics(train_res[:, 1], train_res[:, 0], tag='train')
-            val_metrics = compute_metrics(val_res[:, 1], val_res[:, 0], tag='val')
-            result = dict(train_metrics.items() + val_metrics.items() + other_meta.items())
-            result['reg'] = reg
-            result['negativeSamplingFreq'] = neg
-            result['test_chromosomes'] = test_chromosomes
-            result['test_celltypes'] = test_cell_types
-            results.append(result)
+                train_metrics = compute_metrics(train_res[:, 1], train_res[:, 0], tag='train')
+                val_metrics = compute_metrics(val_res[:, 1], val_res[:, 0], tag='val')
+                result = dict(train_metrics.items() + val_metrics.items() + other_meta.items())
+                result['reg'] = reg
+                print(mixtureWeight)
+                result['negativeSamplingFreq'] = neg
+                result['test_chromosomes'] = test_chromosomes
+                result['test_celltypes'] = test_cell_types
+                results.append(result)
+                print(result)
     return pd.DataFrame(results)
 
 
@@ -353,17 +364,5 @@ def string_to_enum_celltypes(string_cell_types):
     ALL_CELLTYPES = ['A549','GM12878', 'H1hESC', 'HCT116', 'HeLaS3', 'HepG2', 'IMR90', 'K562', 'MCF7', 'PC3',
   'Panc1', 'SKNSH', 'inducedpluripotentstemcell', 'liver']
     return map(lambda x: x[0], filter(lambda x: x[1] in string_cell_types, enumerate(ALL_CELLTYPES)))
-
-
-
-
-
-
-
-
-
-
-
-
 
 
