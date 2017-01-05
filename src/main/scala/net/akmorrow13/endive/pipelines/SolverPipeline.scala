@@ -123,29 +123,53 @@ object SolverPipeline extends Serializable with Logging {
     var (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve, conf.numPartitions)
 
     // filter by motifs
-    val motifB = sc.broadcast(sc.loadFeatures(conf.getMotifDBPath)
-      .rdd.map(r => (ReferenceRegion(r.getContigName, r.getStart - 300, r.getEnd + 300), r)).collect)
+    val motifs = sc.textFile(conf.getMotifDBPath)
+          .map(r => {
+            val split = r.split('\t')
+            new ReferenceRegion(split(1), split(2).toLong-300L, split(3).toLong+300L)
+          })
+
+    val motifB = sc.broadcast(motifs.collect)
 
     val trainPositives = trainFeaturizedWindows
-      .filter(r => !motifB.value.map(m => m._1.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
+      .filter(r => !motifB.value.map(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
     val trainNegatives = trainFeaturizedWindows
-      .filter(r => motifB.value.map(m => m._1.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
+      .filter(r => motifB.value.map(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
 
     val train = trainPositives.map(r => (r.labeledWindow.label.toDouble, 1.0))
               .union(trainNegatives.map(r => (r.labeledWindow.label.toDouble, 0.0)))
+              .cache()
+
+    // count correct and incorrect negs
+    println(s"train: incorrect negs (actually positive): ${train.filter(r => (r._1 == 1.0 && r._2 == 0.0)).count}," +
+      s" correct negs:${train.filter(r => (r._1 == 0.0 && r._2 == 0.0)).count}")
+
+    // count correct and incorrect pos
+    println(s"train: incorrect positives (actually neg): ${train.filter(r => (r._1 == 0.0 && r._2 == 1.0)).count}," +
+      s" correct pos:${train.filter(r => (r._1 == 1.0 && r._2 == 1.0)).count}")
 
     train.map(x => s"${x._1},${x._2}").saveAsTextFile(conf.predictionsOutput + "/trainPreds")
 
     val testPositives = valFeaturizedWindowsOpt.get
-      .filter(r => !motifB.value.map(m => m._1.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
+      .filter(r => !motifB.value.map(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
     val testNegatives = valFeaturizedWindowsOpt.get
-      .filter(r => motifB.value.map(m => m._1.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
+      .filter(r => motifB.value.map(m => m.overlaps(r.labeledWindow.win.getRegion)).isEmpty)
+
+
 
     val test = testPositives.map(r => (r.labeledWindow.label.toDouble, 1.0))
       .union(testNegatives.map(r => (r.labeledWindow.label.toDouble, 0.0)))
+    // count correct and incorrect negs
+    println(s"test: incorrect negs (actually positive): ${test.filter(r => (r._1 == 1.0 && r._2 == 0.0)).count}," +
+      s" correct negs:${test.filter(r => (r._1 == 0.0 && r._2 == 0.0)).count}")
+
+    // count correct and incorrect pos
+    println(s"test: incorrect positives (actually neg): ${test.filter(r => (r._1 == 0.0 && r._2 == 1.0)).count}," +
+      s" correct pos:${test.filter(r => (r._1 == 1.0 && r._2 == 1.0)).count}")
 
     test.map(x => s"${x._1},${x._2}")
       .saveAsTextFile(conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}")
+
 
     val evalTrain = new BinaryClassificationMetrics(train.map(r => (r._2, r._1)))
     println("Train Results: \n ")
