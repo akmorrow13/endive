@@ -28,8 +28,7 @@ dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatas
 
 featurization_pipeline_class = "net.akmorrow13.endive.pipelines.DnaseKernelPipeline"
 
-#solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverHardNegativeThreshPipeline"
-solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
+solver_pipeline_class = "net.akmorrow13.endive.pipelines.MotifPipeline"
 test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
 
 pipeline_jar = os.path.relpath("../target/scala-2.10/endive-assembly-0.1.jar")
