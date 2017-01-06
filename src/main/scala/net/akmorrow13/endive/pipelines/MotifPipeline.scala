@@ -32,17 +32,22 @@ import org.apache.log4j.{Level, Logger}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.SequenceDictionary
+import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
 import org.bdgenomics.adam.rdd.feature.FeatureRDD
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
+import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.formats.avro._
+import org.bdgenomics.adam.rdd._
 import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
 import nodes.learning._
+import breeze.stats._
+import breeze.math._
+import breeze.numerics._
 
 import java.io.{File, BufferedWriter, FileWriter}
 import java.nio.file.attribute.BasicFileAttributes
@@ -52,7 +57,7 @@ import nodes.stats._
 
 
 
-object SolverPipeline extends Serializable with Logging {
+object MotifPipeline extends Serializable with Logging {
 
   /**
    * A very basic pipeline that *doesn't* featurize the data
@@ -116,34 +121,85 @@ object SolverPipeline extends Serializable with Logging {
 
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
     println(conf.saveTestPredictions)
-    var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
-
-    println(featuresRDD.first.labeledWindow.win.cellType.id)
-    println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
+    val featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
 
     var (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve, conf.numPartitions)
 
+    // filter by motifs
+    val motifs: RDD[Feature] = conf.getMotifDBPath.split(",").map(file => {
+      sc.textFile(file).filter(r => !r.contains("start"))
+        .map(r => {
+          val split = r.split('\t')
+          Feature.newBuilder()
+            .setContigName(split(1))
+            .setStart(split(2).toLong-10)
+            .setEnd(split(3).toLong+10)
+            .setScore(split(6).toDouble).build()
+        })
+    }).reduce(_ union _)
 
-    if (conf.negativeSamplingFreq < 1.0) {
-      println("NEGATIVE SAMPLING")
-      val rand = new Random(conf.seed)
-      val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0)
-      val samplingIndices = (0 until negativesFull.count().toInt).map(x =>  (x, rand.nextFloat() < conf.negativeSamplingFreq)).filter(_._2).map(_._1).toSet
-      val samplingIndicesB = sc.broadcast(samplingIndices)
-      val negatives = negativesFull.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1)
+    val motifB = sc.broadcast(motifs.collect)
 
-      val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0)
-      trainFeaturizedWindows = positives.union(negatives)
-    }
+    var trainWindows: RDD[(Array[Feature], FeaturizedLabeledWindow)] = trainFeaturizedWindows.map(r => {
+      (motifB.value.filter(f => ReferenceRegion.unstranded(f).overlaps(r.labeledWindow.win.getRegion)), r)
+    })
 
-    trainFeaturizedWindows = trainFeaturizedWindows.repartition(conf.numPartitions).cache()
-    valFeaturizedWindowsOpt = valFeaturizedWindowsOpt.map(_.repartition(conf.numPartitions).cache())
+    var testWindows: RDD[(Array[Feature], FeaturizedLabeledWindow)] = valFeaturizedWindowsOpt.get.map(r => {
+      (motifB.value.filter(f => ReferenceRegion.unstranded(f).overlaps(r.labeledWindow.win.getRegion)), r)
+    })
 
+    val trainNegatives = trainWindows
+      .filter(r => (r._1.isEmpty && variance(r._2.labeledWindow.win.getDnase) < 0.01))
+      .cache()
+
+    // trainable points. everything else will be set to negative
+    var train = trainWindows
+      .filter(r => (!r._1.isEmpty || variance(r._2.labeledWindow.win.getDnase) >= 0.01))
+//      .map(r => {
+//        val score: Double = {
+//          if (r._1.isEmpty) 0.0
+//          else r._1.head.getScore
+//        }
+//        (score, r._2, r._3, r._4)
+//      })
+      .cache()
+
+    println(s"trainPositives: ${train.filter(_._2.labeledWindow.label == 1).count}, trainNegatives: " +
+      s"${train.filter(_._2.labeledWindow.label == 0).count}")
+
+    println(s"incorrect negatives (actually positives) " +
+      s" dnase: ${trainNegatives.filter(r => (r._2.labeledWindow.label == 1)).count}" +
+      s"out of ${trainNegatives.count}")
+
+    val testNegatives = testWindows
+      .filter(r => (r._1.isEmpty && variance(r._2.labeledWindow.win.getDnase) < 0.01))
+      .cache()
+
+    println(s"incorrect test negatives: ${testNegatives.filter(_._2.labeledWindow.label == 1).count} " +
+      s"out of ${testNegatives.count}")
+
+    var test = testWindows
+      .filter(r => (!r._1.isEmpty || variance(r._2.labeledWindow.win.getDnase) >= 0.01))
+//      .map(r => {
+//        val score: Double = {
+//          if (r._1.isEmpty) 0.0
+//          else r._1.head.getScore
+//        }
+//        (score, r._2, r._3, r._4)
+//      })
+      .cache()
+
+    println(s"testPositives: ${test.filter(_._2.labeledWindow.label  == 1).count}, test Negatives: " +
+      s"${test.filter(_._2.labeledWindow.label == 0).count}, thresholded negs: ${testNegatives.count}")
+
+    train = train.repartition(conf.numPartitions).cache()
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
+    test = test.repartition(conf.numPartitions).cache()
 
-    val trainFeatures = trainFeaturizedWindows.map(_.features)
-    val trainLabels = labelExtractor(trainFeaturizedWindows.map(_.labeledWindow.label)).get
+    val trainFeatures = train.map(r => r._2.features)
+    val trainLabels = labelExtractor(train.map(_._2.labeledWindow.label)).get
+
 
     // Currently hardcoded to just do exact solve (after accumulating XtX)
     val model =
@@ -154,32 +210,56 @@ object SolverPipeline extends Serializable with Logging {
       }
 
     if (conf.valDuringSolve) {
-      val trainPredictions: RDD[Double] = model(trainFeatures).map(x => x(1))
+      //     var trainPredictions:RDD[Double] = trainFeaturi  zedWindows.map(x => variance(x.labeledWindow.win.dnase)).cache()
+      var trainPredictions: RDD[Double] =  MaxClassifier(model(trainFeatures)).map(_.toDouble)
+      val (minTrain, maxTrain) = (trainPredictions.min(), trainPredictions.max())
+      trainPredictions = trainPredictions.map(r => ((r - minTrain)/(maxTrain - minTrain)))
       trainPredictions.count()
-      val trainScalarLabels = trainLabels.map(x => if (x(1) == 1) 1 else 0)
+      val trainScalarLabels = train.map(_._2.labeledWindow.label)
+
       val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
       println(s"WRITING TRAIN PREDICTIONS TO DISK AT ${trainPredictionsOutput}")
-      val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
-      var valFeaturizedWindows = valFeaturizedWindowsOpt.get
-      // filter out dnase with < mean
-      valFeaturizedWindows = valFeaturizedWindows //.filter(_.labeledWindow.win.dnase.sum > 1)
-      //  val hardNegatives  = valFeaturizedWindows.filter(_.labeledWindow.win.dnase.sum <= 1).map(r => (r.labeledWindow.label, 0.0))
 
-      val valFeatures = valFeaturizedWindows.map(_.features)
-      var valPredictions: RDD[Double] = model(valFeatures).map(x => x(1))
-      val (min, max) = (valPredictions.min(), valPredictions.max())
-      valPredictions = valPredictions.map(r => ((r - min)/(max - min)))
-      val valScalarLabels = valFeaturizedWindows.map(_.labeledWindow.label)
+      val finalTrain = trainScalarLabels.zip(trainPredictions)
+        .map(x => (x._1, x._2))
+        .union(trainNegatives.map(x => (x._2.labeledWindow.label, 0.0)))
+
+      finalTrain.map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
+
+      // train metrics
+      val evalTrain = new BinaryClassificationMetrics(finalTrain.map(x => (x._2, x._1.toDouble)))
+      println("Train Results: \n ")
+      Metrics.printMetrics(evalTrain)
+
+      val valFeatures = test.map(r => r._2.features)
+      var valPredictions: RDD[Double] =  MaxClassifier(model(trainFeatures)).map(_.toDouble)
+      val (minTest, maxTest) = (valPredictions.min(), valPredictions.max())
+      valPredictions = valPredictions.map(r => ((r - minTest)/(maxTest - minTest)))
+
+      val valScalarLabels = test.map(_._2.labeledWindow.label)
       val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
 
-      val zippedValPreds = valScalarLabels.zip(valPredictions) //.union(hardNegatives)
-      zippedValPreds.map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
+      var finalTest = valScalarLabels.zip(valPredictions).map(x => (x._1, x._2))
+
+      // test metrics
+      var evalTest = new BinaryClassificationMetrics(finalTest.map(x => (x._2, x._1.toDouble)))
+      println("Test Results without negs: \n ")
+      Metrics.printMetrics(evalTest)
+
+      finalTest = finalTest
+        .union(testNegatives.map(x => (x._2.labeledWindow.label, 0.0)))
+
+      // test metrics
+      evalTest = new BinaryClassificationMetrics(finalTest.map(x => (x._2, x._1.toDouble)))
+      println("Test Results: \n ")
+      Metrics.printMetrics(evalTest)
+
+      finalTest.map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
 
       try {
         // save test predictions if specified
-        println(conf.saveTestPredictions)
-        if (conf.saveTestPredictions != null) {
-          val first = valFeaturizedWindows.first.labeledWindow.win
+        if (saveTestPredictions != null) {
+          val first = valFeaturizedWindowsOpt.get.first.labeledWindow.win
           val cellType = first.getCellType.toString
           val tf = first.getTf.toString
           val chr = first.getRegion.referenceName
@@ -187,11 +267,12 @@ object SolverPipeline extends Serializable with Logging {
           // create sequence dictionary, used to save files
           val reference = new TwoBitFile(new LocalFileByteAccess(new File(conf.reference)))
           val sd: SequenceDictionary = reference.sequences
-          println(sd)
-          saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).zip(valPredictions).filter(_._2 >= 0.5),
-            sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_predicted.bed")
-          saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).map(r => (r, r.label.toDouble)).filter(_._2 >= 0.5),
-            sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_true.bed")
+          // save predictions
+          saveAsFeatures(test.zip(valPredictions).map(r => (r._1._2.labeledWindow, r._2)).filter(_._2 > 0.0),
+            sd, saveTestPredictions + s"${tf}_${cellType}_${chr}_predicted.bed")
+          // save true values
+          saveAsFeatures(test.zip(valPredictions).map(r => (r._1._2.labeledWindow, r._1._2.labeledWindow.label.toDouble))
+            .filter(_._2 > 0.0), sd, saveTestPredictions + s"${tf}_${cellType}_${chr}_true.bed")
         }
       } catch {
         case e: Exception => {
@@ -311,7 +392,8 @@ object SolverPipeline extends Serializable with Logging {
 
     val featureRDD = new FeatureRDD(features, sd)
     println(s"saving features to path ${path}")
-    featureRDD.save(path, false)
+    featureRDD.save(path, true)
   }
 
 }
+
