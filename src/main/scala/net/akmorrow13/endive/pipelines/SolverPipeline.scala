@@ -210,7 +210,7 @@ object SolverPipeline extends Serializable with Logging {
     test = test.repartition(conf.numPartitions).cache()
 
     val trainFeatures = train.map(r => DenseVector(r._1, r._2, r._3))
-    val trainLabels = labelExtractor(trainWindows.map(_._4)).get
+    val trainLabels = labelExtractor(train.map(_._4)).get
 
 
     // Currently hardcoded to just do exact solve (after accumulating XtX)
@@ -227,7 +227,7 @@ object SolverPipeline extends Serializable with Logging {
       val (minTrain, maxTrain) = (trainPredictions.min(), trainPredictions.max())
       trainPredictions = trainPredictions.map(r => ((r - minTrain)/(maxTrain - minTrain)))
       trainPredictions.count()
-      val trainScalarLabels = trainFeaturizedWindows.map(_.labeledWindow.label)
+      val trainScalarLabels = train.map(_._4)
 
       val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
       println(s"WRITING TRAIN PREDICTIONS TO DISK AT ${trainPredictionsOutput}")
