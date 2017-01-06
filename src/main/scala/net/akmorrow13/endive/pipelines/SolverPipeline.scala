@@ -46,6 +46,8 @@ import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
 import nodes.learning._
 import breeze.stats._
+import breeze.math._
+import breeze.numerics._
 
 import java.io.{File, BufferedWriter, FileWriter}
 import java.nio.file.attribute.BasicFileAttributes
@@ -190,6 +192,8 @@ object SolverPipeline extends Serializable with Logging {
       .map(r => (0.0, r._2, r._3, r._4))
       .cache()
 
+    println(s"incorrect test negatives: ${testNegatives.filter(_._4 == 1).count} out of ${testNegatives.count}")
+
     var test: RDD[(Double, Double, Double, Int)] = testWindows
       .filter(r => (!r._1.isEmpty || r._3 >= 0.01))
       .map(r => {
@@ -227,12 +231,17 @@ object SolverPipeline extends Serializable with Logging {
       val (minTrain, maxTrain) = (trainPredictions.min(), trainPredictions.max())
       trainPredictions = trainPredictions.map(r => ((r - minTrain)/(maxTrain - minTrain)))
       trainPredictions.count()
-      val trainScalarLabels = trainFeaturizedWindows.map(_.labeledWindow.label)
+      val trainScalarLabels = train.map(_._4)
 
       val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
       println(s"WRITING TRAIN PREDICTIONS TO DISK AT ${trainPredictionsOutput}")
 
-      val finalTrain = trainScalarLabels.zip(trainPredictions).map(x => (x._1, x._2))
+      val finalTrain = trainScalarLabels.zip(trainPredictions)
+        .map(r => {
+          if (r._2 <= 0.0) (r._1,0.0)
+          else if (r._2 >= 1.0) (r._1,1.0)
+          else (r._1, sigmoid(r._2))
+        }).map(x => (x._1, x._2))
         .union(trainNegatives.map(x => (x._4, 0.0)))
 
       finalTrain.map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
@@ -247,10 +256,16 @@ object SolverPipeline extends Serializable with Logging {
       var valPredictions: RDD[Double] = model(valFeatures).map(x => x(1))
       val (minTest, maxTest) = (valPredictions.min(), valPredictions.max())
       valPredictions = valPredictions.map(r => ((r - minTest)/(maxTest - minTest)))
+
       val valScalarLabels = test.map(_._4)
       val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
 
       var finalTest = valScalarLabels.zip(valPredictions).map(x => (x._1, x._2))
+      .map(r => {
+        if (r._2 <= 0.0) (r._1,0.0)
+        else if (r._2 >= 1.0) (r._1,1.0)
+        else (r._1, sigmoid(r._2))
+      })
 
 
       // test metrics
@@ -270,7 +285,7 @@ object SolverPipeline extends Serializable with Logging {
 
       try {
         // save test predictions if specified
-	      val saveTestPredictions = null
+	      val saveTestPredictions = "predictions/"
         println(saveTestPredictions)
         if (saveTestPredictions != null) {
           val first = valFeaturizedWindowsOpt.get.first.labeledWindow.win
