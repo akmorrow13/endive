@@ -257,8 +257,9 @@ object MotifPipeline extends Serializable with Logging {
       finalTest.map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
 
       try {
+        println(s"saving bed files to  ${conf.saveTestPredictions}")
         // save test predictions if specified
-        if (saveTestPredictions != null) {
+        if (conf.saveTestPredictions != null) {
           val first = valFeaturizedWindowsOpt.get.first.labeledWindow.win
           val cellType = first.getCellType.toString
           val tf = first.getTf.toString
@@ -269,10 +270,10 @@ object MotifPipeline extends Serializable with Logging {
           val sd: SequenceDictionary = reference.sequences
           // save predictions
           saveAsFeatures(test.zip(valPredictions).map(r => (r._1._2.labeledWindow, r._2)).filter(_._2 > 0.0),
-            sd, saveTestPredictions + s"${tf}_${cellType}_${chr}_predicted.bed")
+            sd, conf.saveTestPredictions + s"${tf}_${cellType}_${chr}_predicted.bed")
           // save true values
           saveAsFeatures(test.zip(valPredictions).map(r => (r._1._2.labeledWindow, r._1._2.labeledWindow.label.toDouble))
-            .filter(_._2 > 0.0), sd, saveTestPredictions + s"${tf}_${cellType}_${chr}_true.bed")
+            .filter(_._2 > 0.0), sd, conf.saveTestPredictions + s"${tf}_${cellType}_${chr}_true.bed")
         }
       } catch {
         case e: Exception => {

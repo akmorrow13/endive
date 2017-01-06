@@ -9,6 +9,7 @@ import multiprocessing
 
 predictionsPath = "hdfs://amp-spark-master.amp:8020/user/akmorrow/predictions"
 modelPath = "/home/eecs/akmorrow/endive-models-2048"
+saveTestFeatures = "predictions/"
 partitions = 2000
 ladderBoard = True
 
@@ -82,7 +83,8 @@ def run_kitchensink_featurize_pipeline(windowPath,
     kernel_pipeline_config["featuresOutput"] = featuresOutput
     kernel_pipeline_config["seed"] = seed
     kernel_pipeline_config["alphabetSize"] = alphabet_size
-    kernel_pipeline_config["numPartitions"] = partitions
+    kernel_pipeline_config["numPartitions"] = partitions    
+    kernel_pipeline_config["saveTestPredictions"] = saveTestFeatures
     print kernel_pipeline_config
 
 
@@ -125,7 +127,7 @@ def run_solver_pipeline(featuresPath,
     kernel_pipeline_config["lambda"] = reg
     kernel_pipeline_config["negativeSamplingFreq"] = negativeSamplingFreq
     kernel_pipeline_config["mixtureWeight"] = mixtureWeight
-    kernel_pipeline_config["motifDBPath"] ="/data/anv/DREAMDATA/databases/hg19filtered/EGR1_full_JOLMA2013.bed"
+    kernel_pipeline_config["motifDBPath"] ="/data/anv/DREAMDATA/databases/hg19filtered/EGR1_full_JOLMA2013.bed,/data/anv/DREAMDATA/databases/hg19filtered/EGR1_DBD_JOLMA2013.bed"
 
     if (predictedOutput != None):
         kernel_pipeline_config["saveTestPredictions"] = predictedOutput
