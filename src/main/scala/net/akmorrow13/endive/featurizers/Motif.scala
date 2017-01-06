@@ -93,30 +93,19 @@ class MotifScorer(@transient sc: SparkContext,
 
 
   def scoreMotifs(in: RDD[LabeledWindow],
-                  windowSize: Int,
-                  stride: Int,
-                  tfs: Array[TranscriptionFactors.Value],
-                  motifDB: String): RDD[LabeledWindow] = {
+                  motifDB: String): RDD[(LabeledWindow, Double)] = {
+
+    val tfs = in.map(r => r.win.getTf.toString).distinct.collect
 
     // transcription factor specific motifs
-    val motifs: RDD[(ReferenceRegion, TranscriptionFactors.Value, PeakRecord)] = Preprocess.loadMotifFolder(sc, motifDB, Some(tfs))
-            .map(r => (r._2.region, r._1, r._2))
-    val windowedMotifs = CellTypeSpecific.window(motifs, sd)
-          .map(r => ((r._1._1, r._1._2), r._2))
+    val motifs: List[Motif] = Motif.parseYamlMotifs(motifDB).filter(r => tfs.contains(r.label))
 
-    val str = stride
-    val win = windowSize
+    val motifB = sc.broadcast(motifs)
 
-    val x: RDD[LabeledWindow] = in.filter(r => tfs.contains(r.win.getTf))
-      .keyBy(r => (r.win.getRegion, r.win.getTf))
-      .partitionBy(GenomicRegionPartitioner(Dataset.partitions, sd))
-      .leftOuterJoin(windowedMotifs)
-      .map(r => {
-        val motifs = r._2._2
-        LabeledWindow(Window(r._2._1.win.getTf, r._2._1.win.getCellType,
-          r._2._1.win.getRegion, r._2._1.win.getSequence, r._2._1.win.dnasePeakCount,
-          Some(r._2._1.win.getDnase), Some(r._2._1.win.getRnaseq), motifs), r._2._1.label)
-      })
+
+    val x = in.map(r => {
+      (r, motifB.value.map(m => m.sequenceProbability(r.win.getSequence)).max)
+    })
     x
   }
 
