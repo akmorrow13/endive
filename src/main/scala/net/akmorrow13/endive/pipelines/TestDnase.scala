@@ -93,8 +93,8 @@ object TestDnasePipeline extends Serializable with Logging {
 
 
         def run(sc: SparkContext, conf: EndiveConf): Unit = {
-          val windows = LabeledWindowLoader(conf.featuresOutput, sc)
-
+          val windows = LabeledWindowLoader(conf.featuresOutput, sc).filter(_.label >= 0).cache()
+/*
           // filter by motifs
           val motifs: RDD[Feature] = conf.getMotifDBPath.split(",").map(file => {
             sc.textFile(file).filter(r => !r.contains("start"))
@@ -113,18 +113,20 @@ object TestDnasePipeline extends Serializable with Logging {
           val motifWindows: RDD[(Array[Feature], LabeledWindow)] = windows.map(r => {
             (motifB.value.filter(f => ReferenceRegion.unstranded(f).overlaps(r.win.getRegion)), r)
           }).cache()
+*/
+          println(s"total windows: ${windows.count}, positive count: ${windows.filter(r => r.label == 1).count}, negative count: ${windows.filter(r => r.label == 0).count} ")
 
-          println(s"total windows: ${motifWindows.count}, positives ${motifWindows.filter(r => r._2.label == 1).count}, negative count: ${motifWindows.filter(r => r._2.label == 0).count} ")
-          println(s"average negative dnase: ${motifWindows.filter(r => r._2.label == 0).map(r => r._2.win.getDnase.sum).mean()}")
-          println(s"average positive dnase: ${motifWindows.filter(r => r._2.label == 1).map(r => r._2.win.getDnase.sum).mean()}")
+          val filtered =windows.filter(r => r.win.dnasePeakCount > 0)
+          println(s"counting number of negatives with dnase peaks ${filtered.filter(r => r.label == 0).count}")
+          println(s"counting number of positives with dnase peaks that are positive: ${filtered.filter(r => r.label == 1).count}")
 
-          println(s"counting number of positives with no dnase, no motifs, that are positive: ${motifWindows.filter(r => r._1.length >= 0 && r._2.win.getDnase.sum == 0 && r._2.label == 1).count}")
-          println(s"counting number of positives with 1 dnase, no motifs, that are positive: ${motifWindows.filter(r => r._1.length >= 0 && r._2.win.getDnase.sum <= 1.0 && r._2.label == 1).count}")
-          println(s"counting number of positives with 2 dnase, no motifs, that are positive: ${motifWindows.filter(r => r._1.length >= 0 && r._2.win.getDnase.sum <= 2.0 && r._2.label == 1).count}")
-
-          println(s"counting number of negatives with any motifs: ${motifWindows.filter(r => r._1.length > 0).count}")
-
+	  val threshold = windows.filter(r => r.win.dnasePeakCount == 0)
+	  println(s" total windows with no peaks is: ${threshold.count} \n total negatives with no peaks is ${threshold.filter(_.label == 0).count} \n total positives with no peaks is ${threshold.filter(_.label == 1).count}")
         }
 
 }
+
+
+
+
 
