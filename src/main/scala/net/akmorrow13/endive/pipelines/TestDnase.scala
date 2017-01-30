@@ -94,34 +94,45 @@ object TestDnasePipeline extends Serializable with Logging {
 
         def run(sc: SparkContext, conf: EndiveConf): Unit = {
           val windows = LabeledWindowLoader(conf.featuresOutput, sc).filter(_.label >= 0).cache()
-/*
-          // filter by motifs
-          val motifs: RDD[Feature] = conf.getMotifDBPath.split(",").map(file => {
-            sc.textFile(file).filter(r => !r.contains("start"))
-              .map(r => {
-                val split = r.split('\t')
-                Feature.newBuilder()
-                  .setContigName(split(1))
-                  .setStart(split(2).toLong - 10)
-                  .setEnd(split(3).toLong + 10)
-                  .setScore(split(6).toDouble).build()
-              })
-          }).reduce(_ union _)
+          var positives = windows.filter(r => r.label == 1)
+          var negatives = windows.filter(r => r.label == 0)
+          // print original statisics
+          println(s"ORIGINAL STATS: total windows: ${windows.count}, positive count: ${positives.count}, negative count: ${negatives.count} ")
 
-          val motifB = sc.broadcast(motifs.collect)
+          // consolidate positives
+          positives =
+            positives.groupBy(_.win.region.referenceName)
+              .flatMap(r => {
+                val cellTypes = r._2.toList.groupBy(_.win.cellType)
 
-          val motifWindows: RDD[(Array[Feature], LabeledWindow)] = windows.map(r => {
-            (motifB.value.filter(f => ReferenceRegion.unstranded(f).overlaps(r.win.getRegion)), r)
-          }).cache()
-*/
-          println(s"total windows: ${windows.count}, positive count: ${windows.filter(r => r.label == 1).count}, negative count: ${windows.filter(r => r.label == 0).count} ")
+                cellTypes.flatMap(list => {
+                  val sorted: List[LabeledWindow] = list._2.sortBy(_.win.region)
+                  var newWindows: Array[LabeledWindow] = Array.empty[LabeledWindow]
+                  sorted.foreach(r => {
+                    if (!newWindows.isEmpty && r.win.region.overlaps(newWindows.last.win.region)) {
+                      // merge into last element
+                      val elem = newWindows.last
+                      val region = r.win.region.merge(elem.win.region)
+                      val dnaseCount = r.win.dnasePeakCount + elem.win.dnasePeakCount
+                      newWindows(newWindows.length-1) = LabeledWindow(elem.win.setRegion(region).setDnaseCount(dnaseCount), 1)
 
-          val filtered =windows.filter(r => r.win.dnasePeakCount > 0)
-          println(s"counting number of negatives with dnase peaks ${filtered.filter(r => r.label == 0).count}")
-          println(s"counting number of positives with dnase peaks that are positive: ${filtered.filter(r => r.label == 1).count}")
+                    } else newWindows = newWindows :+ r
+                  })
+                  newWindows
+                })
+            })
 
-	  val threshold = windows.filter(r => r.win.dnasePeakCount == 0)
-	  println(s" total windows with no peaks is: ${threshold.count} \n total negatives with no peaks is ${threshold.filter(_.label == 0).count} \n total positives with no peaks is ${threshold.filter(_.label == 1).count}")
+          negatives = negatives.filter(_.win.dnasePeakCount > 0)
+
+          val positivesWithoutPeaks = positives.filter(_.win.dnasePeakCount == 0)
+          val positivesWithPeaks = positives.filter(_.win.dnasePeakCount > 0)
+
+          val posLen = positives.map(_.win.region.length()).mean()
+          println(s"average region size of positives: ${posLen}")
+
+          println(s"counting number of (negatives + positives): ${negatives.count} + ${positives.count} for total dataset")
+          println(s"number of positives that do not have peaks: ${positivesWithoutPeaks.count}, number of positives that do have peaks: ${positivesWithPeaks.count}")
+
         }
 
 }
