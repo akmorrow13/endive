@@ -86,8 +86,8 @@ object VectorizedDnase extends Serializable  {
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
-    val folds = EndiveUtils.generateFoldsRDD(windowsRDD.keyBy(r => (r.win.region.referenceName, r.win.cellType)), conf.heldOutCells, conf.heldoutChr, conf.folds)
-    val chrCellTypes: Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
+    val folds = EndiveUtils.generateFoldsRDD(windowsRDD.keyBy(r => (r.win.getRegion.referenceName, r.win.getCellType)), conf.heldOutCells, conf.heldoutChr, conf.folds)
+    val chrCellTypes: Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.getCellType)).countByValue().keys
     val cellTypes = chrCellTypes.map(_._2)
 
     println("Cell types: ")
@@ -101,7 +101,7 @@ object VectorizedDnase extends Serializable  {
     for (i <- (0 until folds.size)) {
       println("FOLD " + i)
       // get testing cell types for this fold
-      val cellTypesTest = folds(i)._2.map(x => (x._2.win.cellType)).countByValue().keys.toList
+      val cellTypesTest = folds(i)._2.map(x => (x._2.win.getCellType)).countByValue().keys.toList
       println(s"Fold ${i}, testing cell types:")
       cellTypesTest.foreach(println)
 
@@ -118,31 +118,31 @@ object VectorizedDnase extends Serializable  {
       println("TEST SIZE IS " + test.count())
 
       // training features
-      val xTrainPositives = train.map(_.win.dnase).filter(r => r.findAll(_ > 0).size > 0)
+      val xTrainPositives = train.map(_.win.getDnase).filter(r => r.findAll(_ > 0).size > 0)
         .setName("XTrainPositives").cache()
-      val xTrainNegatives = train.map(_.win.dnase).filter(r => r.findAll(_ > 0).size == 0)
+      val xTrainNegatives = train.map(_.win.getDnase).filter(r => r.findAll(_ > 0).size == 0)
         .setName("XTrainNegatives").cache()
       println("training positives and negatives", xTrainPositives.count, xTrainNegatives.count)
 
       // testing features
-      val xTestPositives: RDD[DenseVector[Double]] = test.map(_.win.dnase).filter(r => r.findAll(_ > 0).size > 0)
+      val xTestPositives: RDD[DenseVector[Double]] = test.map(_.win.getDnase).filter(r => r.findAll(_ > 0).size > 0)
   .setName("XTestPositives").cache()
-      val xTestNegatives: RDD[DenseVector[Double]] = test.map(_.win.dnase).filter(r => r.findAll(_ > 0).size == 0)
+      val xTestNegatives: RDD[DenseVector[Double]] = test.map(_.win.getDnase).filter(r => r.findAll(_ > 0).size == 0)
   .setName("XTestNegatives").cache()
       println("testing positives and negatives", xTestPositives.count, xTestNegatives.count)
  
       // training labels
-      val yTrainPositives = train.filter(r => r.win.dnase.findAll(_ > 0).size > 0).map(_.label)
+      val yTrainPositives = train.filter(r => r.win.getDnase.findAll(_ > 0).size > 0).map(_.label)
         .setName("yTrainPositive").cache()
-      val yTrainNegatives = train.filter(r => r.win.dnase.findAll(_ > 0).size == 0).map(_.label)
+      val yTrainNegatives = train.filter(r => r.win.getDnase.findAll(_ > 0).size == 0).map(_.label)
         .setName("yTrainNegative").cache()
       val yTrain = yTrainPositives.union(yTrainNegatives).map(_.toDouble)
       
       // testing labels
 
-      val yTestPositives = test.filter(r => r.win.dnase.findAll(_ > 0).size > 0).map(_.label)
+      val yTestPositives = test.filter(r => r.win.getDnase.findAll(_ > 0).size > 0).map(_.label)
         .setName("yTestPositive").cache()
-      val yTestNegatives = test.filter(r => r.win.dnase.findAll(_ > 0).size == 0).map(_.label)
+      val yTestNegatives = test.filter(r => r.win.getDnase.findAll(_ > 0).size == 0).map(_.label)
         .setName("yTestNegative").cache()
       val yTest = yTestPositives.union(yTestNegatives).map(_.toDouble)
 
@@ -202,7 +202,7 @@ object VectorizedDnase extends Serializable  {
     // join with positive strands
     var joinedRDD =
       LeftOuterShuffleRegionJoin[LabeledWindow, Feature](sd, 1000000, sc)
-        .partitionAndJoin(filteredRDD.keyBy(_.win.region), coverageFeatures.keyBy(r => ReferenceRegion(r.contigName, r.start, r.end)))
+        .partitionAndJoin(filteredRDD.keyBy(_.win.getRegion), coverageFeatures.keyBy(r => ReferenceRegion(r.contigName, r.start, r.end)))
 
      sc.setCheckpointDir("/data/anv/DREADMDATA/checkpoint/")
      joinedRDD = truncateLineage(joinedRDD, true).setName("joinedRDD")
@@ -210,7 +210,7 @@ object VectorizedDnase extends Serializable  {
      coverageFeatures.rdd.unpersist()
 
      val cutsAndWindows = joinedRDD
-        .groupBy(r => (r._1.win.region, r._1.win.getTf))
+        .groupBy(r => (r._1.win.getRegion, r._1.win.getTf))
         .map(r => {
           val arr = r._2.toArray
           featurizeCoverage(arr.head._1, arr.map(_._2).filter(_.isDefined).map(_.get))
@@ -243,7 +243,7 @@ object VectorizedDnase extends Serializable  {
 
     val cutsAndWindows: RDD[(LabeledWindow, Option[AlignmentRecord])] =
       LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, 2000000, sc)
-        .partitionAndJoin(filteredRDD.keyBy(_.win.region), mappedCoverage.rdd.keyBy(r => ReferenceRegion.opt(r).get))
+        .partitionAndJoin(filteredRDD.keyBy(_.win.getRegion), mappedCoverage.rdd.keyBy(r => ReferenceRegion.opt(r).get))
         .filter(_._2.isDefined)
         .setName("cutsAndWindows")
         .cache()
@@ -254,7 +254,7 @@ object VectorizedDnase extends Serializable  {
     filteredRDD.unpersist()
 
     val groupedWindows: RDD[(LabeledWindow, Iterable[AlignmentRecord])] = cutsAndWindows
-      .groupBy(r => (r._1.win.region, r._1.win.getCellType, r._1.win.getTf))
+      .groupBy(r => (r._1.win.getRegion, r._1.win.getCellType, r._1.win.getTf))
       .map(r => {
         val x = r._2.toList
         (x.head._1, x.map(_._2.get).toIterable)
@@ -311,11 +311,11 @@ object VectorizedDnase extends Serializable  {
   def featurizeCoverage(window: LabeledWindow,
                         coverage: Array[Feature]): LabeledWindow = {
 
-    val cellType = window.win.cellType
+    val cellType = window.win.getCellType
 
     // where to center motif?
     val (start, end) =
-        (window.win.region.start, window.win.region.end)
+        (window.win.getRegion.start, window.win.getRegion.end)
 
     val positiveCoverage = coverage.filter(r => r.getStrand == Strand.FORWARD)
     val negativeCoverage = coverage.filter(r => r.getStrand == Strand.REVERSE)
@@ -359,23 +359,23 @@ object VectorizedDnase extends Serializable  {
 
     val centipedeWindows: RDD[LabeledWindow] =
       cutsAndWindows.map(window => {
-        val cellType = window._1.win.cellType
+        val cellType = window._1.win.getCellType
 
         // where to center motif?
         val (start, end) =
           if (motifs.isDefined) { // if motif is defined center at most probable motif
           // format motifs to map on tf
-          val tfmotifs = motifs.get.filter(_.label == window._1.win.tf.toString)
+          val tfmotifs = motifs.get.filter(_.label == window._1.win.getTf.toString)
           val center =
             if (tfmotifs.length == 0) {
-              println(s"no motifs for tf ${window._1.win.tf.toString}. Parsing from center")
-              window._1.win.sequence.length/2
+              println(s"no motifs for tf ${window._1.win.getTf.toString}. Parsing from center")
+              window._1.win.getSequence.length/2
             } else {
               // get max motif location
                 tfmotifs.map(motif => {
                   val motifLength = motif.length
                   // slide length, take index of max probabilitiy
-                  window._1.win.sequence
+                  window._1.win.getSequence
                     .sliding(motifLength)
                     .map(r => motif.sequenceProbability(r))
                     .zipWithIndex
@@ -383,10 +383,10 @@ object VectorizedDnase extends Serializable  {
                 }).maxBy(_._1)._2
             }
 
-            (window._1.win.region.start + center  - flanking,
-              window._1.win.region.start + center + flanking) //determines size of dnase footprint region
+            (window._1.win.getRegion.start + center  - flanking,
+              window._1.win.getRegion.start + center + flanking) //determines size of dnase footprint region
           } else
-            (window._1.win.region.start, window._1.win.region.end)
+            (window._1.win.getRegion.start, window._1.win.getRegion.end)
 
         val positivePositions = DenseVector.zeros[Int](Dataset.windowSize)
         val negativePositions = DenseVector.zeros[Int](Dataset.windowSize)

@@ -91,19 +91,19 @@ object SolverPipeline extends Serializable with Logging {
     val trainFeaturizedWindows = featuresRDD.filter { r =>
       val chrm:String = r.labeledWindow.win.getRegion.referenceName
       val label:Int = r.labeledWindow.label
-      val cellType:Int = r.labeledWindow.win.cellType.id
+      val cellType:Int = r.labeledWindow.win.getCellType.id
       !valChromosomes.contains(chrm)  && !valCellTypes.contains(cellType) && label != - 1
     }
     val valFeaturizedWindowsOpt =
       if (valDuringSolve) {
-        println(featuresRDD.first.labeledWindow.win.cellType.id)
+        println(featuresRDD.first.labeledWindow.win.getCellType.id)
         println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
         println(valChromosomes.mkString(","))
         println(valCellTypes.mkString(","))
         val valFeaturizedWindows = featuresRDD.filter { r =>
           val chrm:String = r.labeledWindow.win.getRegion.referenceName
           val label:Int = r.labeledWindow.label
-          val cellType:Int = r.labeledWindow.win.cellType.id
+          val cellType:Int = r.labeledWindow.win.getCellType.id
           valChromosomes.contains(chrm)  && valCellTypes.contains(cellType)
         }
         Some(valFeaturizedWindows)
@@ -118,7 +118,7 @@ object SolverPipeline extends Serializable with Logging {
     println(conf.saveTestPredictions)
     var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
 
-    println(featuresRDD.first.labeledWindow.win.cellType.id)
+    println(featuresRDD.first.labeledWindow.win.getCellType.id)
     println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
 
     var (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve, conf.numPartitions)
@@ -300,12 +300,12 @@ object SolverPipeline extends Serializable with Logging {
       labeledWindows
         .map(r => {
           Feature.newBuilder()
-            .setFeatureId(s"${r._1.win.region.toString}-score:${r._1.label}")
+            .setFeatureId(s"${r._1.win.getRegion.toString}-score:${r._1.label}")
             .setPhase(r._1.label)
             .setScore(r._2 * 1000)
-            .setContigName(r._1.win.region.referenceName)
-            .setStart(r._1.win.region.start)
-            .setEnd(r._1.win.region.end)
+            .setContigName(r._1.win.getRegion.referenceName)
+            .setStart(r._1.win.getRegion.start)
+            .setEnd(r._1.win.getRegion.end)
             .build()
         })
 

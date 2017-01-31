@@ -17,7 +17,7 @@ object Window {
              dnase: Option[DenseVector[Double]] = None,
              rnaseq: Option[List[RNARecord]] = None,
              motifs: Option[List[PeakRecord]] = None): Window = {
-    Window(tf, cellType, region, sequence, dnasePeakCount, dnase.getOrElse(DenseVector[Double]()), rnaseq.getOrElse(List()), motifs.getOrElse(List()))
+    new Window(tf, cellType, region, sequence, dnasePeakCount, dnase.getOrElse(DenseVector(Array[Double]())), List(), List())
   }
 
   def fromStringNames(tf: String,
@@ -30,7 +30,7 @@ object Window {
             motifs: Option[List[PeakRecord]] = None)(implicit s: DummyImplicit): Window = {
     val tfValue = TranscriptionFactors.withName(tf)
     val cellTypeValue = CellTypes.withName(Dataset.filterCellTypeName(cellType))
-    Window(tfValue, cellTypeValue, region, sequence, dnasePeakCount, dnase.getOrElse(DenseVector[Double]()), rnaseq.getOrElse(List()), motifs.getOrElse(List()))
+    new Window(tfValue, cellTypeValue, region, sequence, dnasePeakCount, dnase.getOrElse(DenseVector(Array[Double]())), List(), List())
   }
 
   /* TODO this is a hack
@@ -51,7 +51,7 @@ object Window {
 }
 
 /* Base data class */
-case class Window(tf: TranscriptionFactors.Value,
+class Window(tf: TranscriptionFactors.Value,
                   cellType: CellTypes.Value,
                   region: ReferenceRegion,
                   sequence: String,
@@ -65,6 +65,7 @@ case class Window(tf: TranscriptionFactors.Value,
   def getCellType: CellTypes.Value = cellType
   def getSequence: String = sequence
   def getDnase: DenseVector[Double] = dnase
+  def getDnasePeakCount: Int = dnasePeakCount
   def getRnaseq: List[RNARecord] = rnaseq
   def getMotifs: List[PeakRecord] = motifs
 
@@ -90,6 +91,51 @@ case class Window(tf: TranscriptionFactors.Value,
     val stringifiedMotifs = motifs.map(_.toString).mkString(Window.EPIDELIM)
     val stringifiedRNAseq = rnaseq.map(_.toString).mkString(Window.EPIDELIM)
     s"${tf.toString},${cellType.toString},${region.referenceName},${region.start},${region.end},${sequence},${dnasePeakCount}${Window.OUTERDELIM}${stringifiedDnase}${Window.OUTERDELIM}${stringifiedRNAseq}${Window.OUTERDELIM}${stringifiedMotifs}"
+  }
+
+  def merge(other: Window): Window = {
+    require(tf.equals(other.getTf), s"tfs do not match: ${tf} vs ${other.getTf}")
+    require(cellType.equals(other.getCellType), s"celltypes do not match: ${cellType} vs ${other.getCellType}")
+    require(region.overlaps(other.getRegion), s"window regions do not overlap: ${region} vs ${other.getRegion}")
+
+    // order windows by position
+    val (window_1, window_2)  =
+      if (region.start < other.getRegion.start) (this, other)
+      else (other, this)
+
+    // merge sequence
+    val newSequence = window_1.getSequence.concat(window_2.getSequence.substring((window_1.getRegion.end - window_2.getRegion.start).toInt))
+
+    // merge dnase
+    val newDnase = DenseVector.vertcat(window_1.getDnase,
+      window_2.getDnase.slice((window_1.getRegion.end - window_2.getRegion.start).toInt, window_2.getDnase.length))
+
+    // Note: ignoring RNAseq and motif data
+
+    val newRegion = region.merge(other.getRegion)
+
+    val dnasePeakCount = window_1.getDnasePeakCount + window_2.getDnasePeakCount
+
+    Window(tf, cellType, newRegion, newSequence, dnasePeakCount, Some(newDnase))
+  }
+
+  /**
+   * Slices window at start and end indices relative to region
+   * @param start
+   * @param end
+   * @return
+   */
+  def slice(start: Long, end: Long): Window = {
+    require(start >= region.start && end <= region.end, s"can only slice regions within current region")
+    require(start <= end, s"sliced region must have start <= end")
+
+    val baseStart = (start - region.start).toInt
+    val baseEnd = (end - region.start).toInt
+
+    val newRegion = ReferenceRegion(region.referenceName, start, end)
+    val newSequence = sequence.substring(baseStart, baseEnd)
+    val newDnase = this.dnase.slice(baseStart, baseEnd)
+    Window(tf, cellType, newRegion, newSequence, dnasePeakCount, Some(newDnase))
   }
 }
 

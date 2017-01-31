@@ -91,19 +91,19 @@ object SolverHardNegativeThreshPipeline extends Serializable with Logging {
       val trainFeaturizedWindows = featuresRDD.filter { r => 
                   val chrm:String = r.labeledWindow.win.getRegion.referenceName
                   val label:Int = r.labeledWindow.label
-                  val cellType:Int = r.labeledWindow.win.cellType.id
+                  val cellType:Int = r.labeledWindow.win.getCellType.id
                   !valChromosomes.contains(chrm)  && !valCellTypes.contains(cellType) && label != - 1
       }
       val valFeaturizedWindowsOpt =
         if (valDuringSolve) {
-          println(featuresRDD.first.labeledWindow.win.cellType.id)
+          println(featuresRDD.first.labeledWindow.win.getCellType.id)
           println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
           println(valChromosomes.mkString(","))
           println(valCellTypes.mkString(","))
           val valFeaturizedWindows = featuresRDD.filter { r => 
                       val chrm:String = r.labeledWindow.win.getRegion.referenceName
                       val label:Int = r.labeledWindow.label
-                      val cellType:Int = r.labeledWindow.win.cellType.id
+                      val cellType:Int = r.labeledWindow.win.getCellType.id
                       valChromosomes.contains(chrm)  && valCellTypes.contains(cellType)
           }
           Some(valFeaturizedWindows)

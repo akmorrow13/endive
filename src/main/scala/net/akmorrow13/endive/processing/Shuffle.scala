@@ -1,9 +1,5 @@
 package net.akmorrow13.endive.processing
 
-import net.akmorrow13.endive.utils.DeepbindRecord
-import org.apache.spark.rdd.RDD
-import org.apache.spark.util.random
-
 import scala.collection.mutable.ListBuffer
 import scala.util.Random
 
@@ -25,15 +21,6 @@ object DinucleotideShuffle {
     return shuf_seq
 
   }
-
-  def getShuffledDinucletides(rdd: RDD[DeepbindRecord]): RDD[DeepbindRecord] = {
-
-    rdd.map(_.sequence).map(r => doublet_shuffle(r))
-      .zip(rdd)
-      .map(r => DeepbindRecord(r._2.tf, r._2.cellType, r._2.id +"shuff", r._1, 0))
-
-  }
-
 
 }
 
@@ -138,10 +125,4 @@ object Graph {
     }
     graph.mapValues(_.toList)
   }
-//
-//  def empty: Map[Char, ListBuffer[Char]] = {
-//    Map()
-////    Map('A'-> ListBuffer(), 'C'->ListBuffer(),'G'->ListBuffer(),'T'->ListBuffer())
-//  }
-
 }

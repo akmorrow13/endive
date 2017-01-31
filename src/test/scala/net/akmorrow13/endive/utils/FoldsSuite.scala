@@ -30,8 +30,8 @@ class FoldsSuite extends EndiveFunSuite {
     val windowsRDD = sc.parallelize(windows)
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
-    val folds = EndiveUtils.generateFoldsRDD(windowsRDD.keyBy(r => (r.win.region.referenceName, r.win.cellType)), CELL_TYPES_PER_FOLD, CHROMOSOMES_PER_FOLD, 1)
-    val cellTypesChromosomes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
+    val folds = EndiveUtils.generateFoldsRDD(windowsRDD.keyBy(r => (r.win.getRegion.referenceName, r.win.getCellType)), CELL_TYPES_PER_FOLD, CHROMOSOMES_PER_FOLD, 1)
+    val cellTypesChromosomes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.getCellType)).countByValue().keys
 
     println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
@@ -42,15 +42,15 @@ class FoldsSuite extends EndiveFunSuite {
       println("TRAIN SIZE IS " + train.count())
       println("TEST SIZE IS " + test.count())
 
-      val cellTypesTest:Iterable[CellTypes.Value] = test.map(x => (x.win.cellType)).countByValue().keys
+      val cellTypesTest:Iterable[CellTypes.Value] = test.map(x => (x.win.getCellType)).countByValue().keys
       val chromosomesTest:Iterable[String] = test.map(x => (x.win.getRegion.referenceName)).countByValue().keys
-      val cellTypesChromosomesTest:Iterable[(String, CellTypes.Value)] = test.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
+      val cellTypesChromosomesTest:Iterable[(String, CellTypes.Value)] = test.map(x => (x.win.getRegion.referenceName, x.win.getCellType)).countByValue().keys
       println(cellTypesTest.size)
       println(chromosomesTest.size)
 
       assert(cellTypesTest.size == CELL_TYPES_PER_FOLD)
       assert(chromosomesTest.size == CHROMOSOMES_PER_FOLD)
-      val cellTypesTrain:Iterable[CellTypes.Value] = train.map(x => (x.win.cellType)).countByValue().keys
+      val cellTypesTrain:Iterable[CellTypes.Value] = train.map(x => (x.win.getCellType)).countByValue().keys
       val chromosomesTrain:Iterable[String] = train.map(x => (x.win.getRegion.referenceName)).countByValue().keys
 
       assert(cellTypesTrain.size == NUM_CELL_TYPES - CELL_TYPES_PER_FOLD)
@@ -75,8 +75,8 @@ class FoldsSuite extends EndiveFunSuite {
     val windowsRDD = sc.parallelize(windows)
 
     /* First one chromesome and one celltype per fold (leave 1 out) */
-    val folds = EndiveUtils.generateFoldsRDD(windowsRDD.keyBy(r => (r.win.region.referenceName, r.win.cellType)), CELL_TYPES_PER_FOLD, CHROMOSOMES_PER_FOLD, 1)
-    val cellTypesChromosomes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
+    val folds = EndiveUtils.generateFoldsRDD(windowsRDD.keyBy(r => (r.win.getRegion.referenceName, r.win.getCellType)), CELL_TYPES_PER_FOLD, CHROMOSOMES_PER_FOLD, 1)
+    val cellTypesChromosomes:Iterable[(String, CellTypes.Value)] = windowsRDD.map(x => (x.win.getRegion.referenceName, x.win.getCellType)).countByValue().keys
 
     println("TOTAL FOLDS " + folds.size)
     for (i <- (0 until folds.size)) {
@@ -87,15 +87,15 @@ class FoldsSuite extends EndiveFunSuite {
       println("TRAIN SIZE IS " + train.count())
       println("TEST SIZE IS " + test.count())
 
-      val cellTypesTest = test.map(x => (x.win.cellType)).countByValue().keys
+      val cellTypesTest = test.map(x => (x.win.getCellType)).countByValue().keys
       val chromosomesTest:Iterable[String] = test.map(x => (x.win.getRegion.referenceName)).countByValue().keys
-      val cellTypesChromosomesTest = test.map(x => (x.win.getRegion.referenceName, x.win.cellType)).countByValue().keys
+      val cellTypesChromosomesTest = test.map(x => (x.win.getRegion.referenceName, x.win.getCellType)).countByValue().keys
       println(cellTypesTest.size)
       println(chromosomesTest.size)
 
       assert(cellTypesTest.size == CELL_TYPES_PER_FOLD)
       assert(chromosomesTest.size == CHROMOSOMES_PER_FOLD)
-      val cellTypesTrain = train.map(x => (x.win.cellType)).countByValue().keys
+      val cellTypesTrain = train.map(x => (x.win.getCellType)).countByValue().keys
       val chromosomesTrain = train.map(x => (x.win.getRegion.referenceName)).countByValue().keys
 
       assert(cellTypesTrain.size == NUM_CELL_TYPES - CELL_TYPES_PER_FOLD)

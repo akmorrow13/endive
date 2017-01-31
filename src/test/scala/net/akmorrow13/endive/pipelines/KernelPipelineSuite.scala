@@ -74,18 +74,18 @@ class KernelPipelineSuite extends EndiveFunSuite {
 
     val merged =
           VectorizedDnase.featurize(sc, windows, dnaseRDD, getSequenceDictionary, false, false, None, false)
-            .map(r => LabeledWindow(r.win.setDnase(r.win.dnase.slice(0, Dataset.windowSize)), r.label)) // slice off just positives
+            .map(r => LabeledWindow(r.win.setDnase(r.win.getDnase.slice(0, Dataset.windowSize)), r.label)) // slice off just positives
       .filter(_.win.getRegion.overlaps(filteredRegion))
-      .sortBy(_.win.region)
+      .sortBy(_.win.getRegion)
       .collect
 
     // assert dnase was correctly inserted in vectors
     assert(merged.length == 2)
-    assert(merged.head.win.dnase.sum > 0)
-    assert(merged.head.win.dnase(180) == 1.0)
+    assert(merged.head.win.getDnase.sum > 0)
+    assert(merged.head.win.getDnase(180) == 1.0)
 
-    assert(merged.last.win.dnase.sum > 0)
-    assert(merged.last.win.dnase(30) == 1.0)
+    assert(merged.last.win.getDnase.sum > 0)
+    assert(merged.last.win.getDnase(30) == 1.0)
 
   }
 

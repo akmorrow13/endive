@@ -135,12 +135,12 @@ object DnaseKernelPipeline extends Serializable with Logging {
     allData.repartition(1500).cache()
     allData.count()
     // normalize dnase
-    val dnaseMaxPos = allData.map(r => r.win.dnase.max).max
+    val dnaseMaxPos = allData.map(r => r.win.getDnase.max).max
     allData = allData.map(r => {
       val win = r.win.setDnase(r.win.getDnase / dnaseMaxPos)
       LabeledWindow(win, r.label)
     })
-    println(s"max for dnase went from ${dnaseMaxPos} to ${allData.map(r => r.win.dnase.max).max}")
+    println(s"max for dnase went from ${dnaseMaxPos} to ${allData.map(r => r.win.getDnase.max).max}")
 
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
@@ -179,7 +179,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
 
     matrix.map(f => {
       val kx = (kernelApprox({
-        KernelApproximator.stringToVector(f.win.sequence)
+        KernelApproximator.stringToVector(f.win.getSequence)
       }))
       FeaturizedLabeledWindow(f, kx)
     })
@@ -218,16 +218,16 @@ object DnaseKernelPipeline extends Serializable with Logging {
 
     rdd.map(f => {
 
-      val k_seq = kernelApprox_seq(KernelApproximator.stringToVector(f.win.sequence))
+      val k_seq = kernelApprox_seq(KernelApproximator.stringToVector(f.win.getSequence))
 
       //iteratively compute and multiply all dnase for positive strands
       val k_dnase_pos = approximators.map(ap => {
-        ap._1(f.win.dnase.slice(0, Dataset.windowSize))
+        ap._1(f.win.getDnase.slice(0, Dataset.windowSize))
       }).reduce(_ :* _)
 
       //iteratively compute and multiply all dnase for negative strands
       val k_dnase_neg = approximators.map(ap => {
-        ap._2(f.win.dnase.slice(Dataset.windowSize, f.win.dnase.length))
+        ap._2(f.win.getDnase.slice(Dataset.windowSize, f.win.getDnase.length))
       }).reduce(_ :* _)
 
       FeaturizedLabeledWindow(f, DenseVector.vertcat(k_seq, k_dnase_pos, k_dnase_neg))
@@ -265,9 +265,9 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val kernelApprox_dnase_neg = new KernelApproximator(W_dnase_neg, FastMath.cos, dnaseSize, 1, fastfood=false, gamma=gamma)
 
     rdd.map(f => {
-      val k_seq = kernelApprox_seq(KernelApproximator.stringToVector(f.win.sequence))
-      val k_dnase_pos = kernelApprox_dnase_pos(f.win.dnase.slice(0, Dataset.windowSize))
-      val k_dnase_neg = kernelApprox_dnase_neg(f.win.dnase.slice(Dataset.windowSize, f.win.dnase.length))
+      val k_seq = kernelApprox_seq(KernelApproximator.stringToVector(f.win.getSequence))
+      val k_dnase_pos = kernelApprox_dnase_pos(f.win.getDnase.slice(0, Dataset.windowSize))
+      val k_dnase_neg = kernelApprox_dnase_neg(f.win.getDnase.slice(Dataset.windowSize, f.win.getDnase.length))
 
       FeaturizedLabeledWindow(f, DenseVector.vertcat(k_seq, k_dnase_pos, k_dnase_neg))
     })
@@ -281,8 +281,8 @@ object DnaseKernelPipeline extends Serializable with Logging {
   private[pipelines] def oneHotEncodeDnase(f: LabeledWindow): DenseVector[Double] = {
 
       // form seq of int from bases and join with dnase
-      val intString: Seq[(Int, Double)] = f.win.sequence.map(r => Dataset.alphabet.get(r).getOrElse(-1))
-        .zip(f.win.dnase.slice(0, Dataset.windowSize).toArray) // slice off just positives
+      val intString: Seq[(Int, Double)] = f.win.getSequence.map(r => Dataset.alphabet.get(r).getOrElse(-1))
+        .zip(f.win.getDnase.slice(0, Dataset.windowSize).toArray) // slice off just positives
 
       val seqString = intString.map { r =>
         val out = DenseVector.zeros[Double](Dataset.alphabet.size)

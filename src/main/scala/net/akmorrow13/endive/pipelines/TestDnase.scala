@@ -90,54 +90,94 @@ object TestDnasePipeline extends Serializable with Logging {
             run(sc, appConfig)
           }
         }
+  def run(sc: SparkContext, conf: EndiveConf): Unit = {
+    val windows = LabeledWindowLoader(conf.featuresOutput, sc).filter(_.label >= 0).cache()
+    var positives = windows.filter(r => r.label == 1)
+    var negatives = windows.filter(r => r.label == 0)
+    // print original statisics
+    println(s"ORIGINAL STATS: total windows: ${windows.count}, positive count: ${positives.count}, negative count: ${negatives.count} ")
+
+    // merge positives together. filter out windows without peaks
+    positives = mergeAdjacent(positives.map(_.win)).map(r => LabeledWindow(r, 1))
+    val posLostFromPeaks = positives.filter(_.win.getDnasePeakCount == 0).count
+
+    positives = positives.filter(_.win.getDnasePeakCount > 0)
+
+    // merge adjacent negatives together. filter out windows without peaks
+    negatives = mergeAdjacent(negatives.filter(_.win.getDnasePeakCount > 0).map(_.win)).map(r => LabeledWindow(r, 0))
+
+    // truncate positives and negatives to normalize the length
+    val windowLength = 300
+    val half = windowLength/2
+
+    val newSet = positives.union(negatives).filter(_.win.getRegion.length >= windowLength).map(r => {
+      // find middle
+      val center = r.win.getRegion.length()/2 + r.win.getRegion.start
+      LabeledWindow(r.win.slice(center - half, center + half), r.label)
+    })
+
+    val positivesWithoutPeaks = positives.filter(_.win.getDnasePeakCount == 0)
+    val positivesWithPeaks = positives.filter(_.win.getDnasePeakCount > 0)
+
+    println(s"counting number of (negatives + positives): ${newSet.filter(_.label == 0).count} + ${newSet.filter(_.label == 1).count} for total dataset")
+    println(s"number of positives that we lost from thresholding windowsize to >= ${windowLength}: ${positives.filter(_.win.getRegion.length > windowLength).count}")
+    println(s"number of positives that we lost from eliminating sites without peaks: ${posLostFromPeaks}")
+
+    // save to disk
+    newSet.map(_.toString).saveAsTextFile(conf.featurizedOutput)
+  }
 
 
-        def run(sc: SparkContext, conf: EndiveConf): Unit = {
-          val windows = LabeledWindowLoader(conf.featuresOutput, sc).filter(_.label >= 0).cache()
-          var positives = windows.filter(r => r.label == 1)
-          var negatives = windows.filter(r => r.label == 0)
-          // print original statisics
-          println(s"ORIGINAL STATS: total windows: ${windows.count}, positive count: ${positives.count}, negative count: ${negatives.count} ")
+  /**
+   * Merges adjacent windows by cell type
+   *
+   * @param data
+   * @return
+   */
+  def mergeAdjacent(data: RDD[Window]): RDD[Window] = {
+    data.groupBy(_.getRegion.referenceName)
+      .flatMap(r => {
+        val cellTypes = r._2.toList.groupBy(_.getCellType)
 
-          // consolidate positives
-          positives =
-            positives.groupBy(_.win.region.referenceName)
-              .flatMap(r => {
-                val cellTypes = r._2.toList.groupBy(_.win.cellType)
+        cellTypes.flatMap(list => {
+          val sorted: List[Window] = list._2.sortBy(_.getRegion)
+          var newWindows: Array[Window] = Array.empty[Window]
+          sorted.foreach(r => {
+            if (!newWindows.isEmpty && r.getRegion.overlaps(newWindows.last.getRegion)) {
+              // merge into last element
+              newWindows(newWindows.length-1) = newWindows.last.merge(r)
+            } else newWindows = newWindows :+ r
+          })
+          newWindows
+        })
+      })
+  }
 
-                cellTypes.flatMap(list => {
-                  val sorted: List[LabeledWindow] = list._2.sortBy(_.win.region)
-                  var newWindows: Array[LabeledWindow] = Array.empty[LabeledWindow]
-                  sorted.foreach(r => {
-                    if (!newWindows.isEmpty && r.win.region.overlaps(newWindows.last.win.region)) {
-                      // merge into last element
-                      val elem = newWindows.last
-                      val region = r.win.region.merge(elem.win.region)
-                      val dnaseCount = r.win.dnasePeakCount + elem.win.dnasePeakCount
-                      newWindows(newWindows.length-1) = LabeledWindow(elem.win.setRegion(region).setDnaseCount(dnaseCount), 1)
+  def printStats(sc: SparkContext, conf: EndiveConf): Unit = {
+    val windows = LabeledWindowLoader(conf.featuresOutput, sc).filter(_.label >= 0).cache()
+    var positives = windows.filter(r => r.label == 1)
+    var negatives = windows.filter(r => r.label == 0)
+    // print original statisics
+    println(s"ORIGINAL STATS: total windows: ${windows.count}, positive count: ${positives.count}, negative count: ${negatives.count} ")
 
-                    } else newWindows = newWindows :+ r
-                  })
-                  newWindows
-                })
-            })
+    // consolidate positives
+    positives = mergeAdjacent(positives.map(_.win)).map(r => LabeledWindow(r, 1))
 
-          negatives = negatives.filter(_.win.dnasePeakCount > 0)
+    // consolidate negatives
+    negatives = mergeAdjacent(negatives.filter(_.win.getDnasePeakCount > 0).map(_.win)).map(r => LabeledWindow(r, 0))
 
-          val positivesWithoutPeaks = positives.filter(_.win.dnasePeakCount == 0)
-          val positivesWithPeaks = positives.filter(_.win.dnasePeakCount > 0)
+    val positivesWithoutPeaks = positives.filter(_.win.getDnasePeakCount == 0)
+    val positivesWithPeaks = positives.filter(_.win.getDnasePeakCount > 0)
 
-          val posLen = positives.map(_.win.region.length()).mean()
-          println(s"average region size of positives: ${posLen}")
+    val posLen = positives.map(_.win.getRegion.length())
+    println(s"average region size of positives: ${posLen}")
 
-          println(s"counting number of (negatives + positives): ${negatives.count} + ${positives.count} for total dataset")
-          println(s"number of positives that do not have peaks: ${positivesWithoutPeaks.count}, number of positives that do have peaks: ${positivesWithPeaks.count}")
+    val negLen = negatives.map(_.win.getRegion.length()).mean()
+    println(s"average region size of positives: ${negLen}")
 
-        }
+    println(s"counting number of (negatives + positives): ${negatives.count} + ${positives.count} for total dataset")
+    println(s"number of positives that do not have peaks: ${positivesWithoutPeaks.count}, number of positives that do have peaks: ${positivesWithPeaks.count}")
+
+  }
 
 }
-
-
-
-
-

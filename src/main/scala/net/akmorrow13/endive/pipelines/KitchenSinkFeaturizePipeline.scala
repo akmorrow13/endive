@@ -154,7 +154,7 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
 
     matrix.map(f => {
       val kx = (kernelApprox({
-        KernelApproximator.stringToVector(f.win.sequence)
+        KernelApproximator.stringToVector(f.win.getSequence)
       }))
       FeaturizedLabeledWindow(f, kx)
     })
@@ -167,8 +167,8 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
                          kmerSize: Int,
                          seed: Int = 0) = {
 
-    val raw_seq = rdd.map(x => KernelApproximator.stringToVector(x.win.sequence))
-    val raw_dnase = rdd.map(x => x.win.dnase)
+    val raw_seq = rdd.map(x => KernelApproximator.stringToVector(x.win.getSequence))
+    val raw_dnase = rdd.map(x => x.win.getDnase)
     val raw_features = raw_seq.zip(raw_dnase).map(x => DenseVector.vertcat(x._1, x._2))
     val raw_features_windows = raw_features.zip(rdd)
     val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize, alphabetSize=1, seqSize=1200)

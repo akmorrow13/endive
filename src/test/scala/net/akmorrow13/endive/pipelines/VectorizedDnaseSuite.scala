@@ -54,7 +54,7 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
 
     val result = VectorizedDnase.featurize(sc, windows, coverage, sd, false, false, None, false).collect()
     assert(result.length == 2)
-    assert(result.filter(_.win.region == region1).head.win.dnase.sum > 1)
+    assert(result.filter(_.win.getRegion == region1).head.win.getDnase.sum > 1)
   }
 
   sparkTest("msCentipede at full scale") {
@@ -89,7 +89,7 @@ class VectorizedDnaseSuite extends EndiveFunSuite {
 
     val results = VectorizedDnase.featurize(sc, rdd, coverage, sd, false, false,
                   Some(motifs), false)
-    val features = results.first.win.dnase
+    val features = results.first.win.getDnase
     assert(features.slice(features.length/2, features.length).sum == 0)
   }
 
