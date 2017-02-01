@@ -86,122 +86,134 @@ object SolverPipeline extends Serializable with Logging {
     }
   }
 
-  def trainValSplit(featuresRDD: RDD[FeaturizedLabeledWindow], valChromosomes: Array[String], valCellTypes: Array[Int], valDuringSolve: Boolean, numPartitions: Int): (RDD[FeaturizedLabeledWindow], Option[RDD[FeaturizedLabeledWindow]])  = {
+  /**
+   * Holds out a (chromosome, celltype) pair for evaluation
+   * @param featuresRDD Features
+   * @param valChromosomes All chromosomes
+   * @param valCellTypes All CellTypes
+   * @param valDuringSolve Whether or not to evalut
+   * @return train and test RDDs
+   */
+  def trainValSplit(featuresRDD: RDD[FeaturizedLabeledWindow],
+                    valChromosomes: Array[String],
+                    valCellTypes: Array[Int]): (RDD[FeaturizedLabeledWindow], RDD[FeaturizedLabeledWindow])  = {
     // hold out a (chromosome, celltype) pair for val
     val trainFeaturizedWindows = featuresRDD.filter { r =>
-      val chrm:String = r.labeledWindow.win.getRegion.referenceName
-      val label:Int = r.labeledWindow.label
-      val cellType:Int = r.labeledWindow.win.getCellType.id
-      !valChromosomes.contains(chrm)  && !valCellTypes.contains(cellType) && label != - 1
+      val chr = r.labeledWindow.win.getRegion.referenceName
+      val label = r.labeledWindow.label
+      val cellType = r.labeledWindow.win.getCellType.id
+      !valChromosomes.contains(chr)  && !valCellTypes.contains(cellType) && label != - 1
     }
-    val valFeaturizedWindowsOpt =
-      if (valDuringSolve) {
-        println(featuresRDD.first.labeledWindow.win.getCellType.id)
-        println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
-        println(valChromosomes.mkString(","))
-        println(valCellTypes.mkString(","))
-        val valFeaturizedWindows = featuresRDD.filter { r =>
-          val chrm:String = r.labeledWindow.win.getRegion.referenceName
-          val label:Int = r.labeledWindow.label
-          val cellType:Int = r.labeledWindow.win.getCellType.id
-          valChromosomes.contains(chrm)  && valCellTypes.contains(cellType)
-        }
-        Some(valFeaturizedWindows)
-      } else {
-        None
-      }
-    (trainFeaturizedWindows, valFeaturizedWindowsOpt)
+    val valFeaturizedWindows = featuresRDD.filter { r =>
+      val chr = r.labeledWindow.win.getRegion.referenceName
+      val label = r.labeledWindow.label
+      val cellType = r.labeledWindow.win.getCellType.id
+      valChromosomes.contains(chr) && valCellTypes.contains(cellType)
+    }
+    (trainFeaturizedWindows, valFeaturizedWindows)
   }
 
 
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
-    println(conf.saveTestPredictions)
+    // load in data
     var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
 
-    println(featuresRDD.first.labeledWindow.win.getCellType.id)
-    println(featuresRDD.first.labeledWindow.win.getRegion.referenceName)
+    val negativeCount = featuresRDD.filter(_.labeledWindow.label == 0).count
+    val positiveCount = featuresRDD.filter(_.labeledWindow.label == 0).count
 
-    var (trainFeaturizedWindows, valFeaturizedWindowsOpt)  = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes, conf.valDuringSolve, conf.numPartitions)
+    var samplingFreq = positiveCount.toDouble/negativeCount.toDouble
 
+    while (samplingFreq <= 1.0) {
 
-    if (conf.negativeSamplingFreq < 1.0) {
-      println("NEGATIVE SAMPLING")
-      val rand = new Random(conf.seed)
-      val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0)
-      val samplingIndices = (0 until negativesFull.count().toInt).map(x =>  (x, rand.nextFloat() < conf.negativeSamplingFreq)).filter(_._2).map(_._1).toSet
-      val samplingIndicesB = sc.broadcast(samplingIndices)
-      val negatives = negativesFull.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1)
+      // split into train and eval based on celltypes
+      var (trainFeaturizedWindows, valFeaturizedWindowsOpt)  =
+        if (conf.valDuringSolve) {
+          val (train, eval) = trainValSplit(featuresRDD, conf.valChromosomes, conf.valCellTypes)
+          (train, Some(eval))
+        } else {
+          (featuresRDD, None)
+        }
 
-      val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0)
-      trainFeaturizedWindows = positives.union(negatives)
-    }
+      // if specified, sample negatives
+      if (samplingFreq < 1.0) {
+        println("NEGATIVE SAMPLING")
+        val rand = new Random(conf.seed)
+        val negativesFull = trainFeaturizedWindows.filter(_.labeledWindow.label == 0)
+        val samplingIndices = (0 until negativesFull.count().toInt).map(x =>  (x, rand.nextFloat() < conf.negativeSamplingFreq)).filter(_._2).map(_._1).toSet
+        val samplingIndicesB = sc.broadcast(samplingIndices)
+        val negatives = negativesFull.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1)
 
-    trainFeaturizedWindows = trainFeaturizedWindows.repartition(conf.numPartitions).cache()
-    valFeaturizedWindowsOpt = valFeaturizedWindowsOpt.map(_.repartition(conf.numPartitions).cache())
-
-    val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
-      new Cacher[DenseVector[Double]]
-
-    val trainFeatures = trainFeaturizedWindows.map(_.features)
-    val trainLabels = labelExtractor(trainFeaturizedWindows.map(_.labeledWindow.label)).get
-
-    // Currently hardcoded to just do exact solve (after accumulating XtX)
-    val model =
-      if (conf.mixtureWeight > 0) {
-        new PerClassWeightedLeastSquaresEstimator(conf.approxDim, 1, conf.lambda, conf.mixtureWeight).fit(trainFeatures, trainLabels)
-      } else {
-        new BlockLeastSquaresEstimator(conf.approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
+        val positives = trainFeaturizedWindows.filter(_.labeledWindow.label > 0)
+        trainFeaturizedWindows = positives.union(negatives)
       }
 
-    if (conf.valDuringSolve) {
-      val trainPredictions: RDD[Double] = model(trainFeatures).map(x => x(1))
-      trainPredictions.count()
-      val trainScalarLabels = trainLabels.map(x => if (x(1) == 1) 1 else 0)
-      val trainPredictionsOutput = conf.predictionsOutput + "/trainPreds"
-      println(s"WRITING TRAIN PREDICTIONS TO DISK AT ${trainPredictionsOutput}")
-      val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
-      var valFeaturizedWindows = valFeaturizedWindowsOpt.get
-      // filter out dnase with < mean
-      valFeaturizedWindows = valFeaturizedWindows //.filter(_.labeledWindow.win.dnase.sum > 1)
-      //  val hardNegatives  = valFeaturizedWindows.filter(_.labeledWindow.win.dnase.sum <= 1).map(r => (r.labeledWindow.label, 0.0))
+      trainFeaturizedWindows = trainFeaturizedWindows.repartition(conf.numPartitions).cache()
+      valFeaturizedWindowsOpt = valFeaturizedWindowsOpt.map(_.repartition(conf.numPartitions).cache())
 
-      val valFeatures = valFeaturizedWindows.map(_.features)
-      var valPredictions: RDD[Double] = model(valFeatures).map(x => x(1))
-      val (min, max) = (valPredictions.min(), valPredictions.max())
-      valPredictions = valPredictions.map(r => ((r - min)/(max - min)))
-      val valScalarLabels = valFeaturizedWindows.map(_.labeledWindow.label)
-      val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
+      val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
+        new Cacher[DenseVector[Double]]
 
-      val zippedValPreds = valScalarLabels.zip(valPredictions) //.union(hardNegatives)
-      zippedValPreds.map(x => s"${x._1},${x._2}").saveAsTextFile(valPredictionsOutput)
+      val trainFeatures = trainFeaturizedWindows.map(_.features)
+      val trainLabels = labelExtractor(trainFeaturizedWindows.map(_.labeledWindow.label)).get
 
-      try {
-        // save test predictions if specified
-        println(conf.saveTestPredictions)
-        if (conf.saveTestPredictions != null) {
-          val first = valFeaturizedWindows.first.labeledWindow.win
-          val cellType = first.getCellType.toString
-          val tf = first.getTf.toString
-          val chr = first.getRegion.referenceName
-
-          // create sequence dictionary, used to save files
-          val reference = new TwoBitFile(new LocalFileByteAccess(new File(conf.reference)))
-          val sd: SequenceDictionary = reference.sequences
-          println(sd)
-          saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).zip(valPredictions).filter(_._2 >= 0.5),
-            sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_predicted.bed")
-          saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).map(r => (r, r.label.toDouble)).filter(_._2 >= 0.5),
-            sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_true.bed")
+      // Solve Model, either using LeastSquares of Weighted LeastSquares
+      val model =
+        if (conf.mixtureWeight > 0) {
+          new PerClassWeightedLeastSquaresEstimator(conf.approxDim, 1, conf.lambda, conf.mixtureWeight).fit(trainFeatures, trainLabels)
+        } else {
+          new BlockLeastSquaresEstimator(conf.approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
         }
-      } catch {
-        case e: Exception => {
-          println("failed saving output predicted features")
-          println(e.getMessage)
+
+
+      if (conf.valDuringSolve) {
+        val trainPredictions: RDD[Double] = model(trainFeatures).map(x => x(1))
+        trainPredictions.count()
+        val trainScalarLabels = trainLabels.map(x => if (x(1) == 1) 1 else 0)
+        val trainPredictionsOutput = conf.predictionsOutput + s"/trainPreds_${samplingFreq}"
+        println(s"WRITING TRAIN PREDICTIONS TO DISK AT ${trainPredictionsOutput}")
+        val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
+        var valFeaturizedWindows = valFeaturizedWindowsOpt.get
+        // filter out dnase with < mean
+        valFeaturizedWindows = valFeaturizedWindows //.filter(_.labeledWindow.win.dnase.sum > 1)
+        //  val hardNegatives  = valFeaturizedWindows.filter(_.labeledWindow.win.dnase.sum <= 1).map(r => (r.labeledWindow.label, 0.0))
+
+        val valFeatures = valFeaturizedWindows.map(_.features)
+        var valPredictions: RDD[Double] = model(valFeatures).map(x => x(1))
+        val (min, max) = (valPredictions.min(), valPredictions.max())
+        valPredictions = valPredictions.map(r => ((r - min) / (max - min)))
+        val valScalarLabels = valFeaturizedWindows.map(_.labeledWindow.label)
+        val valPredictionsOutput = conf.predictionsOutput + s"/valPreds_${conf.valChromosomes.mkString(','.toString)}_${conf.valCellTypes.mkString(','.toString)}"
+
+        val zippedValPreds = valScalarLabels.zip(valPredictions)
+        zippedValPreds.map(x => s"${x._1},${x._2}").saveAsTextFile(s"${valPredictionsOutput}_${samplingFreq}")
+
+        try {
+          // save test predictions if specified
+          if (conf.saveTestPredictions != null) {
+            val first = valFeaturizedWindows.first.labeledWindow.win
+            val cellType = first.getCellType.toString
+            val tf = first.getTf.toString
+            val chr = first.getRegion.referenceName
+
+            // create sequence dictionary, used to save files
+            val reference = new TwoBitFile(new LocalFileByteAccess(new File(conf.reference)))
+            val sd: SequenceDictionary = reference.sequences
+            println(sd)
+            saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).zip(valPredictions).filter(_._2 >= 0.5),
+              sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_predicted.bed")
+            saveAsFeatures(valFeaturizedWindows.map(_.labeledWindow).map(r => (r, r.label.toDouble)).filter(_._2 >= 0.5),
+              sd, conf.saveTrainPredictions + s"${tf}_${cellType}_${chr}_true.bed")
+          }
+        } catch {
+          case e: Exception => {
+            println("failed saving output predicted features")
+            println(e.getMessage)
+          }
         }
       }
-
-      println("Saving model to disk")
-      saveModel(model, conf.modelOutput)
+      samplingFreq = samplingFreq + 0.1
+//      println("Saving model to disk")
+//      saveModel(model, conf.modelOutput)
     }
   }
 

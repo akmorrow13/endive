@@ -28,7 +28,11 @@ class WindowLoaderSuite extends EndiveFunSuite {
     val strWin = labeledWindow.toString
     val labeledWindow2: LabeledWindow = LabeledWindowLoader.stringToLabeledWindow(strWin)
 
-    assert(labeledWindow2 == labeledWindow)
+    assert(labeledWindow2.label == labeledWindow.label)
+    assert(labeledWindow2.win.getRegion == labeledWindow.win.getRegion)
+    assert(labeledWindow2.win.getDnasePeakCount == labeledWindow.win.getDnasePeakCount)
+    assert(labeledWindow2.win.getDnase == labeledWindow.win.getDnase)
+
   }
 
   test("test window loader without dnase") {
