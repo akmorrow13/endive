@@ -91,11 +91,15 @@ object TestDnasePipeline extends Serializable with Logging {
           }
         }
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
-    val windows = LabeledWindowLoader(conf.featuresOutput, sc).filter(_.label >= 0).cache()
+
+    val windowLoc = conf.featuresOutput
+    val windows = LabeledWindowLoader(windowLoc, sc).filter(_.label >= 0).cache()
+    val tf = windows.first.win.getTf.toString
+
     var positives = windows.filter(r => r.label == 1)
     var negatives = windows.filter(r => r.label == 0)
     // print original statisics
-    println(s"ORIGINAL STATS: total windows: ${windows.count}, positive count: ${positives.count}, negative count: ${negatives.count} ")
+    println(s"ORIGINAL STATS for ${tf}: total windows: ${windows.count}, positive count: ${positives.count}, negative count: ${negatives.count} ")
 
     // merge positives together. filter out windows without peaks
     positives = mergeAdjacent(positives.map(_.win)).map(r => LabeledWindow(r, 1))
@@ -120,11 +124,11 @@ object TestDnasePipeline extends Serializable with Logging {
     val positivesWithPeaks = positives.filter(_.win.getDnasePeakCount > 0)
 
     println(s"counting number of (negatives + positives): ${newSet.filter(_.label == 0).count} + ${newSet.filter(_.label == 1).count} for total dataset")
-    println(s"number of positives that we lost from thresholding windowsize to >= ${windowLength}: ${positives.filter(_.win.getRegion.length > windowLength).count}")
+    println(s"number of positives that we lost from thresholding windowsize to >= ${windowLength}: ${positives.filter(_.win.getRegion.length < windowLength).count}")
     println(s"number of positives that we lost from eliminating sites without peaks: ${posLostFromPeaks}")
 
     // save to disk
-    newSet.map(_.toString).saveAsTextFile(conf.featurizedOutput)
+    newSet.map(_.toString).repartition(1).saveAsTextFile(conf.featurizedOutput + tf)
   }
 
 
@@ -158,6 +162,7 @@ object TestDnasePipeline extends Serializable with Logging {
     var positives = windows.filter(r => r.label == 1)
     var negatives = windows.filter(r => r.label == 0)
     // print original statisics
+  
     println(s"ORIGINAL STATS: total windows: ${windows.count}, positive count: ${positives.count}, negative count: ${negatives.count} ")
 
     // consolidate positives

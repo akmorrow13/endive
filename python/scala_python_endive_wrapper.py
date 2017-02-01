@@ -26,7 +26,8 @@ CORES_PER_EXECUTOR = 8
 
 dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatasetCreationPipeline"
 
-featurization_pipeline_class = "net.akmorrow13.endive.pipelines.DnaseKernelPipeline"
+# featurization_pipeline_class = "net.akmorrow13.endive.pipelines.DnaseKernelPipeline"
+featurization_pipeline_class = "net.akmorrow13.endive.pipelines.KitchenSinkFeaturizePipeline"
 
 solver_pipeline_class = "net.akmorrow13.endive.pipelines.MotifPipeline"
 test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
@@ -78,7 +79,7 @@ def run_kitchensink_featurize_pipeline(windowPath,
     kernel_pipeline_config["featurizeSample"] = sample
     kernel_pipeline_config["kmerLength"] = kmer_size
     kernel_pipeline_config["approxDim"] = num_filters
-    kernel_pipeline_config["readFiltersFromDisk"] = True
+    kernel_pipeline_config["readFiltersFromDisk"] = False
     kernel_pipeline_config["featuresOutput"] = featuresOutput
     kernel_pipeline_config["seed"] = seed
     kernel_pipeline_config["alphabetSize"] = alphabet_size

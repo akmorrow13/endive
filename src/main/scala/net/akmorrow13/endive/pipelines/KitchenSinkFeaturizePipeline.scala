@@ -91,6 +91,8 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
     if (conf.featurizeSample < 1.0)  {
       allData = allData.sample(false, conf.featurizeSample)
     }
+    allData = allData.repartition(200).cache()
+    println(s"${allData.count} records")
 
     println("Sampling Frequency " + conf.featurizeSample)
 
@@ -150,7 +152,7 @@ object KitchenSinkFeaturizePipeline  extends Serializable with Logging {
     val uniform = new Uniform(0, 2*math.Pi)
     val phase = DenseVector.rand(numOutputFeatures, uniform)
 
-    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize, alphabetSize=4, offset=Some(phase), fastfood=true, seed=seed, gamma=gamma)
+    val kernelApprox = new KernelApproximator(W, Math.cos, ngramSize = kmerSize, alphabetSize=4, offset=Some(phase), fastfood=false, seed=seed, gamma=gamma)
 
     matrix.map(f => {
       val kx = (kernelApprox({
