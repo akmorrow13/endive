@@ -115,7 +115,9 @@ object SolverPipeline extends Serializable with Logging {
 
 
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
+
     // load in data
+
     var featuresRDD = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
 
     val negativeCount = featuresRDD.filter(_.labeledWindow.label == 0).count
@@ -171,7 +173,8 @@ object SolverPipeline extends Serializable with Logging {
         val trainScalarLabels = trainLabels.map(x => if (x(1) == 1) 1 else 0)
         val trainPredictionsOutput = conf.predictionsOutput + s"/trainPreds_${samplingFreq}"
         println(s"WRITING TRAIN PREDICTIONS TO DISK AT ${trainPredictionsOutput}")
-        val zippedTrainPreds = trainScalarLabels.zip(trainPredictions).map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
+        val zippedTrainPreds = trainScalarLabels.zip(trainPredictions) //.map(x => s"${x._1},${x._2}").saveAsTextFile(trainPredictionsOutput)
+
         var valFeaturizedWindows = valFeaturizedWindowsOpt.get
         // filter out dnase with < mean
         valFeaturizedWindows = valFeaturizedWindows //.filter(_.labeledWindow.win.dnase.sum > 1)
