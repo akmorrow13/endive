@@ -80,8 +80,8 @@ object MergeLabelsAndSequences extends Serializable with Logging {
             .setStrand(Strand.REVERSE)
             .build()
           Iterable(forward, reverse)
-        }).sortBy(f => ReferenceRegion(f)).zipWithIndex().map(r => (r._2, r._1))
-
+        }).sortBy(f => ReferenceRegion.stranded(f)).zipWithIndex().map(r => (r._2, r._1))
+    labels.take(2).foreach(println)
 
     val sequences = sc.textFile(sequenceFile).zipWithIndex().map(r => (r._2, r._1))
 
@@ -91,14 +91,14 @@ object MergeLabelsAndSequences extends Serializable with Logging {
       s" sequenceCount (${sequenceCount})")
 
     // join sequences and labels and save
-
-    val zipped = labels.join(sequences, 1).sortBy(_._1)
+    println(s"saving to ${conf.getNumPartitions} partitions")
+    val zipped = labels.join(sequences, conf.getNumPartitions).sortBy(_._1)
 
 
     val strings = zipped.map(r =>
       s"${r._2._1.getContigName},${r._2._1.getStart},${r._2._1.getEnd},${r._2._1.getStrand},${r._2._2}")
 
-//    strings.saveAsTextFile(featuresOutput)
+    strings.saveAsTextFile(featuresOutput)
 
     // save as bed file for multiple cell types for train
     if (!conf.testBoard) {
@@ -111,9 +111,10 @@ object MergeLabelsAndSequences extends Serializable with Logging {
           Feature.newBuilder(r._2._1)
               .setScore(r._2._2.split(',')(cellType._2+1).toInt.toDouble)
               .build()
-        })
+        }).filter(_.getScore() > 0)
+	println(s"saving celltype ${cellType._1} for ${rdd.count()} sequences")
         new FeatureRDD(rdd, l.sequences)
-//          .saveAsBed(s"featuresOutput_${cellType._1}.bed")
+          .saveAsBed(s"featuresOutput_${cellType._1}.adam")
       }
     }
 
