@@ -18,6 +18,8 @@ package net.akmorrow13.endive.pipelines
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.processing.{CellTypes, TranscriptionFactors}
 import net.akmorrow13.endive.utils.{Window, LabeledWindow, LabeledWindowLoader}
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
@@ -126,9 +128,16 @@ object MergeLabelsAndSequences extends Serializable with Logging {
 
   // merge + and - cuts separately
   def mergeDnase(sc: SparkContext, conf: EndiveConf): Unit = {
+
+
     val coveragePath = conf.getCutmapInputPath
     val featuresPath = conf.getWindowLoc
     val output = conf.getFeaturesOutput
+
+    val fs: FileSystem = FileSystem.get(new Configuration())
+    val alignmentStatus = fs.listStatus(new Path(coveragePath))
+    println(s"first alignment file: ${alignmentStatus.head.getPath.getName}, first cell type: ${alignmentStatus.head.getPath.getName.split('.')(2)}")
+
     val features = sc.textFile(featuresPath).map(r => {
       val arr = r.split(',')
       val region = new ReferenceRegion(arr(0), arr(1).toLong, arr(2).toLong, Strand.valueOf(arr(3)))
@@ -137,12 +146,19 @@ object MergeLabelsAndSequences extends Serializable with Logging {
       LabeledWindow(win, 0)
     })
 
-    val coverage = sc.loadParquetAlignments(coveragePath)
+    features.cache()
+    features.count
 
-    val joined = VectorizedDnase.joinWithDnaseBams(sc, coverage.sequences, features, coverage)
+    for (i <- alignmentStatus) {
+      val file: String = i.getPath.toString
+      val cellType = i.getPath.getName.split('.')(2)
+      val coverage = sc.loadParquetAlignments(file)
+
+      val joined = VectorizedDnase.joinWithDnaseBams(sc, coverage.sequences, features, coverage)
         .map(r =>
           s"${r.win.getRegion.referenceName},${r.win.getRegion.start},${r.win.getRegion.end},${r.win.getRegion.strand},${r.win.getDnase.toArray.toList.mkString(",")}")
-    println(s"saving to ${output}, first: ${joined.first}")
-    joined.saveAsTextFile(output)
+      println(s"saving to ${output}, first: ${joined.first}")
+      joined.saveAsTextFile(s"${output}_${cellType}")
+    }
   }
 }
