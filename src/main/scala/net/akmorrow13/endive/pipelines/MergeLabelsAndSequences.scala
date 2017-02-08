@@ -16,6 +16,8 @@
 package net.akmorrow13.endive.pipelines
 
 import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.processing.{CellTypes, TranscriptionFactors}
+import net.akmorrow13.endive.utils.{Window, LabeledWindow, LabeledWindowLoader}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
@@ -61,6 +63,9 @@ object MergeLabelsAndSequences extends Serializable with Logging {
    * @param conf
    */
   def run(sc: SparkContext, conf: EndiveConf) {
+    mergeDnase(sc, conf)
+    sys.exit(0)
+
     val labelBed = conf.getLabels       // regions (only has POSITIVE strands)
     val sequenceFile = conf.getSequenceLoc // sequence and labels
     val featuresOutput = conf.getFeaturesOutput
@@ -112,13 +117,32 @@ object MergeLabelsAndSequences extends Serializable with Logging {
               .setScore(r._2._2.split(',')(cellType._2+1).toInt.toDouble)
               .build()
         }).filter(_.getScore() > 0)
-	println(s"saving celltype ${cellType._1} for ${rdd.count()} sequences")
+	      println(s"saving celltype ${cellType._1} for ${rdd.count()} sequences")
         new FeatureRDD(rdd, l.sequences)
           .saveAsBed(s"featuresOutput_${cellType._1}.adam")
       }
     }
+  }
 
+  // merge + and - cuts separately
+  def mergeDnase(sc: SparkContext, conf: EndiveConf): Unit = {
+    val coveragePath = conf.getCutmapInputPath
+    val featuresPath = conf.getWindowLoc
+    val output = conf.getFeaturesOutput
+    val features = sc.textFile(featuresPath).map(r => {
+      val arr = r.split(',')
+      val region = new ReferenceRegion(arr(0), arr(1).toLong, arr(2).toLong, Strand.valueOf(arr(3)))
+      val sequence = arr(4)
+      val win = Window(TranscriptionFactors.Any, CellTypes.Any, region, sequence)
+      LabeledWindow(win, 0)
+    })
 
+    val coverage = sc.loadParquetAlignments(coveragePath)
 
+    val joined = VectorizedDnase.joinWithDnaseBams(sc, coverage.sequences, features, coverage)
+        .map(r =>
+          s"${r.win.getRegion.referenceName},${r.win.getRegion.start},${r.win.getRegion.end},${r.win.getRegion.strand},${r.win.getDnase.toArray.toList.mkString(",")}")
+    println(s"saving to ${output}, first: ${joined.first}")
+    joined.saveAsTextFile(output)
   }
 }

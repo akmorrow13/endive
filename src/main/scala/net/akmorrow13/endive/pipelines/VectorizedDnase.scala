@@ -254,10 +254,10 @@ object VectorizedDnase extends Serializable  {
     filteredRDD.unpersist()
 
     val groupedWindows: RDD[(LabeledWindow, Iterable[AlignmentRecord])] = cutsAndWindows
-      .groupBy(r => (r._1.win.getRegion, r._1.win.getCellType, r._1.win.getTf))
-      .map(r => {
-        val x = r._2.toList
-        (x.head._1, x.map(_._2.get).toIterable)
+          .groupBy(r => (r._1.win.getRegion, r._1.win.getCellType, r._1.win.getTf))
+          .map(r => {
+            val x = r._2.toList
+            (x.head._1, x.map(_._2.get).toIterable)
       })
       .setName("groupedWindows")
       .cache()
@@ -266,7 +266,7 @@ object VectorizedDnase extends Serializable  {
     cutsAndWindows.unpersist()
 
     // featurize datapoints to vector of numbers
-    featurizePositives(groupedWindows, None, false)
+    featurizePositives(groupedWindows, false)
 
   }
 
@@ -344,18 +344,12 @@ object VectorizedDnase extends Serializable  {
    * Featurizes cuts from dnase to vectors of numbers covering 200 bp windows
    * @param cutsAndWindows cuts and windows to vectorize
    * @param doCentipede Whether or not to concolve using msCentipede algorithm
-   * @param motifs
    * @return
    */
   def featurizePositives(cutsAndWindows: RDD[(LabeledWindow, Iterable[AlignmentRecord])],
-                motifs: Option[List[Motif]] = None,
                 doCentipede: Boolean = true): RDD[LabeledWindow] = {
 
     // filter windows into regions with and without relaxed dnase peaks
-
-    // set size of dnase region to featurize
-    val dnaseFeatureCount = 200
-    val flanking = dnaseFeatureCount/2
 
     val centipedeWindows: RDD[LabeledWindow] =
       cutsAndWindows.map(window => {
@@ -363,29 +357,6 @@ object VectorizedDnase extends Serializable  {
 
         // where to center motif?
         val (start, end) =
-          if (motifs.isDefined) { // if motif is defined center at most probable motif
-          // format motifs to map on tf
-          val tfmotifs = motifs.get.filter(_.label == window._1.win.getTf.toString)
-          val center =
-            if (tfmotifs.length == 0) {
-              println(s"no motifs for tf ${window._1.win.getTf.toString}. Parsing from center")
-              window._1.win.getSequence.length/2
-            } else {
-              // get max motif location
-                tfmotifs.map(motif => {
-                  val motifLength = motif.length
-                  // slide length, take index of max probabilitiy
-                  window._1.win.getSequence
-                    .sliding(motifLength)
-                    .map(r => motif.sequenceProbability(r))
-                    .zipWithIndex
-                    .maxBy(_._1)
-                }).maxBy(_._1)._2
-            }
-
-            (window._1.win.getRegion.start + center  - flanking,
-              window._1.win.getRegion.start + center + flanking) //determines size of dnase footprint region
-          } else
             (window._1.win.getRegion.start, window._1.win.getRegion.end)
 
         val positivePositions = DenseVector.zeros[Int](Dataset.windowSize)
