@@ -21,9 +21,12 @@ import net.akmorrow13.endive.utils.{Window, LabeledWindow, LabeledWindowLoader}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
+import org.apache.parquet.filter2.dsl.Dsl.BinaryColumn
+import org.apache.parquet.filter2.predicate.FilterPredicate
+import org.apache.parquet.io.api.Binary
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.{ReferenceRegion, Coverage}
+import org.bdgenomics.adam.models.{SequenceDictionary, ReferenceRegion, Coverage}
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.feature.FeatureRDD
 import org.bdgenomics.formats.avro.{Strand, Feature}
@@ -147,14 +150,22 @@ object MergeLabelsAndSequences extends Serializable with Logging {
     })
 
     features.cache()
-    features.count
+    val featureCount = features.count
+
+    val partitionCount = (featureCount / conf.numPartitions).toInt
+
+    val alignmentSequences = sc.loadParquetAlignments(alignmentStatus.head.getPath.toString).sequences
+    // get sequence records in file
+    val chrs = features.map(_.win.getRegion.referenceName).distinct().collect
+
+    val sequences = new SequenceDictionary(alignmentSequences.records.filter(r => chrs.contains(r.name)))
 
     for (i <- alignmentStatus) {
       val file: String = i.getPath.toString
       val cellType = i.getPath.getName.split('.')(2)
-      val coverage = sc.loadParquetAlignments(file)
+      val coverage = sc.loadParquetAlignments(file).transform(_.filter(r => chrs.contains(r.getContigName)))
 
-      val joined = VectorizedDnase.joinWithDnaseBams(sc, coverage.sequences, features, coverage)
+      val joined = VectorizedDnase.joinWithDnaseBams(sc, sequences, features, coverage, partitionCount)
         .map(r =>
           s"${r.win.getRegion.referenceName},${r.win.getRegion.start},${r.win.getRegion.end},${r.win.getRegion.strand},${r.win.getDnase.toArray.toList.mkString(",")}")
       println(s"saving to ${output}, first: ${joined.first}")

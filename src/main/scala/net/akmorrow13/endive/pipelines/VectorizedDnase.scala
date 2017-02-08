@@ -227,7 +227,8 @@ object VectorizedDnase extends Serializable  {
   def joinWithDnaseBams(sc: SparkContext,
                         sd: SequenceDictionary,
                         filteredRDD: RDD[LabeledWindow],
-                        coverage: AlignmentRecordRDD): RDD[LabeledWindow] = {
+                        coverage: AlignmentRecordRDD,
+                        partitionCount: Int = 2000000): RDD[LabeledWindow] = {
 
     // this is a hack to force LeftOuterShuffleRegionJoin work.
     // We must force all reads to be mapped
