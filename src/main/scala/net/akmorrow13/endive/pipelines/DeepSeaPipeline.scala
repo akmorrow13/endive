@@ -15,7 +15,7 @@
  */
 package net.akmorrow13.endive.pipelines
 
-import java.io.File
+import java.io._
 import breeze.linalg._
 import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveConf
@@ -40,6 +40,7 @@ import nodes.akmorrow13.endive.featurizers.KernelApproximator
 import nodes.learning.BlockLeastSquaresEstimator
 import net.jafama.FastMath
 import org.apache.commons.math3.random.MersenneTwister
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 
 object DeepSeaPipeline extends Serializable  {
 
@@ -61,7 +62,7 @@ object DeepSeaPipeline extends Serializable  {
       EndiveConf.validate(appConfig)
       val rootLogger = Logger.getRootLogger()
       rootLogger.setLevel(Level.INFO)
-      val conf = new SparkConf().setAppName("ENDIVE:SingleTFDatasetCreationPipeline")
+      val conf = new SparkConf().setAppName("DeepSeaPipeline")
       conf.setIfMissing("spark.master", "local[4]")
       val sc = new SparkContext(conf)
       run(sc, appConfig)
@@ -70,21 +71,28 @@ object DeepSeaPipeline extends Serializable  {
   }
 
   def run(sc: SparkContext, conf: EndiveConf) {
-    val headers = sc.textFile(conf.deepSeaDataPath + "headers").collect()
+    val headers = sc.textFile(conf.deepSeaDataPath + "headers").collect()(0).split(",")
     val trainFiles = sc.textFile(conf.deepSeaDataPath + "deepsea_train").map(x => x.split(","))
     val evalFiles = sc.textFile(conf.deepSeaDataPath + "deepsea_eval").map(x => x.split(","))
-    val tfIndices = headers.zipWithIndex.filter(x => conf.deepSeaTfs.map(y => x._1 contains y).reduce(_ || _)).map(x => x._2)
-    val labelHeaders = headers.zipWithIndex.filter(x => conf.deepSeaTfs.map(y => x._1 contains y).reduce(_ || _)).map(x => x._1)
+    val tfIndices = headers.zipWithIndex.filter(x => conf.deepSeaTfs.map(y => x._1 contains y).contains(true)).map(x => x._2)
+    println(headers.size)
+
+
+    val labelHeaders = headers.zipWithIndex.filter(x => conf.deepSeaTfs.map(y => x._1 contains y).contains(true)).map(x => x._1)
+
     val tfIndicesB = sc.broadcast(tfIndices)
 
-    val trainSeqs = trainFiles.map(x => x(0)).map(KernelApproximator.stringToVector(_))
-    val evalSeqs = evalFiles.map(x => x(0)).map(KernelApproximator.stringToVector(_))
+    val trainSeqs = trainFiles.map(x => x(0).substring(400,600)).map(KernelApproximator.stringToVector(_))
+    val evalSeqs = evalFiles.map(x => x(0).substring(400,600)).map(KernelApproximator.stringToVector(_))
 
-    val trainLabels = trainFiles.map(x => tfIndicesB.value.map(y => x(y).toDouble)).map(DenseVector(_))
-    val evalLabels = evalFiles.map(x => tfIndicesB.value.map(y => x(y).toDouble)).map(DenseVector(_))
+    val trainLabels = trainFiles.map(x => tfIndicesB.value.map(y => x(y).toDouble)).map(DenseVector(_)).setName("trainLabels").cache()
+    val evalLabels = evalFiles.map(x => tfIndicesB.value.map(y => x(y).toDouble)).map(DenseVector(_)).setName("evalLabels").cache()
+
+    println("TRAIN LABELS " + trainLabels.count())
 
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(conf.seed)))
     val gaussian = new Gaussian(0, 1) 
+    val seqSize = trainSeqs.first.size
     val kmerSize = conf.kmerLength
     val alphabetSize = conf.alphabetSize
     val approxDim = conf.approxDim
@@ -92,11 +100,51 @@ object DeepSeaPipeline extends Serializable  {
     val W:DenseMatrix[Double] = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian) * conf.gamma
     val uniform = new Uniform(0, 2*math.Pi)
     val phase = DenseVector.rand(approxDim, uniform)
-    val kernelApprox = new KernelApproximator(W, FastMath.cos, ngramSize = kmerSize, alphabetSize=4, offset=Some(phase), fastfood=false, seed=conf.seed, gamma=conf.gamma)
-    val trainFeatures= kernelApprox(trainSeqs).cache()
+    val kernelApprox = new KernelApproximator(W, FastMath.cos, ngramSize = kmerSize, alphabetSize=4, offset=Some(phase), fastfood=false, seed=conf.seed, gamma=conf.gamma, seqSize=seqSize/alphabetSize)
+    val trainFeatures = kernelApprox(trainSeqs).setName("trainFeatures").cache()
+    val evalFeatures = kernelApprox(evalSeqs).setName("evalFeatures").cache()
     println(s"FEATURIZING WITH KMERSIZE=${kmerSize}, gamma=${conf.gamma}")
     println(s"NUMBER OF TRAINING POINTS ${trainFeatures.count()}")
     println("Solving least squares")
-    val model = new BlockLeastSquaresEstimator(approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
+    val model = new BlockLeastSquaresEstimator(min(2048, approxDim), 1, conf.lambda).fit(trainFeatures, trainLabels)
+    val allYTrain = model(trainFeatures)
+    val allYEval = model(evalFeatures)
+
+
+    println("COMPUTING TRAIN Results")
+    var outputstr = ""
+    for ((meta, i)  <- labelHeaders.zipWithIndex) {
+      val yPredTrain = allYTrain.map(x => x(i))
+
+      val yTrain = trainLabels.map(x => x(i))
+
+      val numPositivesTrain = yTrain.filter(x => x == 1.0).count()
+      val numTotalTrain = yTrain.count()
+      val metricsTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
+      val auPRCTrain = metricsTrain.areaUnderPR
+      val auROCTrain = metricsTrain.areaUnderROC
+      outputstr += s"${meta},${auROCTrain},${auPRCTrain},${numPositivesTrain},${numTotalTrain}\n"
+    }
+    println(outputstr)
+    var pw = new PrintWriter(new File("/tmp/deepsea_train.log" ))
+    pw.write(outputstr)
+    pw.close
+    println("COMPUTING EVAL Results")
+    outputstr = ""
+    for ((meta, i)  <- labelHeaders.zipWithIndex) {
+      val yPredEval = allYEval.map(x => x(i))
+      val yEval = evalLabels.map(x => x(i))
+      val numPositivesEval = yEval.filter(x => x == 1.0).count()
+      val numTotalEval = yEval.count()
+      val metricsEval = new BinaryClassificationMetrics(yPredEval.zip(yEval.map(_.toDouble)))
+      val auPRCEval =  metricsEval.areaUnderPR
+      val auROCEval = metricsEval.areaUnderROC
+
+      outputstr += s"${meta},${auROCEval},${auPRCEval},${numPositivesEval},${numTotalEval}\n"
+    }
+    println(outputstr)
+    pw = new PrintWriter(new File("/tmp/deepsea_eval.log" ))
+    pw.write(outputstr)
+    pw.close
   }
 }
