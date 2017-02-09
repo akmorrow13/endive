@@ -139,6 +139,7 @@ object MergeLabelsAndSequences extends Serializable with Logging {
 
     val fs: FileSystem = FileSystem.get(new Configuration())
     val alignmentStatus = fs.listStatus(new Path(coveragePath))
+    println(s"num partitions: ${conf.numPartitions}")
     println(s"first alignment file: ${alignmentStatus.head.getPath.getName}, first cell type: ${alignmentStatus.head.getPath.getName.split('.')(2)}")
 
     val features = sc.textFile(featuresPath).map(r => {
@@ -148,9 +149,23 @@ object MergeLabelsAndSequences extends Serializable with Logging {
       val win = Window(TranscriptionFactors.Any, CellTypes.Any, region, sequence)
       LabeledWindow(win, 0)
     })
+    val first = features.first
 
     features.cache()
     val featureCount = features.count
+    
+    val replicates = Array("liver:DNASE.liver.biorep1.techrep2.bam",
+	"inducedpluripotentstemcell:DNASE.induced_pluripotent_stem_cell.biorep2.techrep2.bam",
+	"Panc1:DNASE.Panc1.biorep2.techrep1.bam",
+	"PC3:DNASE.PC-3.biorep1.techrep1.bam",
+	"MCF7DNASE.MCF-7.biorep1.techrep4.bam",
+	"K562:DNASE.K562.biorep2.techrep6.bam",
+	"IMR90:DNASE.IMR90.biorep1.techrep1.bam",
+	"HepG2:DNASE.HepG2.biorep2.techrep3.bam",
+	"HeLaS3:DNASE.HeLa-S3.biorep1.techrep2.bam",
+	"HCT116:DNASE.HCT116.biorep1.techrep1.bam",
+	"H1hESC:DNASE.H1-hESC.biorep1.techrep2.bam",
+	"GM12878:DNASE.GM12878.biorep1.techrep1.bam","A549:DNASE.A549.biorep1.techrep3.bam")
 
     val partitionCount = (featureCount / conf.numPartitions).toInt
 
@@ -163,13 +178,20 @@ object MergeLabelsAndSequences extends Serializable with Logging {
     for (i <- alignmentStatus) {
       val file: String = i.getPath.toString
       val cellType = i.getPath.getName.split('.')(2)
-      val coverage = sc.loadParquetAlignments(file).transform(_.filter(r => chrs.contains(r.getContigName)))
+      var coverage = sc.loadParquetAlignments(file).transform(_.filter(r => chrs.contains(r.getContigName) && r.start >= 0).map(r => {
+	r.setReadMapped(true)
+	r
+      }).repartition(conf.numPartitions * 6))
+      coverage = coverage.transform(rdd => rdd.filter(r => replicates.contains(r.getAttributes)))
 
+      println(s"coverage count: ${coverage.rdd.count}")
+          
+      println(s"overlap: ${coverage.rdd.filter(r => ReferenceRegion.stranded(r).overlaps(first.win.getRegion)).count}")
       val joined = VectorizedDnase.joinWithDnaseBams(sc, sequences, features, coverage, partitionCount)
         .map(r =>
           s"${r.win.getRegion.referenceName},${r.win.getRegion.start},${r.win.getRegion.end},${r.win.getRegion.strand},${r.win.getDnase.toArray.toList.mkString(",")}")
       println(s"saving to ${output}, first: ${joined.first}")
-      joined.saveAsTextFile(s"${output}_${cellType}")
+      joined.repartition(conf.numPartitions).saveAsTextFile(s"${output}${cellType}")
     }
   }
 }

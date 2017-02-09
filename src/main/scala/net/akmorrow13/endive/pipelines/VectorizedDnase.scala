@@ -243,13 +243,13 @@ object VectorizedDnase extends Serializable  {
     mappedCoverage.rdd.count
 
     val cutsAndWindows: RDD[(LabeledWindow, Option[AlignmentRecord])] =
-      LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, 2000000, sc)
-        .partitionAndJoin(filteredRDD.keyBy(_.win.getRegion), mappedCoverage.rdd.keyBy(r => ReferenceRegion.opt(r).get))
+      LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, partitionCount, sc)
+        .partitionAndJoin(filteredRDD.keyBy(_.win.getRegion), mappedCoverage.rdd.keyBy(r => ReferenceRegion.stranded(r)))
         .filter(_._2.isDefined)
         .setName("cutsAndWindows")
         .cache()
 
-    println(s"Final partition count: ${cutsAndWindows.partitions.length}")
+    println(s"Final partition count: ${cutsAndWindows.partitions.length}, count: ${cutsAndWindows.count}")
 
     mappedCoverage.rdd.unpersist()
     filteredRDD.unpersist()
@@ -321,8 +321,12 @@ object VectorizedDnase extends Serializable  {
     val positiveCoverage = coverage.filter(r => r.getStrand == Strand.FORWARD)
     val negativeCoverage = coverage.filter(r => r.getStrand == Strand.REVERSE)
 
-    val positivePositions = DenseVector.zeros[Double](Dataset.windowSize)
-    val negativePositions = DenseVector.zeros[Double](Dataset.windowSize)
+
+    val windowSize = window.win.getRegion.length().toInt
+    println(s"windowSize: ${windowSize}")
+
+    val positivePositions = DenseVector.zeros[Double](windowSize)
+    val negativePositions = DenseVector.zeros[Double](windowSize)
 
     // featurize positives to vector
     positiveCoverage.foreach(r => {
@@ -352,6 +356,9 @@ object VectorizedDnase extends Serializable  {
 
     // filter windows into regions with and without relaxed dnase peaks
 
+    val windowSize = cutsAndWindows.first._1.win.getRegion.length().toInt
+    println(s"windowSize: ${windowSize}")
+
     val centipedeWindows: RDD[LabeledWindow] =
       cutsAndWindows.map(window => {
         val cellType = window._1.win.getCellType
@@ -360,8 +367,8 @@ object VectorizedDnase extends Serializable  {
         val (start, end) =
             (window._1.win.getRegion.start, window._1.win.getRegion.end)
 
-        val positivePositions = DenseVector.zeros[Int](Dataset.windowSize)
-        val negativePositions = DenseVector.zeros[Int](Dataset.windowSize)
+        val positivePositions = DenseVector.zeros[Int](windowSize)
+        val negativePositions = DenseVector.zeros[Int](windowSize)
 
         window._2.toList.foreach(rec => {
           if (rec.getReadNegativeStrand)
