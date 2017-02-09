@@ -29,6 +29,7 @@ featurization_pipeline_class = "net.akmorrow13.endive.pipelines.DnaseKernelPipel
 
 solver_pipeline_class = "net.akmorrow13.endive.pipelines.SolverPipeline"
 test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
+deepsea_pipeline_class = "net.akmorrow13.endive.pipelines.DeepSeaPipeline"
 
 pipeline_jar = os.path.relpath("../target/scala-2.10/endive-assembly-0.1.jar")
 
@@ -96,6 +97,42 @@ def run_kitchensink_featurize_pipeline(windowPath,
               use_yarn=True)
 
     return True
+
+def run_deepsea_pipeline(deepSeaTfs=['ATF3'],
+               gamma = 1.0,
+               reg=1e-8,
+               alphabet_size=4,
+               kmer_size=8,
+               num_filters=256,
+               seed=0,
+               cores_per_executor=CORES_PER_EXECUTOR,
+               num_executors=NUM_EXECUTORS,
+               executor_mem=EXECUTOR_MEM,
+               use_yarn=True,
+               base_config=BASE_KERNEL_PIPELINE_CONFIG):
+
+    kernel_pipeline_config = base_config.copy()
+    kernel_pipeline_config['deepSeaTfs'] = deepSeaTfs
+    kernel_pipeline_config['lambda'] = reg
+    kernel_pipeline_config["kmerLength"] = kmer_size
+    kernel_pipeline_config["approxDim"] = num_filters
+    kernel_pipeline_config["seed"] = seed
+    kernel_pipeline_config["alphabetSize"] = alphabet_size
+
+    pythonrun.run(kernel_pipeline_config,
+              "/tmp/log",
+              deepsea_pipeline_class,
+              pipeline_jar,
+              executor_mem,
+              cores_per_executor,
+              num_executors,
+              use_yarn=True)
+
+    train_df = pd.read_csv('/tmp/deepsea_train_results')
+    val_df = pd.read_csv('/tmp/deepsea_val_results')
+    return train_df, val_df
+
+
 
 def run_solver_pipeline(featuresPath,
                logpath,
