@@ -173,7 +173,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
      allYTrain.map(r => r(i._2)).max
    }))
 
-  val tfs = conf.tfs.split(',')
+  val tfs: Array[TranscriptionFactors.Value] = conf.tfs.split(',').map(r => TranscriptionFactors.withName(r))
 
   // score motifs
   val motifs =
@@ -183,7 +183,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
     } else {
       None
     }
-
+  println(motifs)
 
     // get metrics
     printAllMetrics(headers, tfs, allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
@@ -207,7 +207,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
 
   }
 
-  def scoreMotifs(sc: SparkContext, tfs: Array[String],
+  def scoreMotifs(sc: SparkContext, tfs: Array[TranscriptionFactors.Value],
                   inputPath: String,
                   featurizedOutput: String,
                   W_sequence: DenseMatrix[Double],
@@ -219,7 +219,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
       // split raw text file of motifs
       val motifs = sc.textFile(inputPath)
         .map(r => (r.split(',')(0), r.split(',')(1)))
-        .filter(r => !tfs.filter(tf => r._1.contains(tf)).isEmpty)
+        .filter(r => !tfs.map(_.toString).filter(tf => r._1.contains(tf)).isEmpty)
         .map(r => {
           val filled = seqSize - r._2.length
           val seq = 40 * 'N' + r._2 + (filled-40) * 'N'
@@ -248,12 +248,12 @@ object DnaseKernelPipeline extends Serializable with Logging {
    * @param motifs
    */
   def printAllMetrics(headers: Array[String],
-            tfs: Array[String],
+            tfs: Array[TranscriptionFactors.Value],
             train: RDD[(DenseVector[Double], DenseVector[Double])],
             eval: RDD[(DenseVector[Double], DenseVector[Double])],
             motifs: Option[RDD[(DenseVector[Double], LabeledWindow)]]): Unit = {
 
-    val spots = headers.zipWithIndex.filter(r => !tfs.filter(tf => r._1.contains(tf)).isEmpty)
+    val spots = headers.zipWithIndex.filter(r => !tfs.map(_.toString).filter(tf => r._1.contains(tf)).isEmpty)
     println("selected tfs")
     spots.foreach(println)
 
