@@ -41,8 +41,9 @@ import nodes.learning.BlockLeastSquaresEstimator
 import net.jafama.FastMath
 import org.apache.commons.math3.random.MersenneTwister
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import com.github.fommil.netlib.BLAS
 
-object DeepSeaPipeline extends Serializable  {
+object DeepSeaSolveOnlyPipeline extends Serializable  {
 
   /**
    * A very basic dataset creation pipeline for sequence data that *doesn't* featurize the data
@@ -65,58 +66,35 @@ object DeepSeaPipeline extends Serializable  {
       val conf = new SparkConf().setAppName(configtext)
       conf.setIfMissing("spark.master", "local[4]")
       val sc = new SparkContext(conf)
+      val blasVersion = BLAS.getInstance().getClass().getName()
+      println(s"Currently used version of blas is ${blasVersion}")
       run(sc, appConfig)
       sc.stop()
     }
   }
 
   def run(sc: SparkContext, conf: EndiveConf) {
+    println("RUN SOLVER ONLY PIPELINE")
     val headers = sc.textFile(conf.deepSeaDataPath + "headers").collect()(0).split(",")
-    val trainFiles = sc.textFile(conf.deepSeaDataPath + "deepsea_train").map(x => x.split(","))
-    val evalFiles = sc.textFile(conf.deepSeaDataPath + "deepsea_eval").map(x => x.split(","))
-    println(conf.deepSeaTfs.mkString(","))
-    val tfIndices = headers.zipWithIndex.filter(x => conf.deepSeaTfs.map(y => x._1 contains y).contains(true)).map(x => x._2)
-    println(tfIndices.mkString(","))
-    println(headers.size)
-
-
     val labelHeaders = headers.zipWithIndex.filter(x => conf.deepSeaTfs.map(y => x._1 contains y).contains(true)).map(x => x._1)
 
-    val tfIndicesB = sc.broadcast(tfIndices)
 
-    val trainSeqs = trainFiles.map(x => x(0).substring(400,600)).map(KernelApproximator.stringToVector(_))
-    val evalSeqs = evalFiles.map(x => x(0).substring(400,600)).map(KernelApproximator.stringToVector(_))
-
-    val trainLabels = trainFiles.map(x => tfIndicesB.value.map(y => x(y).toDouble)).map(DenseVector(_)).setName("trainLabels").cache()
-    val evalLabels = evalFiles.map(x => tfIndicesB.value.map(y => x(y).toDouble)).map(DenseVector(_)).setName("evalLabels").cache()
-
-    println("TRAIN LABELS " + trainLabels.count())
-    println("TRAIN LABELS SIZE " + trainLabels.first.size)
-
-    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(conf.seed)))
-    val gaussian = new Gaussian(0, 1) 
-    val seqSize = trainSeqs.first.size
+    val seqSize = 800
     val kmerSize = conf.kmerLength
-    val alphabetSize = conf.alphabetSize
     val approxDim = conf.approxDim
-    // generate random matrix
-    val W:DenseMatrix[Double] = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian) * conf.gamma
-    val uniform = new Uniform(0, 2*math.Pi)
-    val phase = DenseVector.rand(approxDim, uniform)
-    val kernelApprox = new KernelApproximator(W, FastMath.cos, ngramSize = kmerSize, alphabetSize=4, offset=Some(phase), fastfood=false, seed=conf.seed, gamma=conf.gamma, seqSize=seqSize/alphabetSize)
-    val trainFeatures = kernelApprox(trainSeqs).setName("trainFeatures").cache()
-    val evalFeatures = kernelApprox(evalSeqs).setName("evalFeatures").cache()
-
     val featuresName = s"${seqSize}_${kmerSize}_${approxDim}_${conf.gamma}"
     val trainFeaturesName = featuresName + "_train.features"
     val valFeaturesName = featuresName + "_val.features"
 
-    trainFeatures.map(x => x.toArray.mkString(",")).zip(trainLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(trainFeaturesName)
-    evalFeatures.map(x => x.toArray.mkString(",")).zip(evalLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(valFeaturesName)
+    val trainFiles = sc.textFile(trainFeaturesName)
+    val evalFiles = sc.textFile(valFeaturesName)
 
-    println(s"FEATURIZING WITH KMERSIZE=${kmerSize}, gamma=${conf.gamma}")
-    println(s"NUMBER OF TRAINING POINTS ${trainFeatures.count()}")
-    println("Solving least squares")
+    val trainFeatures = trainFiles.map(x => DenseVector(x.split("\\|")(0).split(",").map(_.toDouble)))
+    val evalFeatures = evalFiles.map(x => DenseVector(x.split("\\|")(0).split(",").map(_.toDouble)))
+
+    val trainLabels = trainFiles.map(x => DenseVector(x.split("\\|")(1).split(",").map(_.toDouble)))
+    val evalLabels = evalFiles.map(x => DenseVector(x.split("\\|")(1).split(",").map(_.toDouble)))
+
     val model = new BlockLeastSquaresEstimator(min(1024, approxDim), 1, conf.lambda).fit(trainFeatures, trainLabels)
     val allYTrain = model(trainFeatures)
     val allYEval = model(evalFeatures)
