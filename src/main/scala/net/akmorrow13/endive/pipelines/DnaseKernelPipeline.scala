@@ -27,13 +27,13 @@ import net.akmorrow13.endive.utils._
 import com.github.fommil.netlib.BLAS
 import net.jafama.FastMath
 import nodes.akmorrow13.endive.featurizers.KernelApproximator
-import nodes.learning.{ BlockLeastSquaresEstimator }
+import nodes.learning.{BlockLinearMapper, LBFGSwithL2, BlockLeastSquaresEstimator}
 import nodes.util.{Cacher, MaxClassifier, ClassLabelIndicatorsFromIntLabels}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.SequenceDictionary
+import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
 import org.bdgenomics.adam.rdd.feature.FeatureRDD
 import org.bdgenomics.adam.util.TwoBitFile
 import org.bdgenomics.formats.avro._
@@ -89,10 +89,11 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val kmerSize = 8
     val approxDim = conf.approxDim
     val dnaseSize = 100
+    val seqSize = 200
     val alphabetSize = Dataset.alphabet.size
 
     // generate headers
-    val headers = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",")
+    val headers: Array[String] = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",")
     val labelHeaders = headers.zipWithIndex.filter(x => conf.deepSeaTfs.map(y => x._1 contains y).contains(true)).map(x => x._1)
 
     var (train, eval) = {
@@ -163,9 +164,29 @@ object DnaseKernelPipeline extends Serializable with Logging {
 
     val model = new BlockLeastSquaresEstimator(approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
 
-
     val allYTrain = model(trainFeatures)
     val allYEval = model(evalFeatures)
+
+    // get max scores. Used for normalization
+   val firstTrain = allYTrain.first.toArray
+   val maxVector = DenseVector(firstTrain.toArray.zipWithIndex.map(i => {
+     allYTrain.map(r => r(i._2)).max
+   }))
+
+  val tfs = conf.tfs.split(',')
+
+  // score motifs
+  val motifs =
+    if (conf.motifDBPath != null && conf.getModelTest != null) {
+      Some(scoreMotifs(sc, tfs, conf.motifDBPath, conf.getModelTest,
+        W_sequence, model, maxVector, kmerSize, seqSize))
+    } else {
+      None
+    }
+
+
+    // get metrics
+    printAllMetrics(headers, tfs, allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
 
     val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
     val trainResults:String = trainLabels.zip(allYTrain).sample(false, 0.001).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
@@ -183,6 +204,76 @@ object DnaseKernelPipeline extends Serializable with Logging {
     pwVal.write(resultsHeaders)
     pwVal.write(valResults)
     pwVal.close
+
+  }
+
+  def scoreMotifs(sc: SparkContext, tfs: Array[String],
+                  inputPath: String,
+                  featurizedOutput: String,
+                  W_sequence: DenseMatrix[Double],
+                  model: BlockLinearMapper,
+                  maxVector: DenseVector[Double],
+                  kmerSize: Int,
+                  seqSize: Int): RDD[(DenseVector[Double], LabeledWindow)] = {
+
+      // split raw text file of motifs
+      val motifs = sc.textFile(inputPath)
+        .map(r => (r.split(',')(0), r.split(',')(1)))
+        .filter(r => !tfs.filter(tf => r._1.contains(tf)).isEmpty)
+        .map(r => {
+          val filled = seqSize - r._2.length
+          val seq = 40 * 'N' + r._2 + (filled-40) * 'N'
+          val win = Window(TranscriptionFactors.withName(r._1), CellTypes.Any, ReferenceRegion("chr1", 1, 200), seq)
+          LabeledWindow(win, 1)
+        })
+
+      // featurize motifs
+      val featurized =
+          featurize(motifs, W_sequence, kmerSize)
+
+      // save featurized as FeaturizedLabeledWindow
+      featurized.map(_.toString()).saveAsTextFile(featurizedOutput)
+
+      model(featurized.map(r => r.features)).map(r =>  r :/ maxVector).zip(featurized.map(_.labeledWindow))
+
+  }
+
+
+  /**
+   * Prints metrics for train, eval and motifs
+   * @param headers Headers straight
+   * @param tfs
+   * @param train
+   * @param eval
+   * @param motifs
+   */
+  def printAllMetrics(headers: Array[String],
+            tfs: Array[String],
+            train: RDD[(DenseVector[Double], DenseVector[Double])],
+            eval: RDD[(DenseVector[Double], DenseVector[Double])],
+            motifs: Option[RDD[(DenseVector[Double], LabeledWindow)]]): Unit = {
+
+    val spots = headers.zipWithIndex.filter(r => !tfs.filter(tf => r._1.contains(tf)).isEmpty)
+    println("selected tfs")
+    spots.foreach(println)
+
+    for (i <- spots) {
+      val evalTrain = new BinaryClassificationMetrics(train.map(r => (r._1(i._2), r._2(i._2))))
+      println(s"Train Results for ${i._1} at ${i._2}")
+      Metrics.printMetrics(evalTrain)
+
+      val evalEval = new BinaryClassificationMetrics(eval.map(r => (r._1(i._2), r._2(i._2))))
+      println(s"Eval Results for ${i._1} at ${i._2}")
+      Metrics.printMetrics(evalEval)
+    }
+
+    // motif metrics
+    if (motifs.isDefined) {
+      println("EvaluatingMotifs")
+      println("Motif\tSequence\tScores")
+      val evalEval = motifs.get.collect
+        .foreach(r => println(s"${r._2.win.getTf}\t${r._2.win.getSequence.filter(_ != 'N')}\t${r._1.toArray.mkString("\t")}"))
+    }
 
   }
 
