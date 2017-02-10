@@ -35,6 +35,26 @@ class WindowLoaderSuite extends EndiveFunSuite {
 
   }
 
+  test("test window loader from string with multiple labels") {
+    val peak1 =  AlignmentRecord.newBuilder()
+      .setContigName(region.referenceName)
+      .setStart(region.start)
+      .setEnd(region.end)
+      .build()
+
+    val dnase = DenseVector.ones[Double](200) * 0.2
+    val window: Window = Window(tf, cellType, region, sequence, 1, Some(dnase), None)
+    val labeledWindow = LabeledWindow(window, Array(0,1,0))
+    val strWin = labeledWindow.toString
+    val labeledWindow2: LabeledWindow = LabeledWindowLoader.stringToLabeledWindow(strWin)
+
+    assert(labeledWindow2.label == labeledWindow.label)
+    assert(labeledWindow2.win.getRegion == labeledWindow.win.getRegion)
+    assert(labeledWindow2.win.getDnasePeakCount == labeledWindow.win.getDnasePeakCount)
+    assert(labeledWindow2.win.getDnase == labeledWindow.win.getDnase)
+
+  }
+
   test("test window loader without dnase") {
     val window: Window = Window(tf, cellType, region, sequence, 0, None, None)
     val labeledWindow = LabeledWindow(window, 0)

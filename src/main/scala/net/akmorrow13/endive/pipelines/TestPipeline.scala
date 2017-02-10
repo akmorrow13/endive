@@ -86,7 +86,7 @@ object TestPipeline extends Serializable with Logging {
 
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
     val testFeaturizedWindows = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
-    val model = loadModel(conf.modelOutput, conf.approxDim)
+    val model = loadModel(conf.modelOutput, conf.modelBlockSize)
     val testFeatures = testFeaturizedWindows.map(_.features)
 
     println(testFeatures.count())
@@ -110,14 +110,14 @@ object TestPipeline extends Serializable with Logging {
       } else  {
         throw new Exception("either ladderBoard or testBoard must be specified")
       }).map(r => s"${r._1.referenceName}\t${r._1.start}\t${r._1.end}\t${r._2}\n")
-    
+
     val writer = new PrintWriter(new File(testPredictionsOutput))
     sorted.foreach(r => writer.write(r))
     writer.close()
 
   }
 
-def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
+  def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
     val files = ArrayBuffer.empty[Path]
     /* Hard coded rn */
     val numClasses = 2

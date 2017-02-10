@@ -30,6 +30,7 @@ dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatas
 featurization_pipeline_class = "net.akmorrow13.endive.pipelines.KitchenSinkFeaturizePipeline"
 
 solver_pipeline_class = "net.akmorrow13.endive.pipelines.MotifPipeline"
+
 test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
 
 pipeline_jar = os.path.relpath("../target/scala-2.10/endive-assembly-0.1.jar")
@@ -83,7 +84,7 @@ def run_kitchensink_featurize_pipeline(windowPath,
     kernel_pipeline_config["featuresOutput"] = featuresOutput
     kernel_pipeline_config["seed"] = seed
     kernel_pipeline_config["alphabetSize"] = alphabet_size
-    kernel_pipeline_config["numPartitions"] = partitions    
+    kernel_pipeline_config["numPartitions"] = partitions
     kernel_pipeline_config["saveTestPredictions"] = saveTestFeatures
     print kernel_pipeline_config
 
@@ -112,8 +113,8 @@ def run_solver_pipeline(featuresPath,
                valCellTypes=[],
                reg=0.1,
                negativeSamplingFreq=1.0,
-               mixtureWeight=-1.0,         
-               predictedOutput=None,         
+               mixtureWeight=-1.0,
+               predictedOutput=None,
                valDuringSolve=False,
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
@@ -127,7 +128,8 @@ def run_solver_pipeline(featuresPath,
     kernel_pipeline_config["lambda"] = reg
     kernel_pipeline_config["negativeSamplingFreq"] = negativeSamplingFreq
     kernel_pipeline_config["mixtureWeight"] = mixtureWeight
-    kernel_pipeline_config["motifDBPath"] ="/data/anv/DREAMDATA/databases/hg19filtered/EGR1_full_JOLMA2013.bed,/data/anv/DREAMDATA/databases/hg19filtered/EGR1_DBD_JOLMA2013.bed"
+    if (predictedOutput != None):
+        kernel_pipeline_config["saveTestPredictions"] = predictedOutput
 
     if (predictedOutput != None):
         kernel_pipeline_config["saveTestPredictions"] = predictedOutput
@@ -154,7 +156,7 @@ def run_test_pipeline(featuresPath, # features for test windows
                logpath,
                hdfsclient,
                predictionsPath, # saves metadata and test preditions to /testMetaData and /testPreds
-               modelPath, 
+               modelPath,
                approxDim,
                cores_per_executor=CORES_PER_EXECUTOR,
                num_executors=NUM_EXECUTORS,
@@ -170,7 +172,7 @@ def run_test_pipeline(featuresPath, # features for test windows
     kernel_pipeline_config["ladderBoard"] = ladderBoard
 
     print(kernel_pipeline_config)
-    
+
     pythonrun.run(kernel_pipeline_config,
               logpath,
               test_pipeline_class,
@@ -300,9 +302,8 @@ def roc_result(y_test, y_test_pred, y_train=None, y_train_pred=None):
 
 
 
-def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes,                                    logPath, 
-                   numHoldOutChr=1, 
-                   numHoldOutCell=1,
+def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes, logPath,
+                   numHoldOutChr=1,
                    num_folds=1,
                    regs=[0.1],
                    negativeSamplingFreqs=[1.0],
@@ -324,32 +325,27 @@ def cross_validate(feature_path, hdfsclient, chromosomes, cellTypes,            
         print("HOLDING OUT CHROMOSOMES {0}".format(test_chromosomes))
         print("HOLDING OUT CELL TYPES {0}".format(test_cell_types))
         for neg in negativeSamplingFreqs:
-          for reg in regs:
-            for mixtureWeight in mixtureWeights:
+            for reg in regs:
                 print("RUNING SOLVER WITH REG={0}".format(reg))
-                print("AND MIXTUREWEIGHT={0}".format(mixtureWeight))
-                
                 train_res, val_res = run_solver_pipeline(feature_path,
-                               logPath,
-                               hdfsclient,
-                               predictionsPath,
-                               modelPath,                          
-                               executor_mem=executor_mem,
-                               num_executors=num_executors,
-                               cores_per_executor=cores_per_executor,
-                               reg=reg,
-                               negativeSamplingFreq=neg,
-                               mixtureWeight=mixtureWeight,                           
-                               valCellTypes=[8],
-                               valChromosomes=test_chromosomes,
-                               predictedOutput=None,
-                               valDuringSolve=True)
-                
+                             logPath,
+                             hdfsclient,
+                             predictionsPath,
+                             modelPath,
+                             executor_mem=executor_mem,
+                             num_executors=num_executors,
+                             cores_per_executor=cores_per_executor,
+                             reg=reg,
+                             negativeSamplingFreq=neg,
+                             valCellTypes=[8],
+                             valChromosomes=test_chromosomes,
+                             predictedOutput=None,
+                             valDuringSolve=True)
+
                 train_metrics = compute_metrics(train_res[:, 1], train_res[:, 0], tag='train')
                 val_metrics = compute_metrics(val_res[:, 1], val_res[:, 0], tag='val')
                 result = dict(train_metrics.items() + val_metrics.items() + other_meta.items())
                 result['reg'] = reg
-                print(mixtureWeight)
                 result['negativeSamplingFreq'] = neg
                 result['test_chromosomes'] = test_chromosomes
                 result['test_celltypes'] = test_cell_types
@@ -376,17 +372,5 @@ def string_to_enum_celltypes(string_cell_types):
     ALL_CELLTYPES = ['A549','GM12878', 'H1hESC', 'HCT116', 'HeLaS3', 'HepG2', 'IMR90', 'K562', 'MCF7', 'PC3',
   'Panc1', 'SKNSH', 'inducedpluripotentstemcell', 'liver']
     return map(lambda x: x[0], filter(lambda x: x[1] in string_cell_types, enumerate(ALL_CELLTYPES)))
-
-
-
-
-
-
-
-
-
-
-
-
 
 

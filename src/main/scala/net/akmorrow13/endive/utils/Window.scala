@@ -48,6 +48,8 @@ object Window {
   /* Delimiter to split RNASE AND DNASE windows */
   val EPIDELIM= ";"
 
+  val LABELDELIM = '|'
+
 }
 
 /* Base data class */
@@ -149,11 +151,19 @@ case class FeaturizedLabeledWindow(labeledWindow: LabeledWindow, features: Dense
   override def toString: String = {
     labeledWindow.toString + Window.FEATDELIM + features.toArray.mkString(",")
   }
+
 }
 
-case class LabeledWindow(win: Window, label: Int) extends Serializable {
+case class LabeledWindow(win: Window, labels: Array[Int]) extends Serializable {
+
+  def label: Int = labels(0)
+
   override
   def toString:String = {
-    s"${label},${win.toString}"
+    s"${labels.mkString(",")}${Window.LABELDELIM}${win.toString}"
   }
+}
+
+object LabeledWindow {
+  def apply(win: Window, label: Int) = new LabeledWindow(win, Array(label))
 }

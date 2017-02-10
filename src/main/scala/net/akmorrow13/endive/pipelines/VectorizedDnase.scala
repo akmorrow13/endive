@@ -244,7 +244,7 @@ object VectorizedDnase extends Serializable  {
 
     val cutsAndWindows: RDD[(LabeledWindow, Option[AlignmentRecord])] =
       LeftOuterShuffleRegionJoin[LabeledWindow, AlignmentRecord](sd, partitionCount, sc)
-        .partitionAndJoin(filteredRDD.keyBy(_.win.getRegion), mappedCoverage.rdd.keyBy(r => ReferenceRegion.stranded(r)))
+        .partitionAndJoin(filteredRDD.keyBy(_.win.getRegion), mappedCoverage.rdd.keyBy(r => ReferenceRegion.unstranded(r)))
         .filter(_._2.isDefined)
         .setName("cutsAndWindows")
         .cache()

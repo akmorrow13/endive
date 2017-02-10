@@ -15,6 +15,7 @@
  */
 package net.akmorrow13.endive.pipelines
 
+import breeze.linalg.DenseVector
 import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.processing.{CellTypes, TranscriptionFactors}
 import net.akmorrow13.endive.utils.{Window, LabeledWindow, LabeledWindowLoader}
@@ -153,19 +154,19 @@ object MergeLabelsAndSequences extends Serializable with Logging {
 
     features.cache()
     val featureCount = features.count
-    
+
     val replicates = Array("liver:DNASE.liver.biorep1.techrep2.bam",
-	"inducedpluripotentstemcell:DNASE.induced_pluripotent_stem_cell.biorep2.techrep2.bam",
-	"Panc1:DNASE.Panc1.biorep2.techrep1.bam",
-	"PC3:DNASE.PC-3.biorep1.techrep1.bam",
-	"MCF7DNASE.MCF-7.biorep1.techrep4.bam",
-	"K562:DNASE.K562.biorep2.techrep6.bam",
-	"IMR90:DNASE.IMR90.biorep1.techrep1.bam",
-	"HepG2:DNASE.HepG2.biorep2.techrep3.bam",
-	"HeLaS3:DNASE.HeLa-S3.biorep1.techrep2.bam",
-	"HCT116:DNASE.HCT116.biorep1.techrep1.bam",
-	"H1hESC:DNASE.H1-hESC.biorep1.techrep2.bam",
-	"GM12878:DNASE.GM12878.biorep1.techrep1.bam","A549:DNASE.A549.biorep1.techrep3.bam")
+      "inducedpluripotentstemcell:DNASE.induced_pluripotent_stem_cell.biorep2.techrep2.bam",
+      "Panc1:DNASE.Panc1.biorep2.techrep1.bam",
+      "PC3:DNASE.PC-3.biorep1.techrep1.bam",
+      "MCF7DNASE.MCF-7.biorep1.techrep4.bam",
+      "K562:DNASE.K562.biorep2.techrep6.bam",
+      "IMR90:DNASE.IMR90.biorep1.techrep1.bam",
+      "HepG2:DNASE.HepG2.biorep2.techrep3.bam",
+      "HeLaS3:DNASE.HeLa-S3.biorep1.techrep2.bam",
+      "HCT116:DNASE.HCT116.biorep1.techrep1.bam",
+      "H1hESC:DNASE.H1-hESC.biorep1.techrep2.bam",
+      "GM12878:DNASE.GM12878.biorep1.techrep1.bam", "A549:DNASE.A549.biorep1.techrep3.bam")
 
     val partitionCount = (featureCount / conf.numPartitions).toInt
 
@@ -179,13 +180,13 @@ object MergeLabelsAndSequences extends Serializable with Logging {
       val file: String = i.getPath.toString
       val cellType = i.getPath.getName.split('.')(2)
       var coverage = sc.loadParquetAlignments(file).transform(_.filter(r => chrs.contains(r.getContigName) && r.start >= 0).map(r => {
-	r.setReadMapped(true)
-	r
+        r.setReadMapped(true)
+        r
       }).repartition(conf.numPartitions * 6))
       coverage = coverage.transform(rdd => rdd.filter(r => replicates.contains(r.getAttributes)))
 
       println(s"coverage count: ${coverage.rdd.count}")
-          
+
       println(s"overlap: ${coverage.rdd.filter(r => ReferenceRegion.stranded(r).overlaps(first.win.getRegion)).count}")
       val joined = VectorizedDnase.joinWithDnaseBams(sc, sequences, features, coverage, partitionCount)
         .map(r =>
@@ -193,5 +194,44 @@ object MergeLabelsAndSequences extends Serializable with Logging {
       println(s"saving to ${output}, first: ${joined.first}")
       joined.repartition(conf.numPartitions).saveAsTextFile(s"${output}${cellType}")
     }
+  }
+
+
+  /** Dnase is of form chr7,31439600,31440600,FORWARD,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0, ...
+    * where vector is length of region
+    * @param sequencePath sequence data to be joined
+    * @param dnasePath path to dnase
+    * @return
+    */
+  def joinDnaseAndSequence(sc: SparkContext, sequencePath: String,
+                           dnasePath: String, outputPath: String, partitions: Int = 100): RDD[LabeledWindow] = {
+
+    val cellType = CellTypes.getEnumeration(dnasePath.split("/").last)
+
+    val dnase = sc.textFile(dnasePath).map(r => {
+      val arr = r.split(',')
+      val region = ReferenceRegion(arr(0),arr(1).toLong, arr(2).toLong, Strand.valueOf(arr(3)))
+      val vector = DenseVector(arr.slice(4, arr.length).map(_.toDouble))
+      (region, vector)
+    })
+
+    val sequences: RDD[(ReferenceRegion, (String, Array[Int]))] = sc.textFile(sequencePath)
+      .map(r => {
+        val arr = r.split(',')
+        val region = ReferenceRegion(arr(0),arr(1).toLong, arr(2).toLong, Strand.valueOf(arr(3)))
+        val sequence = arr(4)
+        val labels = arr.slice(5,arr.length).map(r => r.toInt)
+        (region, (sequence, labels))
+      })
+
+    val joined = sequences.leftOuterJoin(dnase)
+      .map(r => {
+        val win = Window(TranscriptionFactors.Any, cellType, r._1, r._2._1._1, 0, r._2._2, None, None)
+        LabeledWindow(win, r._2._1._2)
+       })
+
+    joined.repartition(partitions).map(r => r.toString).saveAsTextFile(outputPath)
+
+    joined
   }
 }

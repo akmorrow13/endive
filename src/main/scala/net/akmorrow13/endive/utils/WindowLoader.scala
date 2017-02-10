@@ -12,20 +12,23 @@ import org.bdgenomics.adam.models.ReferenceRegion
 object LabeledWindowLoader {
 
   def stringToLabeledWindow(str: String): LabeledWindow = {
-    val d = str.split(Window.OUTERDELIM)
+    val x = str.split(Window.LABELDELIM)
+    val labels = x(0).split(",").map(r => r.toInt)
+    val data = x(1)
+
+    val d = data.split(Window.OUTERDELIM)
     val dataArray = d(0).split(Window.STDDELIM)
+
 
     val dnase: Option[DenseVector[Double]] = d.lift(1).map(r => {
       DenseVector(r.split(Window.STDDELIM).map(_.toDouble))
     })
     val rnaseq: Option[List[RNARecord]] = d.lift(2).map(_.split(Window.EPIDELIM).map(r => RNARecord.fromString(r)).toList)
     val motifs: Option[List[PeakRecord]] = d.lift(3).map(_.split(Window.EPIDELIM).map(r => PeakRecord.fromString(r)).toList)
-
-    val tf = TranscriptionFactors.withName(dataArray(1))
-    val cellType = CellTypes.withName(dataArray(2))
-    val region = ReferenceRegion(dataArray(3), dataArray(4).toLong,dataArray(5).toLong)
-    val label = dataArray(0).trim.toInt
-    LabeledWindow(Window(tf, cellType, region, dataArray(6), dataArray(7).toInt, dnase = dnase, rnaseq = rnaseq, motifs = motifs), label)
+    val tf = TranscriptionFactors.withName(dataArray(0))
+    val cellType = CellTypes.withName(dataArray(1))
+    val region = ReferenceRegion(dataArray(2), dataArray(3).toLong,dataArray(4).toLong)
+    LabeledWindow(Window(tf, cellType, region, dataArray(5), dataArray(6).toInt, dnase = dnase, rnaseq = rnaseq, motifs = motifs), labels)
   }
 
 

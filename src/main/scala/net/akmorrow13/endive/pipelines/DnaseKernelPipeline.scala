@@ -96,69 +96,63 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val referencePath = conf.reference
 
     var featuresOutput = conf.featuresOutput
-    println(s"dim ${approxDim}")
 
-    if (dataPath == null || referencePath == null) {
+    if (dataPath == null) {
       println("Error: no data or reference path")
       sys.exit(-1)
     }
 
-    // create sequence dictionary, used to save files
-    val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
-    val sd: SequenceDictionary = reference.sequences
+    val train = MergeLabelsAndSequences.joinDnaseAndSequence(sc, s"${conf.getSequenceLoc}deepsea_train_reg_seq",
+      s"${conf.getDnaseLoc}train/${conf.cellTypes}", s"${conf.getAggregatedSequenceOutput}train_${conf.cellTypes}", 200)
+      .setName("_All data")
+
+    val eval = MergeLabelsAndSequences.joinDnaseAndSequence(sc, s"${conf.getSequenceLoc}deepsea_eval_reg_seq",
+      s"${conf.getDnaseLoc}eval/${conf.cellTypes}", s"${conf.getAggregatedSequenceOutput}eval_${conf.cellTypes}", 2)
+      .setName("_All data")
+
+    sys.exit(0)
 
 
-    // load data for a specific transcription factor
-    var allData: RDD[LabeledWindow] =
-      LabeledWindowLoader(dataPath, sc).setName("_All data")
-        .filter(_.label >= 0)
+    //    // load data for a specific transcription factor
+//    var train: RDD[LabeledWindow] =
+//      LabeledWindowLoader(dataPath, sc).setName("_All data")
 
-    if (conf.negativeSamplingFreq < 1.0) {
-      println("NEGATIVE SAMPLING")
-      val rand = new Random(conf.seed)
+    train.repartition(700).cache()
+    train.count()
 
-      val chr = allData.first.win.getRegion.referenceName
-      println(s"holding out ${chr}")
-
-      val test = allData.filter(r => r.win.getRegion.referenceName == chr)
-      val negativesFull = allData.filter(r => r.label == 0 && r.win.getRegion.referenceName != chr )
-      val samplingIndices = (0 until negativesFull.count().toInt).map(x =>  (x, rand.nextFloat() < conf.negativeSamplingFreq))
-        .filter(_._2).map(_._1).toSet
-      val samplingIndicesB = sc.broadcast(samplingIndices)
-
-      val negatives = negativesFull.zipWithIndex.filter(x => samplingIndicesB.value contains x._2.toInt).map(x => x._1)
-      val positives = allData.filter(r => r.label > 0  && r.win.getRegion.referenceName != chr)
-
-      allData = negatives.union(positives).union(test)
-    }
-
-    allData.repartition(1500).cache()
-    allData.count()
-    // normalize dnase
-    val dnaseMaxPos = allData.map(r => r.win.getDnase.max).max
-    allData = allData.map(r => {
-      val win = r.win.setDnase(r.win.getDnase / dnaseMaxPos)
-      LabeledWindow(win, r.label)
-    })
-    println(s"max for dnase went from ${dnaseMaxPos} to ${allData.map(r => r.win.getDnase.max).max}")
+//    // normalize dnase
+//    val dnaseMaxPos = train.map(r => r.win.getDnase.max).max
+//    train = train.map(r => {
+//      val win = r.win.setDnase(r.win.getDnase / dnaseMaxPos)
+//      LabeledWindow(win, r.label)
+//    })
+//    println(s"max for dnase went from ${dnaseMaxPos} to ${train.map(r => r.win.getDnase.max).max}")
 
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
-    //val dnaseMax = allData.map(r => r.win.getDnase.max).max.round.toInt
 
     // generate random matrix
     val W_sequence = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
-     
+
     // generate approximation features
-    val allFeaturized = 
+    val (trainFeatures, evalFeatures) =
      if (conf.useDnase) {
-	featurizeWithWaveletDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim)
+       (featurizeWithWaveletDnase(sc, train, W_sequence, kmerSize, dnaseSize, approxDim),
+         featurizeWithWaveletDnase(sc, eval, W_sequence, kmerSize, dnaseSize, approxDim))
      } else {
-       featurizeWithDnase(sc, allData, W_sequence, kmerSize, dnaseSize, approxDim)
+       (featurizeWithDnase(sc, train, W_sequence, kmerSize, dnaseSize, approxDim),
+         featurizeWithDnase(sc, eval, W_sequence, kmerSize, dnaseSize, approxDim))
      }
 
-    println(s"saving to: ${featuresOutput}")
-    allFeaturized.map(_.toString).saveAsTextFile(featuresOutput + s"_dim_${approxDim}_samp_${conf.negativeSamplingFreq}")
+    val trainLabels = trainFeatures.map(_.labeledWindow.labels.map(_.toDouble)).map(DenseVector(_))
+    val evalLabels = evalFeatures.map(_.labeledWindow.labels.map(_.toDouble)).map(DenseVector(_))
+
+    val model = new BlockLeastSquaresEstimator(approxDim, 1, conf.lambda).fit(trainFeatures.map(_.features), trainLabels)
+
+
+
+
+
 
   }
 
