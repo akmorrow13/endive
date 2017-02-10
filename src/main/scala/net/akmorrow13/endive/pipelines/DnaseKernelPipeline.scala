@@ -97,8 +97,8 @@ object DnaseKernelPipeline extends Serializable with Logging {
 
     var (train, eval) = {
       if (conf.getAggregatedSequenceOutput == null) {
-        val train = LabeledWindowLoader(conf.getWindowLoc, sc).setName("_All data")
-        val eval = LabeledWindowLoader(conf.getWindowLoc, sc).setName("_eval")
+        val train = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
+        val eval = LabeledWindowLoader(s"${conf.getWindowLoc}_eval", sc).setName("_eval")
         (train, eval)
       } else {
         val train = MergeLabelsAndSequences.joinDnaseAndSequence(sc, s"${conf.getSequenceLoc}deepsea_train_reg_seq",
@@ -115,16 +115,22 @@ object DnaseKernelPipeline extends Serializable with Logging {
     // Slice windows for 200 bp range
     train = train.repartition(700).cache().map(r => {
       val mid = r.win.getRegion.length /2 + r.win.getRegion.start
-      LabeledWindow(r.win.slice(mid-100,mid+100), r.labels)
+      val win =
+        if (r.win.getDnase.length == 0) r.win.setDnase(DenseVector.zeros(r.win.getRegion.length.toInt))
+        else r.win
+      LabeledWindow(win.slice(mid-100,mid+100), r.labels)
     })
     train.count()
-
+    println(train.first)
     eval = eval.repartition(2).cache().map(r => {
       val mid = r.win.getRegion.length /2 + r.win.getRegion.start
-      LabeledWindow(r.win.slice(mid-100,mid+100), r.labels)
+      val win =
+        if (r.win.getDnase.length == 0) r.win.setDnase(DenseVector.zeros(r.win.getRegion.length.toInt))
+        else r.win
+      LabeledWindow(win.slice(mid-100,mid+100), r.labels)
     })
     eval.count
-
+    println(eval.first)
 //    // normalize dnase
 //    val dnaseMaxPos = train.map(r => r.win.getDnase.max).max
 //    train = train.map(r => {
@@ -148,9 +154,12 @@ object DnaseKernelPipeline extends Serializable with Logging {
        (featurize(train, W_sequence, kmerSize).map(_.features),
          featurize(eval, W_sequence, kmerSize).map(_.features))
      }
-
+ 
     val trainLabels = train.map(_.labels.map(_.toDouble)).map(DenseVector(_))
     val evalLabels = eval.map(_.labels.map(_.toDouble)).map(DenseVector(_))
+
+    trainFeatures.map(x => x.toArray.mkString(",")).zip(trainLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"icml/features/${approxDim}_train")
+    evalFeatures.map(x => x.toArray.mkString(",")).zip(evalLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"icml/features/${approxDim}_eval")
 
     val model = new BlockLeastSquaresEstimator(approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
 
@@ -159,7 +168,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val allYEval = model(evalFeatures)
 
     val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
-    val trainResults:String = trainLabels.zip(allYTrain).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
+    val trainResults:String = trainLabels.zip(allYTrain).sample(false, 0.001).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
     val pwTrain = new PrintWriter(new File("/tmp/deepsea_train_results" ))
     val scoreHeaders = labelHeaders.map(x => x + "_label").mkString(",")
     val truthHeaders = labelHeaders.map(x => x + "_score").mkString(",")
@@ -273,18 +282,15 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val kernelApprox_seq = new KernelApproximator(W_sequence, FastMath.cos, kmerSize, Dataset.alphabet.size)
 
     val gaussian = new Gaussian(0, 1)
-    val W_dnase_pos = DenseMatrix.rand(approxDim, dnaseSize, gaussian)
-    val W_dnase_neg = DenseMatrix.rand(approxDim, dnaseSize, gaussian)
+    val W_dnase = DenseMatrix.rand(approxDim, dnaseSize, gaussian)
 
-    val kernelApprox_dnase_pos = new KernelApproximator(W_dnase_pos, FastMath.cos, dnaseSize, 1, fastfood=false, gamma=gamma)
-    val kernelApprox_dnase_neg = new KernelApproximator(W_dnase_neg, FastMath.cos, dnaseSize, 1, fastfood=false, gamma=gamma)
+    val kernelApprox_dnase = new KernelApproximator(W_dnase, FastMath.cos, dnaseSize, 1, fastfood=false, gamma=gamma)
 
     rdd.map(f => {
       val k_seq = kernelApprox_seq(KernelApproximator.stringToVector(f.win.getSequence))
-      val k_dnase_pos = kernelApprox_dnase_pos(f.win.getDnase.slice(0, Dataset.windowSize))
-      val k_dnase_neg = kernelApprox_dnase_neg(f.win.getDnase.slice(Dataset.windowSize, f.win.getDnase.length))
+      val k_dnase = kernelApprox_dnase(f.win.getDnase)
 
-      FeaturizedLabeledWindow(f, DenseVector.vertcat(k_seq, k_dnase_pos, k_dnase_neg))
+      FeaturizedLabeledWindow(f, DenseVector.vertcat(k_seq, k_dnase))
     })
   }
 
