@@ -42,7 +42,7 @@ import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
-import java.io.File
+import java.io.{PrintWriter, File}
 
 
 
@@ -91,34 +91,39 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val dnaseSize = 100
     val alphabetSize = Dataset.alphabet.size
 
-    val dataPath = conf.aggregatedSequenceOutput
-    val dnasePath = conf.dnaseNarrow
-    val referencePath = conf.reference
+    // generate headers
+    val headers = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",")
+    val labelHeaders = headers.zipWithIndex.filter(x => conf.deepSeaTfs.map(y => x._1 contains y).contains(true)).map(x => x._1)
 
-    var featuresOutput = conf.featuresOutput
+    var (train, eval) = {
+      if (conf.getAggregatedSequenceOutput == null) {
+        val train = LabeledWindowLoader(conf.getWindowLoc, sc).setName("_All data")
+        val eval = LabeledWindowLoader(conf.getWindowLoc, sc).setName("_eval")
+        (train, eval)
+      } else {
+        val train = MergeLabelsAndSequences.joinDnaseAndSequence(sc, s"${conf.getSequenceLoc}deepsea_train_reg_seq",
+          s"${conf.getDnaseLoc}train/${conf.cellTypes}", s"${conf.getAggregatedSequenceOutput}${conf.cellTypes}_train", 200)
+          .setName("_All data")
 
-    if (dataPath == null) {
-      println("Error: no data or reference path")
-      sys.exit(-1)
+        val eval = MergeLabelsAndSequences.joinDnaseAndSequence(sc, s"${conf.getSequenceLoc}deepsea_eval_reg_seq",
+          s"${conf.getDnaseLoc}eval/${conf.cellTypes}", s"${conf.getAggregatedSequenceOutput}${conf.cellTypes}_eval", 2)
+          .setName("_eval")
+        (train, eval)
+      }
     }
 
-    val train = MergeLabelsAndSequences.joinDnaseAndSequence(sc, s"${conf.getSequenceLoc}deepsea_train_reg_seq",
-      s"${conf.getDnaseLoc}train/${conf.cellTypes}", s"${conf.getAggregatedSequenceOutput}train_${conf.cellTypes}", 200)
-      .setName("_All data")
-
-    val eval = MergeLabelsAndSequences.joinDnaseAndSequence(sc, s"${conf.getSequenceLoc}deepsea_eval_reg_seq",
-      s"${conf.getDnaseLoc}eval/${conf.cellTypes}", s"${conf.getAggregatedSequenceOutput}eval_${conf.cellTypes}", 2)
-      .setName("_All data")
-
-    sys.exit(0)
-
-
-    //    // load data for a specific transcription factor
-//    var train: RDD[LabeledWindow] =
-//      LabeledWindowLoader(dataPath, sc).setName("_All data")
-
-    train.repartition(700).cache()
+    // Slice windows for 200 bp range
+    train = train.repartition(700).cache().map(r => {
+      val mid = r.win.getRegion.length /2 + r.win.getRegion.start
+      LabeledWindow(r.win.slice(mid-100,mid+100), r.labels)
+    })
     train.count()
+
+    eval = eval.repartition(2).cache().map(r => {
+      val mid = r.win.getRegion.length /2 + r.win.getRegion.start
+      LabeledWindow(r.win.slice(mid-100,mid+100), r.labels)
+    })
+    eval.count
 
 //    // normalize dnase
 //    val dnaseMaxPos = train.map(r => r.win.getDnase.max).max
@@ -137,22 +142,38 @@ object DnaseKernelPipeline extends Serializable with Logging {
     // generate approximation features
     val (trainFeatures, evalFeatures) =
      if (conf.useDnase) {
-       (featurizeWithWaveletDnase(sc, train, W_sequence, kmerSize, dnaseSize, approxDim),
-         featurizeWithWaveletDnase(sc, eval, W_sequence, kmerSize, dnaseSize, approxDim))
+       (featurizeWithDnase(sc, train, W_sequence, kmerSize, dnaseSize, approxDim).map(_.features),
+         featurizeWithDnase(sc, eval, W_sequence, kmerSize, dnaseSize, approxDim).map(_.features))
      } else {
-       (featurizeWithDnase(sc, train, W_sequence, kmerSize, dnaseSize, approxDim),
-         featurizeWithDnase(sc, eval, W_sequence, kmerSize, dnaseSize, approxDim))
+       (featurize(train, W_sequence, kmerSize).map(_.features),
+         featurize(eval, W_sequence, kmerSize).map(_.features))
      }
 
-    val trainLabels = trainFeatures.map(_.labeledWindow.labels.map(_.toDouble)).map(DenseVector(_))
-    val evalLabels = evalFeatures.map(_.labeledWindow.labels.map(_.toDouble)).map(DenseVector(_))
+    val trainLabels = train.map(_.labels.map(_.toDouble)).map(DenseVector(_))
+    val evalLabels = eval.map(_.labels.map(_.toDouble)).map(DenseVector(_))
 
-    val model = new BlockLeastSquaresEstimator(approxDim, 1, conf.lambda).fit(trainFeatures.map(_.features), trainLabels)
-
-
+    val model = new BlockLeastSquaresEstimator(approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
 
 
+    val allYTrain = model(trainFeatures)
+    val allYEval = model(evalFeatures)
 
+    val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
+    val trainResults:String = trainLabels.zip(allYTrain).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
+    val pwTrain = new PrintWriter(new File("/tmp/deepsea_train_results" ))
+    val scoreHeaders = labelHeaders.map(x => x + "_label").mkString(",")
+    val truthHeaders = labelHeaders.map(x => x + "_score").mkString(",")
+    println("HEADER SIZE " + truthHeaders.split(",").size)
+    println("LABEL SIZE " + trainLabels.first.size)
+    val resultsHeaders = scoreHeaders + "," + truthHeaders + "\n"
+    pwTrain.write(resultsHeaders)
+    pwTrain.write(trainResults)
+    pwTrain.close
+
+    var pwVal = new PrintWriter(new File("/tmp/deepsea_val_results" ))
+    pwVal.write(resultsHeaders)
+    pwVal.write(valResults)
+    pwVal.close
 
   }
 
