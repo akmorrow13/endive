@@ -143,6 +143,8 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
       .setNumClasses(2)
       .run(trainFeatures.zip(trainLabels).map(r => LabeledPoint(r._2(index), Vectors.dense(r._1.toArray))))
 
+    model.clearThreshold
+
     // Get evaluation metrics for train
     var trainPredictions = trainFeatures.zip(trainLabels).map(r => {
       val prediction = model.predict(Vectors.dense(r._1.toArray))
@@ -150,7 +152,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     })
 
     var trainMetrics = new BinaryClassificationMetrics(trainPredictions)
-    println(s"Train: ROC: ${trainMetrics.areaUnderPR()}, auPRC: ${trainMetrics.areaUnderPR()}")
+    println(s"Train: ROC: ${trainMetrics.areaUnderROC()}, auPRC: ${trainMetrics.areaUnderPR()}")
 
 
     // Get evaluation metrics for eval
@@ -160,7 +162,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     })
 
     var evalMetrics = new BinaryClassificationMetrics(predictionAndLabels)
-    println(s"EVAL: ROC: ${evalMetrics.areaUnderPR()}, auPRC: ${evalMetrics.areaUnderPR()}")
+    println(s"EVAL: ROC: ${evalMetrics.areaUnderROC()}, auPRC: ${evalMetrics.areaUnderPR()}")
 
 
 
@@ -171,6 +173,8 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     model = new LogisticRegressionWithSGD()
       .run(trainFeatures.zip(trainLabels).map(r => LabeledPoint(r._2(index), Vectors.dense(r._1.toArray))))
 
+    model.clearThreshold
+
     // Get evaluation metrics for train
     trainPredictions = trainFeatures.zip(trainLabels).map(r => {
       val prediction = model.predict(Vectors.dense(r._1.toArray))
@@ -178,7 +182,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     })
 
     trainMetrics = new BinaryClassificationMetrics(trainPredictions)
-    println(s"Train: ROC: ${trainMetrics.areaUnderPR()}, auPRC: ${trainMetrics.areaUnderPR()}")
+    println(s"Train: ROC: ${trainMetrics.areaUnderROC()}, auPRC: ${trainMetrics.areaUnderPR()}")
 
 
     // Get evaluation metrics for eval
@@ -188,7 +192,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     })
 
     evalMetrics = new BinaryClassificationMetrics(predictionAndLabels)
-    println(s"EVAL: ROC: ${evalMetrics.areaUnderPR()}, auPRC: ${evalMetrics.areaUnderPR()}")
+    println(s"EVAL: ROC: ${evalMetrics.areaUnderROC()}, auPRC: ${evalMetrics.areaUnderPR()}")
 
     /*
     val allYTrain = model(trainFeatures)
