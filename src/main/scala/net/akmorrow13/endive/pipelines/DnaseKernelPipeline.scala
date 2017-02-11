@@ -117,7 +117,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
     train = train.repartition(700).cache().map(r => {
       val mid = r.win.getRegion.length /2 + r.win.getRegion.start
 
-      LabeledWindow(win.slice(mid-100,mid+100), r.labels)
+      LabeledWindow(r.win.slice(mid-100,mid+100), r.labels)
     })
     train.count()
 
@@ -159,13 +159,16 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val allYTrain = model(trainFeatures)
     val allYEval = model(evalFeatures)
 
+    val tfs: Array[TranscriptionFactors.Value] = conf.tfs.split(',').map(r => TranscriptionFactors.withName(r))
+
+    val spots = headers.zipWithIndex.filter(r => !tfs.map(_.toString).filter(tf => r._1.contains(tf)).isEmpty)
+    println("selected tfs")
+    spots.foreach(println)
+
     // get max scores. Used for normalization
-   val firstTrain = allYTrain.first.toArray
-   val maxVector = DenseVector(firstTrain.toArray.zipWithIndex.map(i => {
+   val maxVector = DenseVector(spots.map(i => {
      allYTrain.map(r => r(i._2)).max
    }))
-
-  val tfs: Array[TranscriptionFactors.Value] = conf.tfs.split(',').map(r => TranscriptionFactors.withName(r))
 
   // score motifs
   val motifs =
@@ -175,7 +178,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
     } else {
       None
     }
-  println(motifs)
+    println(motifs)
 
     // get metrics
     printAllMetrics(headers, tfs, allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
@@ -262,9 +265,12 @@ object DnaseKernelPipeline extends Serializable with Logging {
     // motif metrics
     if (motifs.isDefined) {
       println("EvaluatingMotifs")
-      println("Motif\tSequence\tScores")
+      println(s"Motif\tSequence\t${spots.map(_._1).mkString(",")}")
       val evalEval = motifs.get.collect
-        .foreach(r => println(s"${r._2.win.getTf}\t${r._2.win.getSequence.filter(_ != 'N')}\t${r._1.toArray.mkString("\t")}"))
+        .foreach(r => {
+          val scores = r._1.toArray.zipWithIndex.filter(x => spots.map(_._2).contains(x._2)).mkString(",")
+          println(s"${r._2.win.getTf}\t${r._2.win.getSequence.filter(_ != 'N')}\t${scores}")
+        })
     }
 
   }
