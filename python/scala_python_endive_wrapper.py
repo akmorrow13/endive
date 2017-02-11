@@ -26,13 +26,9 @@ CORES_PER_EXECUTOR = 8
 
 dataset_creation_pipeline_class = "net.akmorrow13.endive.pipelines.SingleTFDatasetCreationPipeline"
 
-# featurization_pipeline_class = "net.akmorrow13.endive.pipelines.DnaseKernelPipeline"
-featurization_pipeline_class = "net.akmorrow13.endive.pipelines.KitchenSinkFeaturizePipeline"
+deepsea_pipeline_class = "net.akmorrow13.endive.pipelines.DnaseKernelPipeline"
 
-solver_pipeline_class = "net.akmorrow13.endive.pipelines.MotifPipeline"
-
-test_pipeline_class = "net.akmorrow13.endive.pipelines.TestPipeline"
-deepsea_pipeline_class = "net.akmorrow13.endive.pipelines.DeepSeaPipeline"
+# deepsea_pipeline_class = "net.akmorrow13.endive.pipelines.DeepSeaPipeline"
 deepsea_solve_only_pipeline_class = "net.akmorrow13.endive.pipelines.DeepSeaSolveOnlyPipeline"
 
 pipeline_jar = os.path.relpath("../target/scala-2.10/endive-assembly-0.1.jar")
@@ -124,9 +120,17 @@ def run_deepsea_pipeline(deepSeaTfs=['ATF3'],
     kernel_pipeline_config['lambda'] = reg
     kernel_pipeline_config['epochs'] = epochs
     kernel_pipeline_config["kmerLength"] = kmer_size
+    kernel_pipeline_config["useDnase"] = False
     kernel_pipeline_config["approxDim"] = num_filters
     kernel_pipeline_config["seed"] = seed
     kernel_pipeline_config["alphabetSize"] = alphabet_size
+    
+    kernel_pipeline_config["deepSeaDataPath"] = "icml/"
+    kernel_pipeline_config["windowLoc"] = "icml/aggregated/GM12878"
+
+    
+    print(kernel_pipeline_config)
+    
     run_cls = deepsea_pipeline_class
     seq_size=800
     if (hdfs != None and run_solver_only):

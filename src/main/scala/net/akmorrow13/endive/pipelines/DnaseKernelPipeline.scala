@@ -88,7 +88,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val seed = 0
     val kmerSize = 8
     val approxDim = conf.approxDim
-    val dnaseSize = 100
+    val dnaseSize = 10
     val seqSize = 200
     val alphabetSize = Dataset.alphabet.size
 
@@ -180,8 +180,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
      	allYTrain.map(r => r(i._2)).max
      } else 1
    }))
-
-
+  
   // score motifs
   val motifs =
     if (conf.motifDBPath != null && conf.getModelTest != null) {
@@ -190,7 +189,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
     } else {
       None
     }
-  println(motifs)
+    println(motifs)
 
     // get metrics
     printAllMetrics(headers, tfs, allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
@@ -241,6 +240,9 @@ object DnaseKernelPipeline extends Serializable with Logging {
       // save featurized as FeaturizedLabeledWindow
       featurized.map(_.toString()).saveAsTextFile(featurizedOutput)
 
+
+      println(maxVector)
+      println(featurized.first)
       model(featurized.map(r => r.features)).map(r =>  r :/ maxVector).zip(featurized.map(_.labeledWindow))
 
   }
@@ -266,12 +268,11 @@ object DnaseKernelPipeline extends Serializable with Logging {
 
     for (i <- spots) {
       val evalTrain = new BinaryClassificationMetrics(train.map(r => (r._1(i._2), r._2(i._2))))
-      println(s"Train Results for ${i._1} at ${i._2}")
-      Metrics.printMetrics(evalTrain)
+      println(s"Train,${i._1},${i._2},${Metrics.printMetrics(evalTrain)}")
 
       val evalEval = new BinaryClassificationMetrics(eval.map(r => (r._1(i._2), r._2(i._2))))
-      println(s"Eval Results for ${i._1} at ${i._2}")
-      Metrics.printMetrics(evalEval)
+      println(s"Eval,${i._1},${i._2},${Metrics.printMetrics(evalEval)}")
+
     }
 
     // motif metrics
