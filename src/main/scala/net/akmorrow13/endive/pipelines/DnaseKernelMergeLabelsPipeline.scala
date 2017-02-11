@@ -76,7 +76,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
 
     // set parameters
     val seed = 0
-    val kmerSize = 8
+    val kmerSize = Array(6, 8, 12)
     val approxDim = conf.approxDim
     val dnaseSize = 100
     val seqSize = 200
@@ -113,7 +113,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     val gaussian = new Gaussian(0, 1)
 
     // generate random matrix
-    val W_sequence = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
+    val W_sequence = DenseMatrix.rand(approxDim, kmerSize(0) * alphabetSize, gaussian)
 
     // generate approximation features
     val (trainFeatures, evalFeatures) =
@@ -142,7 +142,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     })
 
     var trainMetrics = new BinaryClassificationMetrics(trainPredictions)
-    println(s"Train: ROC: ${trainMetrics.areaUnderPR()}, auPRC: ${trainMetrics.areaUnderPR()}")
+    println(s"Train: ROC: ${trainMetrics.areaUnderROC()}, auPRC: ${trainMetrics.areaUnderPR()}")
 
 
     // Get evaluation metrics for eval
@@ -152,7 +152,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     })
 
     var evalMetrics = new BinaryClassificationMetrics(predictionAndLabels)
-    println(s"EVAL: ROC: ${evalMetrics.areaUnderPR()}, auPRC: ${evalMetrics.areaUnderPR()}")
+    println(s"EVAL: ROC: ${evalMetrics.areaUnderROC()}, auPRC: ${evalMetrics.areaUnderPR()}")
 
 
 
