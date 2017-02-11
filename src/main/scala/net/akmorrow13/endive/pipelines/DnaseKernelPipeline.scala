@@ -159,21 +159,28 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val trainLabels = train.map(_.labels.map(_.toDouble)).map(DenseVector(_))
     val evalLabels = eval.map(_.labels.map(_.toDouble)).map(DenseVector(_))
 
-    trainFeatures.map(x => x.toArray.mkString(",")).zip(trainLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"icml/features/${approxDim}_train")
-    evalFeatures.map(x => x.toArray.mkString(",")).zip(evalLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"icml/features/${approxDim}_eval")
+    //trainFeatures.map(x => x.toArray.mkString(",")).zip(trainLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"icml/features/${approxDim}_train")
+    //evalFeatures.map(x => x.toArray.mkString(",")).zip(evalLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"icml/features/${approxDim}_eval")
 
     val model = new BlockLeastSquaresEstimator(approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
 
     val allYTrain = model(trainFeatures)
     val allYEval = model(evalFeatures)
 
+    val tfs: Array[TranscriptionFactors.Value] = conf.tfs.split(',').map(r => TranscriptionFactors.withName(r))
+
+    val spots = headers.zipWithIndex.filter(r => !tfs.map(_.toString).filter(tf => r._1.contains(tf)).isEmpty)
+    println("selected tfs")
+    spots.foreach(println)
+
     // get max scores. Used for normalization
-   val firstTrain = allYTrain.first.toArray
-   val maxVector = DenseVector(firstTrain.toArray.zipWithIndex.map(i => {
-     allYTrain.map(r => r(i._2)).max
+   val maxVector = DenseVector(headers.zipWithIndex.map(i => {
+     if (spots.map(_._2).contains(i._2)) {
+	println(s"doing max vector for spots")
+     	allYTrain.map(r => r(i._2)).max
+     } else 1
    }))
 
-  val tfs: Array[TranscriptionFactors.Value] = conf.tfs.split(',').map(r => TranscriptionFactors.withName(r))
 
   // score motifs
   val motifs =
@@ -270,11 +277,13 @@ object DnaseKernelPipeline extends Serializable with Logging {
     // motif metrics
     if (motifs.isDefined) {
       println("EvaluatingMotifs")
-      println("Motif\tSequence\tScores")
+      println(s"Motif\tSequence\t${spots.map(_._1).mkString(",")}")
       val evalEval = motifs.get.collect
-        .foreach(r => println(s"${r._2.win.getTf}\t${r._2.win.getSequence.filter(_ != 'N')}\t${r._1.toArray.mkString("\t")}"))
+        .foreach(r => {
+          val scores = r._1.toArray.zipWithIndex.filter(x => spots.map(_._2).contains(x._2)).mkString(",")
+          println(s"${r._2.win.getTf}\t${r._2.win.getSequence.filter(_ != 'N')}\t${scores}")
+        })
     }
-
   }
 
   /**
