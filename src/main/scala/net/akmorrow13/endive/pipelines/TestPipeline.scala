@@ -85,100 +85,32 @@ object TestPipeline extends Serializable with Logging {
   }
 
   def run(sc: SparkContext, conf: EndiveConf): Unit = {
-    val testFeaturizedWindows = FeaturizedLabeledWindowLoader(conf.featuresOutput, sc)
-    val model = loadModel(conf.modelOutput, conf.modelBlockSize)
-    val testFeatures = testFeaturizedWindows.map(_.features)
 
-    println(testFeatures.count())
-    println(testFeatures.first.size)
-    var testPredictions:RDD[Double] = model(testFeatures).map(x => x(1))
-    val (min, max) = (testPredictions.min(), testPredictions.max())
-    testPredictions = testPredictions.map(r => (r-min)/(max-min))
-    testPredictions.count()
+    // generate headers
+    val headers = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",").drop(1).zipWithIndex
 
-    val testPredictionsOutput = conf.predictionsOutput
-    val array = testFeaturizedWindows.zip(testPredictions).sortBy(_._1.labeledWindow.win.getRegion)
-      .map(xy => (xy._1.labeledWindow.win.getRegion, xy._2 ))
-      .collect
 
-    val sorted: Array[String] = (
-      if (conf.ladderBoard) {
-        (array.filter(_._1.referenceName == "chr1") ++ array.filter(_._1.referenceName == "chr21") ++ array.filter(_._1.referenceName == "chr8"))
-      } else if (conf.testBoard) {
-        // chronological ordering
-        array
-      } else  {
-        throw new Exception("either ladderBoard or testBoard must be specified")
-      }).map(r => s"${r._1.referenceName}\t${r._1.start}\t${r._1.end}\t${r._2}\n")
-
-    val writer = new PrintWriter(new File(testPredictionsOutput))
-    sorted.foreach(r => writer.write(r))
-    writer.close()
-
-  }
-
-  def loadModel(modelLoc: String, blockSize: Int): BlockLinearMapper = {
-    val files = ArrayBuffer.empty[Path]
-    /* Hard coded rn */
-    val numClasses = 2
-
-    val root = Paths.get(modelLoc)
-
-    Files.walkFileTree(root, new SimpleFileVisitor[Path] {
-      override def visitFile(file: Path, attrs: BasicFileAttributes) = {
-        if (file.getFileName.toString.startsWith(s"model.weights")) {
-          files += file
-        }
-        FileVisitResult.CONTINUE
-      }
-    })
-
-    val xsPos: Seq[(Int, DenseMatrix[Double])] = files.map { f =>
-      val modelPos = f.toUri.toString.split("\\.").takeRight(1)(0).toInt
-      val xVector = loadDenseVector(f.toString)
-      /* This is usually blocksize, but the last block may be smaller */
-      val rows = xVector.size/numClasses
-      val transposed = xVector.toDenseMatrix.reshape(numClasses, rows).t.toArray
-      (modelPos, new DenseMatrix(rows, numClasses, transposed))
-    }
-    val xsPosSorted = xsPos.sortBy(_._1)
-    val xs = xsPosSorted.map(_._2)
-    val interceptPath = s"model.intercept"
-    val bOpt =
-      if (Files.exists(Paths.get(interceptPath))) {
-        Some(loadDenseVector(interceptPath))
-      } else {
-        None
-      }
-
-    val scalerFiles = ArrayBuffer.empty[Path]
-    Files.walkFileTree(root, new SimpleFileVisitor[Path] {
-      override def visitFile(file: Path, attrs: BasicFileAttributes) = {
-        if (file.getFileName.toString.startsWith(s"model.scaler.mean")) {
-          scalerFiles += file
-        }
-        FileVisitResult.CONTINUE
-      }
-    })
-
-    val scalerPos: Seq[(Int, StandardScalerModel)] = scalerFiles.map { f =>
-      val scalerPos = f.toUri.toString.split("\\.").takeRight(1)(0).toInt
-      val mean = loadDenseVector(f.toString)
-      println("SIZE OF MEAN IS " + mean.size)
-      val scaler = new StandardScalerModel(mean)
-      (scalerPos, scaler)
+    val (train,eval) =  {
+      (LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data"),
+      LabeledWindowLoader(s"${conf.getWindowLoc}_eval", sc).setName("_eval"))
     }
 
-    val scalerPosSorted = scalerPos.sortBy(_._1)
-    val scalers = Some(scalerPosSorted.map(_._2)).filter(_.size > 0)
-    new BlockLinearMapper(xs, blockSize, bOpt, scalers)
+    train.cache()
+    eval.cache()
+
+    val trainPoints = train.count
+    val evalPoints = eval.count
+
+    println(s"total train: ${trainPoints}, total eval: ${evalPoints}")
+
+    println("Header,Train Positives,Eval Positives")
+    headers.map(header => {
+      val positivesTrain = train.filter(r => r.labels(header._2) > 0).count
+      val positivesEval = eval.filter(r => r.labels(header._2) > 0).count
+      println(s"${header._1},${positivesTrain},${positivesEval}")
+    })
+
   }
-
- def loadDenseVector(path: String): DenseVector[Double] = {
-    DenseVector(scala.io.Source.fromFile(path).getLines.toArray.flatMap(_.split(",")).map(_.toDouble))
-  }
-
-
 
 }
 
