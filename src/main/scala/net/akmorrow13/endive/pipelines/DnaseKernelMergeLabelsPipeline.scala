@@ -76,7 +76,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
 
     // set parameters
     val seed = 0
-    val kmerSize = 8
+    val kmerSizes = Array(6, 15)
     val approxDim = conf.approxDim
     val dnaseSize = 10
     val seqSize = 200
@@ -92,9 +92,14 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     println(conf.getRnaseqLoc, index)
 
     var (train, eval) = {
-      val train = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
-      val eval = LabeledWindowLoader(s"${conf.getWindowLoc}_eval", sc).setName("_eval")
-      (reduceLabels(headerTfs, train), eval)
+        val trainLabels = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).map(_.labels)setName("_All data").zipWithIndex
+        val evalLabels = LabeledWindowLoader(s"${conf.getWindowLoc}_eval", sc).map(_.labels).setName("_eval").zipWithIndex
+	val trainFeatures = sc.textFile(s"${conf.getFeaturizedOutput}_train.features").map(r => r.split('|')(0).split(",").map(_.toDouble)).zipWithIndex
+        val evalFeatures = sc.textFile(s"${conf.getFeaturizedOutput}_val.features").map(r => r.split('|')(0).split(",").map(_.toDouble)).zipWithIndex
+	val train = trainLabels.join(trainFeatures)
+	val eval = trainLabels.join(evalFeatures)
+
+        (reduceLabels(headerTfs, train), eval)
     }
 
     // Slice windows for 200 bp range
@@ -120,17 +125,17 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     val gaussian = new Gaussian(0, 1)
 
     // generate random matrix
-    val W_sequence = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
+    val W_sequences = kmerSizes.map(kmerSize => DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian))
 
     // generate approximation features
     val (trainFeatures, evalFeatures) =
      if (conf.useDnase) {
       println("featurizing with dnase")
-       (DnaseKernelPipeline.featurizeWithDnase(sc, train, W_sequence, kmerSize, dnaseSize, approxDim).map(_.features),
-         DnaseKernelPipeline.featurizeWithDnase(sc, eval, W_sequence, kmerSize, dnaseSize, approxDim).map(_.features))
+       (DnaseKernelPipeline.featurizeWithDnase(sc, train, W_sequences(0), kmerSizes, dnaseSize, approxDim).map(_.features),
+         DnaseKernelPipeline.featurizeWithDnase(sc, eval, W_sequences(0), kmerSizes, dnaseSize, approxDim).map(_.features))
      } else {
-       (DnaseKernelPipeline.featurize(train, W_sequence, kmerSize).map(_.features),
-         DnaseKernelPipeline.featurize(eval, W_sequence, kmerSize).map(_.features))
+       (DnaseKernelPipeline.featurize(train, W_sequences, kmerSizes).map(_.features),
+         DnaseKernelPipeline.featurize(eval, W_sequences, kmerSizes).map(_.features))
      }
 
     val trainLabels = train.map(_.labels.map(_.toDouble)).map(DenseVector(_))
@@ -164,35 +169,6 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     var evalMetrics = new BinaryClassificationMetrics(predictionAndLabels)
     println(s"EVAL: ROC: ${evalMetrics.areaUnderROC()}, auPRC: ${evalMetrics.areaUnderPR()}")
 
-
-
-    /* With SGD */
-    println("trying SGD")
-
-    // Run training algorithm to build the model
-    model = new LogisticRegressionWithSGD()
-      .run(trainFeatures.zip(trainLabels).map(r => LabeledPoint(r._2(index), Vectors.dense(r._1.toArray))))
-
-    model.clearThreshold
-
-    // Get evaluation metrics for train
-    trainPredictions = trainFeatures.zip(trainLabels).map(r => {
-      val prediction = model.predict(Vectors.dense(r._1.toArray))
-      (prediction, r._2(index))
-    })
-
-    trainMetrics = new BinaryClassificationMetrics(trainPredictions)
-    println(s"Train: ROC: ${trainMetrics.areaUnderROC()}, auPRC: ${trainMetrics.areaUnderPR()}")
-
-
-    // Get evaluation metrics for eval
-    predictionAndLabels = evalFeatures.zip(evalLabels).map(r => {
-      val prediction = model.predict(Vectors.dense(r._1.toArray))
-      (prediction, r._2(index))
-    })
-
-    evalMetrics = new BinaryClassificationMetrics(predictionAndLabels)
-    println(s"EVAL: ROC: ${evalMetrics.areaUnderROC()}, auPRC: ${evalMetrics.areaUnderPR()}")
 
     /*
     val allYTrain = model(trainFeatures)
