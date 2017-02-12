@@ -168,7 +168,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     println(motifs)
 
     // get metrics
-    DnaseKernelPipeline.printAllMetrics(headerTfs, tfs, allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
+    DnaseKernelPipeline.printAllMetrics(headerTfs, tfs.map(_.toString), allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
 
     val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
     val trainResults:String = trainLabels.zip(allYTrain).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
