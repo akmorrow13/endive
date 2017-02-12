@@ -181,7 +181,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
     println(motifs)
 
     // get metrics
-    printAllMetrics(headers, tfs, allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
+    printAllMetrics(headers, tfs.map(_.toString), allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
 
     val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
     val trainResults:String = trainLabels.zip(allYTrain).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
@@ -243,12 +243,12 @@ object DnaseKernelPipeline extends Serializable with Logging {
    * @param motifs
    */
   def printAllMetrics(headers: Array[String],
-            tfs: Array[TranscriptionFactors.Value],
+            tfs: Array[String],
             train: RDD[(DenseVector[Double], DenseVector[Double])],
             eval: RDD[(DenseVector[Double], DenseVector[Double])],
             motifs: Option[RDD[(DenseVector[Double], LabeledWindow)]]): Unit = {
 
-    val spots = headers.zipWithIndex.filter(r => !tfs.map(_.toString).filter(tf => r._1.contains(tf)).isEmpty)
+    val spots = headers.zipWithIndex.filter(r => !tfs.filter(tf => r._1.contains(tf)).isEmpty)
     println("selected tfs")
     spots.foreach(println)
 

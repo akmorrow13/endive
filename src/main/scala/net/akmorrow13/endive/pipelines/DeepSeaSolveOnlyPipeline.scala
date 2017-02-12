@@ -76,11 +76,10 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
   def run(sc: SparkContext, conf: EndiveConf) {
     println("RUN SOLVER ONLY PIPELINE")
 
-
     val seqSize = 800
     val kmerSize = conf.kmerLength
     val approxDim = conf.approxDim
-    val featuresName = s"${seqSize}_${kmerSize}_${approxDim}_${conf.gamma}"
+    val featuresName = conf.featuresOutput
     val trainFeaturesName = featuresName + "_train.features"
     val valFeaturesName = featuresName + "_val.features"
 
@@ -130,7 +129,7 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
       .saveAsTextFile(s"${conf.getFeaturizedOutput}_train")
 
     // get metrics
-    val tfs: Array[TranscriptionFactors.Value] = conf.tfs.split(',').map(r => TranscriptionFactors.withName(r))
+    val tfs: Array[String] = EndiveConf.allDeepSeaTfs
     DnaseKernelPipeline.printAllMetrics(headerTfs, tfs, zippedTrainResults, zippedEvalResults, None)
 
 //    val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
