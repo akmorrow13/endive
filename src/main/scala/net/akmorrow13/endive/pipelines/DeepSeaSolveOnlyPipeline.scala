@@ -84,10 +84,9 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
     val valFeaturesName = featuresName + "_val.features"
 
     // generate headers
-    val headers = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",").map(r => r.split("|")).drop(1)
-    val headerTfs: Array[String] = headers.map(r => r(1))
-    println("headerTfs")
-    headerTfs.foreach(println)
+    val headers = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",")
+    val headerTfs: Array[String] = headers.map(r => r.split('|')).map(r => r(1))
+    println(s"headerTfs: ${headerTfs.head} ${headerTfs.length}")
 
     val trainFiles = sc.textFile(trainFeaturesName)
     val evalFiles = sc.textFile(valFeaturesName)
@@ -100,8 +99,7 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
         .zipWithIndex()
         .map(r => (r._2,r._1))
 
-      val trainLabels: RDD[(Long, LabeledWindow)] = DnaseKernelMergeLabelsPipeline
-        .reduceLabels(headerTfs,  LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data"))
+      val trainLabels: RDD[(Long, LabeledWindow)] = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
         .zipWithIndex()
         .map(r => (r._2,r._1))
       val evalLabels: RDD[(Long, LabeledWindow)] = LabeledWindowLoader(s"${conf.getWindowLoc}_eval", sc).setName("_eval")
@@ -129,24 +127,7 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
       .saveAsTextFile(s"${conf.getFeaturizedOutput}_train")
 
     // get metrics
-    val tfs: Array[String] = EndiveConf.allDeepSeaTfs
-    DnaseKernelPipeline.printAllMetrics(headerTfs, tfs, zippedTrainResults, zippedEvalResults, None)
-
-//    val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
-//    val trainResults:String = trainLabels.zip(allYTrain).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
-//    var pwTrain = new PrintWriter(new File("/tmp/deepsea_train_results" ))
-//    val scoreHeaders = labelHeaders.map(x => x + "_label").mkString(",")
-//    val truthHeaders = labelHeaders.map(x => x + "_score").mkString(",")
-//    println("HEADER SIZE " + truthHeaders.split(",").size)
-//    println("LABEL SIZE " + trainLabels.first.size)
-//    val resultsHeaders = scoreHeaders + "," + truthHeaders + "\n"
-//    pwTrain.write(resultsHeaders)
-//    pwTrain.write(trainResults)
-//    pwTrain.close
-//
-//    var pwVal = new PrintWriter(new File("/tmp/deepsea_val_results" ))
-//    pwVal.write(resultsHeaders)
-//    pwVal.write(valResults)
-//    pwVal.close
+    val tfs: Array[String] = Array("ATF3","EGR1")
+    DnaseKernelPipeline.printAllMetrics(headers, tfs, zippedTrainResults, zippedEvalResults, None)
   }
 }

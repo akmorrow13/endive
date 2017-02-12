@@ -132,13 +132,6 @@ object DnaseKernelPipeline extends Serializable with Logging {
     })
     eval.count
     println(eval.first)
-//    // normalize dnase
-//    val dnaseMaxPos = train.map(r => r.win.getDnase.max).max
-//    train = train.map(r => {
-//      val win = r.win.setDnase(r.win.getDnase / dnaseMaxPos)
-//      LabeledWindow(win, r.label)
-//    })
-//    println(s"max for dnase went from ${dnaseMaxPos} to ${train.map(r => r.win.getDnase.max).max}")
 
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
@@ -167,25 +160,15 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val allYTrain = model(trainFeatures)
     val allYEval = model(evalFeatures)
 
-    val tfs: Array[TranscriptionFactors.Value] = conf.tfs.split(',').map(r => TranscriptionFactors.withName(r))
+    val tfs = conf.tfs.split(',')
 
     val spots = headers.zipWithIndex.filter(r => !tfs.map(_.toString).filter(tf => r._1.contains(tf)).isEmpty)
-    println("selected tfs")
-    spots.foreach(println)
 
-    // get max scores. Used for normalization
-   val maxVector = DenseVector(headers.zipWithIndex.map(i => {
-     if (spots.map(_._2).contains(i._2)) {
-	println(s"doing max vector for spots")
-     	allYTrain.map(r => r(i._2)).max
-     } else 1
-   }))
-  
   // score motifs
   val motifs =
     if (conf.motifDBPath != null && conf.getModelTest != null) {
       Some(scoreMotifs(sc, tfs, conf.motifDBPath, conf.getModelTest,
-        W_sequence, model, maxVector, kmerSize, seqSize))
+        W_sequence, model, kmerSize, seqSize))
     } else {
       None
     }
@@ -193,60 +176,51 @@ object DnaseKernelPipeline extends Serializable with Logging {
 
     // get metrics
     printAllMetrics(headers, tfs.map(_.toString), allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
-
-    val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
-    val trainResults:String = trainLabels.zip(allYTrain).sample(false, 0.001).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
-    val pwTrain = new PrintWriter(new File("/tmp/deepsea_train_results" ))
-    val scoreHeaders = labelHeaders.map(x => x + "_label").mkString(",")
-    val truthHeaders = labelHeaders.map(x => x + "_score").mkString(",")
-    println("HEADER SIZE " + truthHeaders.split(",").size)
-    println("LABEL SIZE " + trainLabels.first.size)
-    val resultsHeaders = scoreHeaders + "," + truthHeaders + "\n"
-    pwTrain.write(resultsHeaders)
-    pwTrain.write(trainResults)
-    pwTrain.close
-
-    var pwVal = new PrintWriter(new File("/tmp/deepsea_val_results" ))
-    pwVal.write(resultsHeaders)
-    pwVal.write(valResults)
-    pwVal.close
-
   }
 
-  def scoreMotifs(sc: SparkContext, tfs: Array[TranscriptionFactors.Value],
+  def scoreMotifs(sc: SparkContext,
+                  tfs: Array[String],
                   inputPath: String,
                   featurizedOutput: String,
                   W_sequence: DenseMatrix[Double],
                   model: BlockLinearMapper,
-                  maxVector: DenseVector[Double],
                   kmerSize: Int,
-                  seqSize: Int): RDD[(DenseVector[Double], LabeledWindow)] = {
+                  seqSize: Int): RDD[(DenseVector[Double], Window)] = {
 
       // split raw text file of motifs
       val motifs = sc.textFile(inputPath)
-        .map(r => (r.split(',')(0), r.split(',')(1)))
-        .filter(r => !tfs.map(_.toString).filter(tf => r._1.contains(tf)).isEmpty)
+        .map(r => (r.split(',')(0), r.split(',')(1))) // first is tf name, second is sequence
         .map(r => {
           val filled = seqSize - r._2.length
-          val seq = 40 * 'N' + r._2 + (filled-40) * 'N'
-          val win = Window(TranscriptionFactors.withName(r._1), CellTypes.Any, ReferenceRegion("chr1", 1, 200), seq)
-          LabeledWindow(win, 1)
+          val half = filled / 2
+          val seq = randomSequence(half) + r._2 + randomSequence(filled - r._2.length - half)
+          val win = Window(TranscriptionFactors.getEnumeration(r._1), CellTypes.Any, ReferenceRegion("chr1", 1, 200), seq)
+          (r._2, LabeledWindow(win, 1))
         })
+
+    val randomFeaturized =
+      featurize(randomSequence(seqSize), Array(W_sequence), Array(kmerSize))
+    val randomScore = model(randomFeaturized)
 
       // featurize motifs
       val featurized =
-          featurize(motifs, Array(W_sequence), Array(kmerSize))
+          featurize(motifs.map(_._2), Array(W_sequence), Array(kmerSize))
 
-      // save featurized as FeaturizedLabeledWindow
-      featurized.map(_.toString()).saveAsTextFile(featurizedOutput)
-
-
-      println(maxVector)
-      println(featurized.first)
-      model(featurized.map(r => r.features)).map(r =>  r :/ maxVector).zip(featurized.map(_.labeledWindow))
-
+      model(featurized.map(r => r.features)).map(r =>  r / randomScore).zip(motifs.map(r => r._2.win.setSequence(r._1)))
   }
 
+  /**
+   * Generates a random DNA sequence of length
+   * @param length length of random sequence
+   * @return DNA random sequence
+   */
+  def randomSequence(length: Int): String = {
+    val bases = Array('A','T','C','G')
+    val random = scala.util.Random
+
+    (0 until length).map(r => random.nextInt(bases.length))
+      .map(r => bases(r)).toString()
+  }
 
   /**
    * Prints metrics for train, eval and motifs
@@ -260,29 +234,33 @@ object DnaseKernelPipeline extends Serializable with Logging {
             tfs: Array[String],
             train: RDD[(DenseVector[Double], DenseVector[Double])],
             eval: RDD[(DenseVector[Double], DenseVector[Double])],
-            motifs: Option[RDD[(DenseVector[Double], LabeledWindow)]]): Unit = {
+            motifs: Option[RDD[(DenseVector[Double], Window)]]): Unit = {
 
+
+    // only score specified TFs
     val spots = headers.zipWithIndex.filter(r => !tfs.filter(tf => r._1.contains(tf)).isEmpty)
-    println("selected tfs")
-    spots.foreach(println)
 
     for (i <- spots) {
       val evalTrain = new BinaryClassificationMetrics(train.map(r => (r._1(i._2), r._2(i._2))))
-      println(s"Train,${i._1},${i._2},${Metrics.printMetrics(evalTrain)}")
+      println(s"Train,${i._1},${i._2}")
+      Metrics.printMetrics(evalTrain)
 
       val evalEval = new BinaryClassificationMetrics(eval.map(r => (r._1(i._2), r._2(i._2))))
-      println(s"Eval,${i._1},${i._2},${Metrics.printMetrics(evalEval)}")
+      println(s"Eval,${i._1},${i._2}")
+      Metrics.printMetrics(evalEval)
 
     }
 
     // motif metrics
     if (motifs.isDefined) {
-      println("EvaluatingMotifs")
-      println(s"Motif\tSequence\t${spots.map(_._1).mkString(",")}")
+      println("Evaluating Motifs")
+      println(s"Motif\tSequence\t${spots.map(_._1).mkString("\t")}")
       val evalEval = motifs.get.collect
         .foreach(r => {
-          val scores = r._1.toArray.zipWithIndex.filter(x => spots.map(_._2).contains(x._2)).mkString(",")
-          println(s"${r._2.win.getTf}\t${r._2.win.getSequence.filter(_ != 'N')}\t${scores}")
+          val tfIndices = headers.zipWithIndex.filter(h => h._1.contains(r._2.getTf.toString)) // issue: headers
+          val scores = r._1.toArray.zipWithIndex.filter(x => tfIndices.map(_._2).contains(x._2)).map(_._1)
+          val scoresAndHeaders = tfIndices.map(_._1).zip(scores).map(x => (s"${x._1}:${x._2}")).mkString(",")
+          println(s"${r._2.getTf}\t${r._2}\t${scoresAndHeaders}")
         })
     }
   }
@@ -293,7 +271,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
    * strands, the encoding is 0003.
    *
    * @param matrix: data matrix with sequences
-   * @param W: random matrix
+   * @param Ws: random matrix
    * @param kmerSizes: length of all kmers to be created
    */
   def featurize(matrix: RDD[LabeledWindow],
@@ -312,6 +290,31 @@ object DnaseKernelPipeline extends Serializable with Logging {
       }).reduce(_ :* _)
       FeaturizedLabeledWindow(f, kx)
     })
+
+  }
+
+  /**
+   * Takes a region of the genome and one hot enodes sequences (eg A = 0001). If DNASE is enabled positive strands
+   * are appended to the one hot sequence encoding. For example, if positive 1 has A with DNASE count of 3 positive
+   * strands, the encoding is 0003.
+   *
+   * @param l: sequence
+   * @param Ws: random matrix
+   * @param kmerSizes: length of all kmers to be created
+   */
+  def featurize(l: String,
+                Ws: Array[DenseMatrix[Double]],
+                kmerSizes: Array[Int]): DenseVector[Double] = {
+    require(Ws.length == kmerSizes.length, "W and kmers must be same length")
+
+    val approximators = kmerSizes.zip(Ws).map(r  => {
+      new KernelApproximator(r._2, FastMath.cos, r._1, Dataset.alphabet.size, fastfood=false)
+    })
+
+    //iteratively compute and multiply all dnase for negative strands
+    approximators.map(ap => {
+      ap(KernelApproximator.stringToVector(l))
+    }).reduce(_ :* _)
 
   }
 

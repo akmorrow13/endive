@@ -87,6 +87,10 @@ class Window(tf: TranscriptionFactors.Value,
     new Window(this.tf, this.cellType, region, this.sequence, this.dnasePeakCount, this.getDnase, this.getRnaseq, this.motifs)
   }
 
+  def setSequence(sequence: String): Window = {
+    new Window(this.tf, this.cellType, this.region, sequence, this.dnasePeakCount, this.getDnase, this.getRnaseq, this.motifs)
+  }
+
   override
   def toString:String = {
     val stringifiedDnase = dnase.toArray.toList.mkString(",")

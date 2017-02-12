@@ -83,14 +83,10 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     val alphabetSize = Dataset.alphabet.size
 
     // generate headers
-    val headers = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",").map(r => r.split('|')).drop(1)
-    val headerTfs: Array[String] = headers.map(r => r(1))
-    println("headerTfs")
-    headerTfs.foreach(println)
+    val headers = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",")
+    val headerTfs: Array[String] = headers.map(r => r.split('|')).map(r => r(1))
 
-    val index = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",").drop(1).indexOf(conf.getRnaseqLoc)
-    println(conf.getRnaseqLoc, index)
-
+    // load in train and eval as LabeledWindows
     var (train, eval) = {
         val train = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
         val eval = LabeledWindowLoader(s"${conf.getWindowLoc}_eval", sc).setName("_eval")
@@ -98,12 +94,12 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     }
 
     // Slice windows for 200 bp range
-    train = train.repartition(700).cache().map(r => {
+    train = train.repartition(400).cache().map(r => {
       val mid = r.win.getRegion.length /2 + r.win.getRegion.start
       val win =
         if (r.win.getDnase.length == 0) r.win.setDnase(DenseVector.zeros(r.win.getRegion.length.toInt))
         else r.win
-      LabeledWindow(win.slice(mid-100,mid+100), r.labels)
+      LabeledWindow(win.slice(mid-seqSize/2,mid+seqSize/2), r.labels)
     })
     train.count()
 
@@ -112,9 +108,9 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
       val win =
         if (r.win.getDnase.length == 0) r.win.setDnase(DenseVector.zeros(r.win.getRegion.length.toInt))
         else r.win
-      LabeledWindow(win.slice(mid-100,mid+100), r.labels)
+      LabeledWindow(win.slice(mid-seqSize/2,mid+seqSize/2), r.labels)
     })
-    eval.count
+    eval.count()
 
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
@@ -141,50 +137,30 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     val allYTrain = model(trainFeatures)
     val allYEval = model(evalFeatures)
 
-    val tfs: Array[TranscriptionFactors.Value] = conf.tfs.split(',').map(r => TranscriptionFactors.withName(r))
+    val tfs = conf.tfs.split(',')
 
-    val spots = headers.zipWithIndex.filter(r => !tfs.map(_.toString).filter(tf => r._1.contains(tf)).isEmpty)
-    println("selected tfs")
-    spots.foreach(println)
+    val selectedTfs = headers.zipWithIndex.filter(r => !tfs.map(_.toString).filter(tf => r._1.contains(tf)).isEmpty)
 
   // score motifs
   val motifs =
     if (conf.motifDBPath != null && conf.getModelTest != null) {
-      // get max scores. Used for normalization
-      val maxVector = DenseVector(spots.map(i => {
-        allYTrain.map(r => r(i._2)).max
-      }))
-
       Some(DnaseKernelPipeline.scoreMotifs(sc, tfs, conf.motifDBPath, conf.getModelTest,
-        W_sequences(0), model, maxVector, kmerSizes(0), seqSize))
+        W_sequences(0), model, kmerSizes(0), seqSize))
     } else {
       None
     }
-    println(motifs)
 
     // get metrics
-    DnaseKernelPipeline.printAllMetrics(headerTfs, tfs.map(_.toString), allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
-
-    val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
-    val trainResults:String = trainLabels.zip(allYTrain).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
-    val pwTrain = new PrintWriter(new File("/tmp/deepsea_train_results" ))
-    val scoreHeaders = headerTfs.map(x => x + "_label").mkString(",")
-    val truthHeaders = headerTfs.map(x => x + "_score").mkString(",")
-    println("HEADER SIZE " + truthHeaders.split(",").size)
-    println("LABEL SIZE " + trainLabels.first.size)
-    val resultsHeaders = scoreHeaders + "," + truthHeaders + "\n"
-    pwTrain.write(resultsHeaders)
-    pwTrain.write(trainResults)
-    pwTrain.close
-
-    var pwVal = new PrintWriter(new File("/tmp/deepsea_val_results" ))
-    pwVal.write(resultsHeaders)
-    pwVal.write(valResults)
-    pwVal.close
-
+    DnaseKernelPipeline.printAllMetrics(headers, tfs.map(_.toString), allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
   }
 
 
+  /**
+   * Merges all labels for one transcription factor
+   * @param headerTfs
+   * @param rdd
+   * @return
+   */
   def reduceLabels(headerTfs: Array[String], rdd: RDD[LabeledWindow]): RDD[LabeledWindow] = {
 
       rdd.map(r => {

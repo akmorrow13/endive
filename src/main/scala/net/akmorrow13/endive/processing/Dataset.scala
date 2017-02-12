@@ -14,6 +14,16 @@ object Dataset extends Logging {
     newCellType
   }
 
+  def filterTfName(tf: String): String = {
+    val newTf = tf.filterNot("-_".toSet).toUpperCase()
+    try {
+      CellTypes.withName(newTf)
+    } catch {
+      case e: NoSuchElementException => log.error("Error, celltype not found in list of available cell types")
+    }
+    newTf
+  }
+
   // window settings
   val windowSize = 200
   val stride = 20
@@ -40,6 +50,10 @@ object TranscriptionFactors extends Enumeration with Serializable {
   ATF7,	E2F6,	GATA3,	NANOG,	TAF1, Any  = Value
 
   def toVector: Vector[String] = this.values.map(_.toString).toVector
+
+  def getEnumeration(tf: String): TranscriptionFactors.Value = {
+    TranscriptionFactors.withName(Dataset.filterTfName(tf))
+  }
 }
 
 object CellTypes extends Enumeration with Serializable {
