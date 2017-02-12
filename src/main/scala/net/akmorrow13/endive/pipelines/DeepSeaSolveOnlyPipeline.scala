@@ -81,8 +81,8 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
     val kmerSize = conf.kmerLength
     val approxDim = conf.approxDim
     val featuresName = conf.featuresOutput
-    val trainFeaturesName = featuresName + "_train.features"
-    val valFeaturesName = featuresName + "_val.features"
+    val trainFeaturesName = featuresName + s"_${approxDim}_train"
+    val valFeaturesName = featuresName + s"_${approxDim}_eval"
 
     // generate headers
     val headers = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",")
@@ -93,28 +93,14 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
     val evalFiles = sc.textFile(valFeaturesName)
 
     val (trainFeatures, evalFeatures, trainLabels, evalLabels) = {
-//      val trainFeatures: RDD[(Long, DenseVector[Double])] = trainFiles.map(x => DenseVector(x.split("\\|")(0).split(",").map(_.toDouble)))
-//        .zipWithIndex()
-//        .map(r => (r._2,r._1))
-//      val evalFeatures = evalFiles.map(x => DenseVector(x.split("\\|")(0).split(",").map(_.toDouble)))
-//        .zipWithIndex()
-//        .map(r => (r._2,r._1))
-//
-//      val trainLabels: RDD[(Long, LabeledWindow)] = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
-//        .zipWithIndex()
-//        .map(r => (r._2,r._1))
-//      val evalLabels: RDD[(Long, LabeledWindow)] = LabeledWindowLoader(s"${conf.getWindowLoc}_eval", sc).setName("_eval")
-//        .zipWithIndex()
-//        .map(r => (r._2,r._1))
-//
-//      val train = trainFeatures.join(trainLabels).map(r => r._2)
-//      val eval = evalFeatures.join(evalLabels).map(r => r._2)
-//
-//      (train.map(_._1), eval.map(_._1), train.map(r => DenseVector(r._2.labels.map(_.toDouble))),
-//        eval.map(r => DenseVector(r._2.labels.map(_.toDouble))))
 
-        val trainFeatures = trainFiles.map(x => DenseVector(x.split("\\|").map(r => r.split(","))))
+        var trainFeatures = trainFiles.map(x => DenseVector(x.split("\\|").map(r => r.split(","))))
           .map(r => (DenseVector(r(0).map(_.toDouble)), DenseVector(r(1).map(_.toDouble))))
+
+        val trainPositives = trainFeatures.filter(_._2.sum > 0)
+        val trainNegatives = trainFeatures.filter(_._2.sum == 0).sample(false, 0.4)
+
+        trainFeatures = trainPositives.union(trainNegatives)
         val evalFeatures = evalFiles.map(x => DenseVector(x.split("\\|").map(r => r.split(","))))
           .map(r => (DenseVector(r(0).map(_.toDouble)), DenseVector(r(1).map(_.toDouble))))
 
@@ -134,19 +120,7 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
       .saveAsTextFile(s"${conf.getFeaturizedOutput}_train")
 
     // get metrics
-//    val tfs: Array[String] = Array("ATF3")
-//    DnaseKernelPipeline.printAllMetrics(headers, tfs, zippedTrainResults, zippedEvalResults, None)
-
-    val spots = trainLabels.first.length
-
-    for (i <- (0 until spots)) {
-      val evalTrain = new BinaryClassificationMetrics(zippedTrainResults.map(r => (r._1(i), r._2(i))))
-      println(s"Train,${i}")
-      Metrics.printMetrics(evalTrain)
-
-      val evalEval = new BinaryClassificationMetrics(zippedEvalResults.map(r => (r._1(i), r._2(i))))
-      println(s"Eval,${i},${i}")
-      Metrics.printMetrics(evalEval)
-    }
+    val tfs: Array[String] = Array("ATF3", "EGR1", "CTCF", "GABP")
+    DnaseKernelPipeline.printAllMetrics(headers, tfs, zippedTrainResults, zippedEvalResults, None)
   }
 }
