@@ -92,13 +92,8 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     println(conf.getRnaseqLoc, index)
 
     var (train, eval) = {
-        val trainLabels = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).map(_.labels)setName("_All data").zipWithIndex
-        val evalLabels = LabeledWindowLoader(s"${conf.getWindowLoc}_eval", sc).map(_.labels).setName("_eval").zipWithIndex
-	val trainFeatures = sc.textFile(s"${conf.getFeaturizedOutput}_train.features").map(r => r.split('|')(0).split(",").map(_.toDouble)).zipWithIndex
-        val evalFeatures = sc.textFile(s"${conf.getFeaturizedOutput}_val.features").map(r => r.split('|')(0).split(",").map(_.toDouble)).zipWithIndex
-	val train = trainLabels.join(trainFeatures)
-	val eval = trainLabels.join(evalFeatures)
-
+        val train = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
+        val eval = LabeledWindowLoader(s"${conf.getWindowLoc}_eval", sc).setName("_eval")
         (reduceLabels(headerTfs, train), eval)
     }
 
@@ -161,7 +156,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
       }))
 
       Some(DnaseKernelPipeline.scoreMotifs(sc, tfs, conf.motifDBPath, conf.getModelTest,
-        W_sequence, model, maxVector, kmerSize(0), seqSize))
+        W_sequences(0), model, maxVector, kmerSizes(0), seqSize))
     } else {
       None
     }
