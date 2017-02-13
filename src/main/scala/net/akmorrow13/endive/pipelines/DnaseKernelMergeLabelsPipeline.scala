@@ -21,19 +21,17 @@ import net.akmorrow13.endive.EndiveConf
 import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils._
 import com.github.fommil.netlib.BLAS
+import nodes.akmorrow13.endive.featurizers.KernelApproximator
 import nodes.learning.{BlockLeastSquaresEstimator}
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.mllib.classification.{LogisticRegressionWithSGD, LogisticRegressionWithLBFGS}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
-import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
 import org.apache.commons.math3.random.MersenneTwister
-import java.io.{PrintWriter, File}
-import org.apache.spark.mllib.linalg.Vectors
+import net.akmorrow13.endive.metrics.Metrics
 
 
 
@@ -77,7 +75,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     // set parameters
     val seed = 0
     val kmerSizes = Array(6, 15)
-    val approxDim = conf.approxDim
+//    val approxDim = conf.approxDim
     val dnaseSize = 10
     val seqSize = 200
     val alphabetSize = Dataset.alphabet.size
@@ -86,72 +84,77 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     val headers = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",")
     val headerTfs: Array[String] = headers.map(r => r.split('|')).map(r => r(1))
 
+
+    val indexTf = headers.zipWithIndex.filter(r => r._1.contains(conf.tfs)).head
+
     // load in train and eval as LabeledWindows
-    var (train, eval) = {
-        val train = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
-        val eval = LabeledWindowLoader(s"${conf.getWindowLoc}_eval", sc).setName("_eval")
-      (train, eval)
-    }
-
-    // Slice windows for 200 bp range
-    train = train.repartition(400).cache().map(r => {
-      val mid = r.win.getRegion.length /2 + r.win.getRegion.start
+    val trainAll = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
+    .repartition(400).cache().map(r => {
+      val mid = r.win.getRegion.length / 2 + r.win.getRegion.start
       val win =
         if (r.win.getDnase.length == 0) r.win.setDnase(DenseVector.zeros(r.win.getRegion.length.toInt))
         else r.win
-      LabeledWindow(win.slice(mid-seqSize/2,mid+seqSize/2), r.labels)
+      LabeledWindow(win.slice(mid - seqSize / 2, mid + seqSize / 2), r.labels)
     })
-    train.count()
+    trainAll.cache()
+    trainAll.count()
+    val positives = trainAll.map(_.labels(indexTf._2)).filter(_ > 0).count
+    val negatives = trainAll.map(_.labels(indexTf._2)).filter(_ == 0).count
+    val total = positives + negatives
+    println(s"count: ${total}=${positives}(+)+${negatives}(-)")
+    val negs = sc.parallelize(trainAll.filter(_.labels(indexTf._2) == 0).takeSample(false, positives.toInt))
+    val train = negs.union(trainAll.filter(_.labels(indexTf._2) > 0))
+//
+//    eval = eval.repartition(2).cache().map(r => {
+//      val mid = r.win.getRegion.length / 2 + r.win.getRegion.start
+//      val win =
+//        if (r.win.getDnase.length == 0) r.win.setDnase(DenseVector.zeros(r.win.getRegion.length.toInt))
+//        else r.win
+//      LabeledWindow(win.slice(mid - seqSize / 2, mid + seqSize / 2), r.labels)
+//    })
+//    eval.count()
 
-    eval = eval.repartition(2).cache().map(r => {
-      val mid = r.win.getRegion.length /2 + r.win.getRegion.start
-      val win =
-        if (r.win.getDnase.length == 0) r.win.setDnase(DenseVector.zeros(r.win.getRegion.length.toInt))
-        else r.win
-      LabeledWindow(win.slice(mid-seqSize/2,mid+seqSize/2), r.labels)
-    })
-    eval.count()
 
-    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
-    val gaussian = new Gaussian(0, 1)
-
-    // generate random matrix
-    val W_sequences = kmerSizes.map(kmerSize => DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian))
-
-    // generate approximation features
-    val (trainFeatures, evalFeatures) =
-     if (conf.useDnase) {
-      println("featurizing with dnase")
-       (DnaseKernelPipeline.featurizeWithDnase(sc, train, W_sequences(0), kmerSizes, dnaseSize, approxDim).map(_.features),
-         DnaseKernelPipeline.featurizeWithDnase(sc, eval, W_sequences(0), kmerSizes, dnaseSize, approxDim).map(_.features))
-     } else {
-       (DnaseKernelPipeline.featurize(train, W_sequences, kmerSizes).map(_.features),
-         DnaseKernelPipeline.featurize(eval, W_sequences, kmerSizes).map(_.features))
-     }
-
+    // base model
+    val baseFeatures = train.map(r => KernelApproximator.stringToVector(r.win.getSequence))
     val trainLabels = train.map(_.labels.map(_.toDouble)).map(DenseVector(_))
-    val evalLabels = eval.map(_.labels.map(_.toDouble)).map(DenseVector(_))
 
-    val model = new BlockLeastSquaresEstimator(approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
+    val model = new BlockLeastSquaresEstimator(1024, 1, conf.lambda).fit(baseFeatures, trainLabels)
+    val allYTrain = model(baseFeatures)
 
-    val allYTrain = model(trainFeatures)
-    val allYEval = model(evalFeatures)
-
-    val tfs = conf.tfs.split(',')
-
-    val selectedTfs = headers.zipWithIndex.filter(r => !tfs.map(_.toString).filter(tf => r._1.contains(tf)).isEmpty)
-
-  // score motifs
-  val motifs =
-    if (conf.motifDBPath != null) {
-      Some(DnaseKernelPipeline.scoreMotifs(sc, tfs, conf.motifDBPath,
-        W_sequences(0), model, kmerSizes(0), seqSize))
-    } else {
-      None
-    }
+    val zippedTrainResults = allYTrain.zip(baseFeatures)
 
     // get metrics
-    DnaseKernelPipeline.printAllMetrics(headers, tfs.map(_.toString), allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
+    val evalEval = new BinaryClassificationMetrics(zippedTrainResults.map(r => (r._1(indexTf._2), r._2(indexTf._2))))
+    Metrics.printMetrics(evalEval, Some(s"Eval,${indexTf._1},${indexTf._2}"))
+    // end base model
+
+
+    val approxDims = Array(256, 8192, 16384)
+    for (approxDim <- approxDims) {
+
+      implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+      val gaussian = new Gaussian(0, 1)
+
+      // generate random matrix
+      val W_sequences = kmerSizes.map(kmerSize => DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian))
+
+      // generate approximation features
+      val trainFeatures =
+          DnaseKernelPipeline.featurize(train, W_sequences, kmerSizes).map(_.features)
+
+      val model = new BlockLeastSquaresEstimator(approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
+
+      val allYTrain = model(trainFeatures)
+
+      val zippedTrainResults = allYTrain.zip(trainLabels)
+
+      // get metrics
+        val evalEval = new BinaryClassificationMetrics(zippedTrainResults.map(r => (r._1(indexTf._2), r._2(indexTf._2))))
+        Metrics.printMetrics(evalEval, Some(s"Eval,${indexTf._1},${indexTf._2}"))
+
+    }
+
   }
 
 
