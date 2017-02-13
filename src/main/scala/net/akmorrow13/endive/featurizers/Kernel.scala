@@ -28,6 +28,8 @@ class KernelApproximator(filters: DenseMatrix[Double],
   /* valid convolution */
   val outSize = seqSize - ngramSize + 1
    println(s"mapping partitions alphsize: ${alphabetSize}, outsize: ${outSize}, ngramsize: ${ngramSize}")
+  println("OFFSET SIZE " + offset.map(_.size))
+  println("NUM FILTERS " + filters.rows)
 
   override def apply(in: RDD[DenseVector[Double]]): RDD[DenseVector[Double]] = {
     in.mapPartitions(convolvePartitions(_, filters, nonLin, offset, ngramSize, outSize, alphabetSize, fastfood, gamma, seed))
@@ -65,13 +67,15 @@ class KernelApproximator(filters: DenseMatrix[Double],
       ngrams * filters.t
     }
 
-
+    println("ROWS " + convRes.rows)
+    println("COLS " + convRes.cols)
+    println("OFFSET SIZE " + offset.map(x => x.size))
     /* Apply non linearity element wise */
     var i = 0
     while (i < convRes.rows) {
       var j = 0
       while (j < convRes.cols) {
-        val phase = offset.map(x => x(i)).getOrElse(0.0)
+        val phase = offset.map(x => x(j)).getOrElse(0.0)
         convRes(i,j) = nonLin(convRes(i,j) + phase)
         j += 1
       }

@@ -42,6 +42,7 @@ import net.jafama.FastMath
 import org.apache.commons.math3.random.MersenneTwister
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import com.github.fommil.netlib.BLAS
+import nodes.learning.PerClassWeightedLeastSquaresEstimator
 
 object DeepSeaSolveOnlyPipeline extends Serializable  {
 
@@ -77,9 +78,13 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
     println("RUN SOLVER ONLY PIPELINE")
     val headers = sc.textFile(conf.deepSeaDataPath + "headers").collect()(0).split(",")
     val labelHeaders = headers.zipWithIndex.filter(x => conf.deepSeaTfs.map(y => x._1 contains y).contains(true)).map(x => x._1)
+    val tfIndices = headers.zipWithIndex.filter(x => conf.deepSeaTfs.map(y => x._1 contains y).contains(true)).map(x => x._2)
+    val tfIndicesB = sc.broadcast(tfIndices)
+    println("SIZE " + labelHeaders.size)
 
 
-    val seqSize = 800
+    val seqLength = conf.sequenceLength
+    val seqSize = seqLength*conf.alphabetSize
     val kmerSize = conf.kmerLength
     val approxDim = conf.approxDim
     val featuresName = s"${seqSize}_${kmerSize}_${approxDim}_${conf.gamma}"
@@ -89,31 +94,98 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
     val trainFiles = sc.textFile(trainFeaturesName)
     val evalFiles = sc.textFile(valFeaturesName)
 
-    val trainFeatures = trainFiles.map(x => DenseVector(x.split("\\|")(0).split(",").map(_.toDouble)))
-    val evalFeatures = evalFiles.map(x => DenseVector(x.split("\\|")(0).split(",").map(_.toDouble)))
+    val trainRawFiles = sc.textFile(conf.deepSeaDataPath + "deepsea_train").map(x => x.split(","))
+    val evalRawFiles = sc.textFile(conf.deepSeaDataPath + "deepsea_eval").map(x => x.split(","))
+    var trainLabels = trainRawFiles.map(x => tfIndicesB.value.map(y => x(y).toDouble)).map(DenseVector(_)).setName("trainLabels").cache()
+    var evalLabels = evalRawFiles.map(x => tfIndicesB.value.map(y => x(y).toDouble)).map(DenseVector(_)).setName("evalLabels").cache()
 
-    val trainLabels = trainFiles.map(x => DenseVector(x.split("\\|")(1).split(",").map(_.toDouble)))
-    val evalLabels = evalFiles.map(x => DenseVector(x.split("\\|")(1).split(",").map(_.toDouble)))
 
-    val model = new BlockLeastSquaresEstimator(min(1024, approxDim), 1, conf.lambda).fit(trainFeatures, trainLabels)
+    var trainFeatures = trainFiles.map(x => DenseVector(x.split(",").map(_.toDouble))).setName("trainFeatures")
+    var evalFeatures = evalFiles.map(x => DenseVector(x.split(",").map(_.toDouble))).setName("evalFeatures")
+
+    trainFeatures = trainFeatures.map(x => x(0 until conf.approxDimToUse)).cache()
+    evalFeatures = evalFeatures.map(x => x(0 until conf.approxDimToUse)).cache()
+
+
+    var zippedTrain = trainFeatures.zipWithIndex.map(x => x.swap).join(trainLabels.zipWithIndex.map(x => x.swap)).values
+
+    println("NUM POSITIVES  " + trainLabels.map(x => x(0)).sum())
+
+    if (conf.solveSample != 1.0) {
+      val zippedPos = zippedTrain.filter(x => x._2 == 1.0)
+      val zippedNeg = zippedTrain.filter(x => x._2 == 0.0).sample(false, conf.solveSample)
+      zippedTrain = zippedPos.union(zippedNeg)
+    }
+
+    trainFeatures = zippedTrain.map(x => x._1)
+    trainLabels= zippedTrain.map(x => x._2)
+
+    val zippedVal = evalFeatures.zipWithIndex.map(x => x.swap).join(evalLabels.zipWithIndex.map(x => x.swap)).values
+
+    evalFeatures = zippedVal.map(x => x._1)
+    evalLabels= zippedVal.map(x => x._2)
+
+    trainFeatures.count()
+    evalFeatures.count()
+
+    val model =
+    if (conf.mixtureWeight == 0) {
+      new BlockLeastSquaresEstimator(min(1024, approxDim), 1, conf.lambda).fit(trainFeatures, trainLabels)
+    } else {
+       new PerClassWeightedLeastSquaresEstimator(min(1024, approxDim), 1, conf.lambda, conf.mixtureWeight).fit(trainFeatures, trainLabels)
+    }
+
     val allYTrain = model(trainFeatures)
     val allYEval = model(evalFeatures)
 
-    val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
-    val trainResults:String = trainLabels.zip(allYTrain).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
-    var pwTrain = new PrintWriter(new File("/tmp/deepsea_train_results" ))
+
     val scoreHeaders = labelHeaders.map(x => x + "_label").mkString(",")
     val truthHeaders = labelHeaders.map(x => x + "_score").mkString(",")
-    println("HEADER SIZE " + truthHeaders.split(",").size)
-    println("LABEL SIZE " + trainLabels.first.size)
     val resultsHeaders = scoreHeaders + "," + truthHeaders + "\n"
+    println("eval LABELS " + evalLabels.count())
+    println("eval LABELS SIZE " + evalLabels.first.size)
+    println("eval preds  SIZE " + allYEval.first.size)
+    println("results headers size " + resultsHeaders.split(",").size)
+
+
+    val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
+
+    /*
+    val trainResults:String = trainLabels.zip(allYTrain).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
+    var pwTrain = new PrintWriter(new File("/tmp/deepsea_train_results" ))
     pwTrain.write(resultsHeaders)
     pwTrain.write(trainResults)
     pwTrain.close
-
+    */
     var pwVal = new PrintWriter(new File("/tmp/deepsea_val_results" ))
     pwVal.write(resultsHeaders)
     pwVal.write(valResults)
     pwVal.close
+    /*
+
+    println("COMPUTING TRAIN Results")
+    var outputstr = ""
+    for ((meta, i)  <- labelHeaders.zipWithIndex) {
+      val yPredTrain = allYTrain.map(x => x(i))
+
+      val yTrain = trainLabels.map(x => x(i))
+      val yEval = evalLabels.map(x => x(i))
+
+      val numPositivesTrain = yTrain.filter(x => x == 1.0).count()
+      val numTotalTrain = yTrain.count()
+
+      val numPositivesEval = yEval.filter(x => x == 1.0).count()
+      val numTotalEval = yEval.count()
+      val metricsTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
+      val auPRCTrain = metricsTrain.areaUnderPR
+      val auROCTrain = metricsTrain.areaUnderROC
+      outputstr += s"${meta},${auROCTrain},${auPRCTrain},${numPositivesTrain},${numTotalTrain},${numPositivesEval},${numTotalEval}\n"
+    }
+
+    var pwTrain = new PrintWriter(new File(s"/tmp/${trainFeaturesName}_results" ))
+    pwTrain.write(outputstr)
+    pwTrain.close
+    */
+
   }
 }

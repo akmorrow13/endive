@@ -74,6 +74,7 @@ def run_kitchensink_featurize_pipeline(windowPath,
 
     w = filter_gen(num_filters)
     np.savetxt(filterPath, w, delimiter=",")
+    kernel_pipeline_config["gamma"] = gamma
     kernel_pipeline_config["filtersPath"] = filterPath
     kernel_pipeline_config["numPartitions"] = num_partitions
     kernel_pipeline_config["aggregatedSequenceOutput"] = windowPath
@@ -102,11 +103,15 @@ def run_kitchensink_featurize_pipeline(windowPath,
 def run_deepsea_pipeline(deepSeaTfs=['ATF3'],
                gamma = 1.0,
                reg=1e-8,
+               seq_size=200,
                alphabet_size=4,
                epochs=1,
                kmer_size=8,
                num_filters=256,
+               num_filters_to_use=256,
+               solve_sample=1.0,
                seed=0,
+               weight=0.0,
                feature_root='/user/vaishaal/',
                hdfs=None,
                run_solver_only=True,
@@ -117,21 +122,29 @@ def run_deepsea_pipeline(deepSeaTfs=['ATF3'],
                base_config=BASE_KERNEL_PIPELINE_CONFIG):
 
     kernel_pipeline_config = base_config.copy()
-    kernel_pipeline_config['deepSeaTfs'] = deepSeaTfs
+    if deepSeaTfs != []:
+      kernel_pipeline_config['deepSeaTfs'] = deepSeaTfs
     kernel_pipeline_config['lambda'] = reg
     kernel_pipeline_config['epochs'] = epochs
+    kernel_pipeline_config["gamma"] = gamma
+    kernel_pipeline_config['sequenceLength'] = seq_size
     kernel_pipeline_config["kmerLength"] = kmer_size
     kernel_pipeline_config["approxDim"] = num_filters
+    kernel_pipeline_config["approxDimToUse"] = num_filters_to_use
     kernel_pipeline_config["seed"] = seed
     kernel_pipeline_config["alphabetSize"] = alphabet_size
+    kernel_pipeline_config["mixtureWeight"] = weight
+    kernel_pipeline_config["solveSample"] = solve_sample
+    print("WEIGHT " + str(weight))
+
     run_cls = deepsea_pipeline_class
-    seq_size=800
     if (hdfs != None and run_solver_only):
-      feature_name = "{0}_{1}_{2}_{3}_train.features".format(seq_size, kmer_size, num_filters, gamma)
+      feature_name = "{0}_{1}_{2}_{3}_train.features".format(seq_size*4, kmer_size, num_filters, gamma)
       feature_path = feature_root + feature_name
-      precomputed = feature_path in map(lambda x: x['path'], list(hdfs.ls([feature_root])))
-      print precomputed
-      print feature_path
+      saved = map(lambda x: x['path'], list(hdfs.ls([feature_root])))
+      precomputed = feature_path in saved
+      print(saved)
+      print(feature_path)
       if(precomputed):
         run_cls = deepsea_solve_only_pipeline_class
         print("Running solve only class")
@@ -145,9 +158,8 @@ def run_deepsea_pipeline(deepSeaTfs=['ATF3'],
               num_executors,
               use_yarn=True)
 
-    train_df = pd.read_csv('/tmp/deepsea_train_results')
     val_df = pd.read_csv('/tmp/deepsea_val_results')
-    return train_df, val_df
+    return val_df
 
 def run_deepsea_solve_only_pipeline(deepSeaTfs=['ATF3'],
                gamma = 1.0,
@@ -155,6 +167,7 @@ def run_deepsea_solve_only_pipeline(deepSeaTfs=['ATF3'],
                alphabet_size=4,
                kmer_size=8,
                num_filters=256,
+               num_filters_to_use=256,
                seed=0,
                epochs=1,
                cores_per_executor=CORES_PER_EXECUTOR,
@@ -169,6 +182,7 @@ def run_deepsea_solve_only_pipeline(deepSeaTfs=['ATF3'],
     kernel_pipeline_config['epochs'] = epochs
     kernel_pipeline_config["kmerLength"] = kmer_size
     kernel_pipeline_config["approxDim"] = num_filters
+    kernel_pipeline_config["approxDimToUse"] = num_filters_to_use
     kernel_pipeline_config["seed"] = seed
     kernel_pipeline_config["alphabetSize"] = alphabet_size
 

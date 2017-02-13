@@ -41,6 +41,7 @@ import nodes.learning.BlockLeastSquaresEstimator
 import net.jafama.FastMath
 import org.apache.commons.math3.random.MersenneTwister
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import nodes.learning.PerClassWeightedLeastSquaresEstimator
 
 object DeepSeaPipeline extends Serializable  {
 
@@ -84,18 +85,17 @@ object DeepSeaPipeline extends Serializable  {
 
     val tfIndicesB = sc.broadcast(tfIndices)
 
-    val trainSeqs = trainFiles.map(x => x(0).substring(400,600)).map(KernelApproximator.stringToVector(_))
-    val evalSeqs = evalFiles.map(x => x(0).substring(400,600)).map(KernelApproximator.stringToVector(_))
+    val seqLength = conf.sequenceLength
+    val trainSeqs = trainFiles.map(x => x(0).substring(500-seqLength/2,500+seqLength/2)).map(KernelApproximator.stringToVector(_))
+    val evalSeqs = evalFiles.map(x => x(0).substring(500-seqLength/2,500+seqLength/2)).map(KernelApproximator.stringToVector(_))
 
     val trainLabels = trainFiles.map(x => tfIndicesB.value.map(y => x(y).toDouble)).map(DenseVector(_)).setName("trainLabels").cache()
     val evalLabels = evalFiles.map(x => tfIndicesB.value.map(y => x(y).toDouble)).map(DenseVector(_)).setName("evalLabels").cache()
 
-    println("TRAIN LABELS " + trainLabels.count())
-    println("TRAIN LABELS SIZE " + trainLabels.first.size)
 
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(conf.seed)))
-    val gaussian = new Gaussian(0, 1) 
-    val seqSize = trainSeqs.first.size
+    val gaussian = new Gaussian(0, 1)
+    val seqSize = seqLength*conf.alphabetSize
     val kmerSize = conf.kmerLength
     val alphabetSize = conf.alphabetSize
     val approxDim = conf.approxDim
@@ -104,33 +104,58 @@ object DeepSeaPipeline extends Serializable  {
     val uniform = new Uniform(0, 2*math.Pi)
     val phase = DenseVector.rand(approxDim, uniform)
     val kernelApprox = new KernelApproximator(W, FastMath.cos, ngramSize = kmerSize, alphabetSize=4, offset=Some(phase), fastfood=false, seed=conf.seed, gamma=conf.gamma, seqSize=seqSize/alphabetSize)
-    val trainFeatures = kernelApprox(trainSeqs).setName("trainFeatures").cache()
-    val evalFeatures = kernelApprox(evalSeqs).setName("evalFeatures").cache()
-
+    var trainFeatures = kernelApprox(trainSeqs).setName("trainFeatures").cache()
+    var evalFeatures = kernelApprox(evalSeqs).setName("evalFeatures").cache()
     val featuresName = s"${seqSize}_${kmerSize}_${approxDim}_${conf.gamma}"
     val trainFeaturesName = featuresName + "_train.features"
     val valFeaturesName = featuresName + "_val.features"
 
-    trainFeatures.map(x => x.toArray.mkString(",")).zip(trainLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(trainFeaturesName)
-    evalFeatures.map(x => x.toArray.mkString(",")).zip(evalLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(valFeaturesName)
+    trainFeatures.map(x => x.toArray.mkString(",")).saveAsTextFile(trainFeaturesName)
+    evalFeatures.map(x => x.toArray.mkString(",")).saveAsTextFile(valFeaturesName)
+
+
+    trainFeatures = trainFeatures.map(x => x(0 until conf.approxDimToUse))
+    evalFeatures = evalFeatures.map(x => x(0 until conf.approxDimToUse))
 
     println(s"FEATURIZING WITH KMERSIZE=${kmerSize}, gamma=${conf.gamma}")
     println(s"NUMBER OF TRAINING POINTS ${trainFeatures.count()}")
+    println(s"TRAINING POINTS FEATURE SIZE ${trainFeatures.first.size}")
     println("Solving least squares")
-    val model = new BlockLeastSquaresEstimator(min(1024, approxDim), 1, conf.lambda).fit(trainFeatures, trainLabels)
+    val model =
+    if (conf.mixtureWeight == 0) {
+      new BlockLeastSquaresEstimator(min(1024, approxDim), 1, conf.lambda).fit(trainFeatures, trainLabels)
+    } else {
+       new PerClassWeightedLeastSquaresEstimator(min(1024, approxDim), 1, conf.lambda, conf.mixtureWeight).fit(trainFeatures, trainLabels)
+    }
     val allYTrain = model(trainFeatures)
     val allYEval = model(evalFeatures)
-
-    val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
-    val trainResults:String = trainLabels.zip(allYTrain).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
-    var pwTrain = new PrintWriter(new File("/tmp/deepsea_train_results" ))
     val scoreHeaders = labelHeaders.map(x => x + "_label").mkString(",")
     val truthHeaders = labelHeaders.map(x => x + "_score").mkString(",")
-    println("HEADER SIZE " + truthHeaders.split(",").size)
-    println("LABEL SIZE " + trainLabels.first.size)
     val resultsHeaders = scoreHeaders + "," + truthHeaders + "\n"
-    pwTrain.write(resultsHeaders)
-    pwTrain.write(trainResults)
+
+    val valResults:String = evalLabels.zip(allYEval).map(x => s"${x._1.toArray.mkString(",")},${x._2.toArray.mkString(",")}").collect().mkString("\n")
+
+    println("COMPUTING TRAIN Results")
+    var outputstr = ""
+    for ((meta, i)  <- labelHeaders.zipWithIndex) {
+      val yPredTrain = allYTrain.map(x => x(i))
+
+      val yTrain = trainLabels.map(x => x(i))
+      val yEval = evalLabels.map(x => x(i))
+
+      val numPositivesTrain = yTrain.filter(x => x == 1.0).count()
+      val numTotalTrain = yTrain.count()
+
+      val numPositivesEval = yEval.filter(x => x == 1.0).count()
+      val numTotalEval = yEval.count()
+      val metricsTrain = new BinaryClassificationMetrics(yPredTrain.zip(yTrain.map(_.toDouble)))
+      val auPRCTrain = metricsTrain.areaUnderPR
+      val auROCTrain = metricsTrain.areaUnderROC
+      outputstr += s"${meta},${auROCTrain},${auPRCTrain},${numPositivesTrain},${numTotalTrain},${numPositivesEval},${numTotalEval}\n"
+    }
+
+    var pwTrain = new PrintWriter(new File(s"/tmp/${trainFeaturesName}_results" ))
+    pwTrain.write(outputstr)
     pwTrain.close
 
     var pwVal = new PrintWriter(new File("/tmp/deepsea_val_results" ))
