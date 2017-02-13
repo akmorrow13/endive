@@ -81,8 +81,8 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
     val kmerSize = conf.kmerLength
     val approxDim = conf.approxDim
     val featuresName = conf.featuresOutput
-    val trainFeaturesName = featuresName + s"_${approxDim}_train"
-    val valFeaturesName = featuresName + s"_${approxDim}_eval"
+    val trainFeaturesName = featuresName + s"${approxDim}_train"
+    val valFeaturesName = featuresName + s"${approxDim}_eval"
 
     // generate headers
     val headers = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",")
