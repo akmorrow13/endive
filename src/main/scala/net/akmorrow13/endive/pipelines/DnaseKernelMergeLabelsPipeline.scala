@@ -143,8 +143,8 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
 
   // score motifs
   val motifs =
-    if (conf.motifDBPath != null && conf.getModelTest != null) {
-      Some(DnaseKernelPipeline.scoreMotifs(sc, tfs, conf.motifDBPath, conf.getModelTest,
+    if (conf.motifDBPath != null) {
+      Some(DnaseKernelPipeline.scoreMotifs(sc, tfs, conf.motifDBPath,
         W_sequences(0), model, kmerSizes(0), seqSize))
     } else {
       None

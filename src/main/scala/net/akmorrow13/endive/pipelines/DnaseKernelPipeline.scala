@@ -152,8 +152,8 @@ object DnaseKernelPipeline extends Serializable with Logging {
     val trainLabels = train.map(_.labels.map(_.toDouble)).map(DenseVector(_))
     val evalLabels = eval.map(_.labels.map(_.toDouble)).map(DenseVector(_))
 
-    //trainFeatures.map(x => x.toArray.mkString(",")).zip(trainLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"icml/features/${approxDim}_train")
-    //evalFeatures.map(x => x.toArray.mkString(",")).zip(evalLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"icml/features/${approxDim}_eval")
+    trainFeatures.map(x => x.toArray.mkString(",")).zip(trainLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"${conf.featurizedOutput}_${approxDim}_train")
+    evalFeatures.map(x => x.toArray.mkString(",")).zip(evalLabels).map(x => s"${x._1}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"${conf.featurizedOutput}_${approxDim}_eval")
 
     val model = new BlockLeastSquaresEstimator(approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
 
@@ -166,22 +166,21 @@ object DnaseKernelPipeline extends Serializable with Logging {
 
   // score motifs
   val motifs =
-    if (conf.motifDBPath != null && conf.getModelTest != null) {
-      Some(scoreMotifs(sc, tfs, conf.motifDBPath, conf.getModelTest,
+    if (conf.motifDBPath != null) {
+      Some(scoreMotifs(sc, tfs, conf.motifDBPath,
         W_sequence, model, kmerSize, seqSize))
     } else {
       None
     }
-    println(motifs)
 
     // get metrics
-    printAllMetrics(headers, tfs.map(_.toString), allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
+    val scoreTfs = Array("ATF3","EGR1", "CEBPB","CTCF","GABP")
+    printAllMetrics(headers, scoreTfs, allYTrain.zip(trainLabels), allYEval.zip(evalLabels), motifs)
   }
 
   def scoreMotifs(sc: SparkContext,
                   tfs: Array[String],
                   inputPath: String,
-                  featurizedOutput: String,
                   W_sequence: DenseMatrix[Double],
                   model: BlockLinearMapper,
                   kmerSize: Int,
