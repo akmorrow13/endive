@@ -135,8 +135,7 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
     for (i <- headers.zipWithIndex) {
       if (EndiveConf.allDeepSeaTfs.contains(i._1.split('|')(1))) {
         val evalEval = new BinaryClassificationMetrics(zippedEvalResults.map(r => (r._1(i._2), r._2(i._2))))
-        println(s"Eval,${i._1},${i._2}")
-        Metrics.printMetrics(evalEval)
+        Metrics.printMetrics(evalEval, Some(s"Eval,${i._1},${i._2}"))
       }
     }
 
