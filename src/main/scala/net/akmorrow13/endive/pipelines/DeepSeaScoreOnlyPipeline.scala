@@ -78,15 +78,15 @@ object DeepSeaScoreOnlyPipeline extends Serializable  {
     println("RUN SCORE ONLY PIPELINE")
 
     val headers = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",")
-    val trainScores = getScoresAndLabels(sc, s"${conf.getFeaturizedOutput}_train")
+  //  val trainScores = getScoresAndLabels(sc, s"${conf.getFeaturizedOutput}_train")
     val evalScores = getScoresAndLabels(sc, s"${conf.getFeaturizedOutput}_eval")
 
     // get metrics
     for (i <- headers.zipWithIndex) {
       if (EndiveConf.allDeepSeaTfs.contains(i._1.split('|')(1))) {
-        val evalTrain = new BinaryClassificationMetrics(trainScores.map(r => (r._1(i._2), r._2(i._2))))
-        println(s"Train,${i._1},${i._2}")
-        Metrics.printMetrics(evalTrain)
+//        val evalTrain = new BinaryClassificationMetrics(trainScores.map(r => (r._1(i._2), r._2(i._2))))
+//        println(s"Train,${i._1},${i._2}")
+//        Metrics.printMetrics(evalTrain)
 
         val evalEval = new BinaryClassificationMetrics(evalScores.map(r => (r._1(i._2), r._2(i._2))))
         println(s"Eval,${i._1},${i._2}")
