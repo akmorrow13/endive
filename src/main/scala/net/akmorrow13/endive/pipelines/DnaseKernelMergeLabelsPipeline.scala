@@ -90,7 +90,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     var (train, eval) = {
         val train = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
         val eval = LabeledWindowLoader(s"${conf.getWindowLoc}_eval", sc).setName("_eval")
-        (reduceLabels(headerTfs, train), eval)
+      (train, eval)
     }
 
     // Slice windows for 200 bp range
@@ -161,11 +161,11 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
    * @param rdd
    * @return
    */
-  def reduceLabels(headerTfs: Array[String], rdd: RDD[LabeledWindow]): RDD[LabeledWindow] = {
+  def reduceLabels(headerTfs: Array[String], rdd: RDD[DenseVector[Double]]): RDD[DenseVector[Double]] = {
 
       rdd.map(r => {
         // map of (tf, bound in any cell type) tuple
-        val x: Map[String, Boolean] = headerTfs.zip(r.labels)
+        val x: Map[String, Boolean] = headerTfs.zip(r.toArray)
           .groupBy(_._1)
           .mapValues(r => {
               if (r.map(_._2).sum > 0)
@@ -176,13 +176,13 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
         val newLabels =
         headerTfs.map(r => {
           try {
-            if (x.get(r).get) 1
+            if (x.get(r).get) 1.0
             else 0
           } catch {
             case e: Exception => throw new Exception(s"${r} not in ${x}")
           }
         })
-        LabeledWindow(r.win, newLabels)
+        DenseVector(newLabels)
       })
   }
 }

@@ -101,11 +101,23 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
         val trainNegatives = trainFeatures.filter(_._2.sum == 0).sample(false, 0.4)
 
         trainFeatures = trainPositives.union(trainNegatives)
+
         val evalFeatures = evalFiles.map(x => DenseVector(x.split("\\|").map(r => r.split(","))))
           .map(r => (DenseVector(r(0).map(_.toDouble)), DenseVector(r(1).map(_.toDouble))))
 
-      (trainFeatures.map(_._1), evalFeatures.map(_._1), trainFeatures.map(_._2), evalFeatures.map(_._2))
+      // configurable
+      val reducedLabels: RDD[DenseVector[Double]] = DnaseKernelMergeLabelsPipeline.reduceLabels(headerTfs, trainFeatures.map(_._2))
+
+      (trainFeatures.map(_._1), evalFeatures.map(_._1), reducedLabels, evalFeatures.map(_._2))
     }
+
+    trainFeatures.cache()
+    evalFeatures.cache()
+    trainLabels.cache()
+    evalLabels.cache()
+
+    println(s"train features: ${trainFeatures.count}, eval features:${evalFeatures.count}, " +
+      s"train labels:  ${trainLabels.count}, eval labels: ${evalLabels.count}")
 
     val model = new BlockLeastSquaresEstimator(min(1024, approxDim), 1, conf.lambda)
       .fit(trainFeatures, trainLabels)
@@ -115,12 +127,20 @@ object DeepSeaSolveOnlyPipeline extends Serializable  {
     val zippedTrainResults = allYTrain.zip(trainLabels)
     val zippedEvalResults = allYEval.zip(evalLabels)
     zippedEvalResults.map(r => s"${r._1.toArray.mkString(",")}|${r._2.toArray.mkString(",")}")
-      .saveAsTextFile(s"${conf.getFeaturizedOutput}_eval")
+      .saveAsTextFile(s"${conf.getFeaturizedOutput}__reduced_eval")
     zippedTrainResults.map(r => s"${r._1.toArray.mkString(",")}|${r._2.toArray.mkString(",")}")
-      .saveAsTextFile(s"${conf.getFeaturizedOutput}_train")
+      .saveAsTextFile(s"${conf.getFeaturizedOutput}_reduced_train")
 
     // get metrics
-    val tfs: Array[String] = Array("ATF3", "EGR1", "CTCF", "GABP")
-    DnaseKernelPipeline.printAllMetrics(headers, tfs, zippedTrainResults, zippedEvalResults, None)
+    for (i <- headers.zipWithIndex) {
+      if (EndiveConf.allDeepSeaTfs.contains(i._1.split('|')(1))) {
+        val evalEval = new BinaryClassificationMetrics(zippedEvalResults.map(r => (r._1(i._2), r._2(i._2))))
+        Metrics.printMetrics(evalEval, Some(s"Eval,${i._1},${i._2}"))
+      }
+    }
+
+    // get metrics
+//    val tfs: Array[String] = Array("ATF3", "EGR1", "CTCF", "GABP")
+//    DnaseKernelPipeline.printAllMetrics(headers, tfs, zippedTrainResults, zippedEvalResults, None)
   }
 }

@@ -89,8 +89,7 @@ object DeepSeaScoreOnlyPipeline extends Serializable  {
 //        Metrics.printMetrics(evalTrain)
 
         val evalEval = new BinaryClassificationMetrics(evalScores.map(r => (r._1(i._2), r._2(i._2))))
-        println(s"Eval,${i._1},${i._2}")
-        Metrics.printMetrics(evalEval)
+        Metrics.printMetrics(evalEval, Some(s"Eval,${i._1},${i._2}"))
       }
     }
   }

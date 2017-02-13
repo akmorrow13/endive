@@ -25,17 +25,19 @@ import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 
 object Metrics {
 
-  def printMetrics(metrics: BinaryClassificationMetrics) {
+  def printMetrics(metrics: BinaryClassificationMetrics, title: Option[String] = None) {
     // AUPRC
     val auPRC = metrics.areaUnderPR
-    println("Area under precision-recall curve = " + auPRC)
 
     // ROC Curve
     val roc = metrics.roc
 
     // AUROC
     val auROC = metrics.areaUnderROC
-    println("Area under ROC = " + auROC)
+
+    // print
+    val t = title.getOrElse("")
+    println(s"${t},ROC,${auROC},auPRC,${auPRC}")
   }
 
   /**
