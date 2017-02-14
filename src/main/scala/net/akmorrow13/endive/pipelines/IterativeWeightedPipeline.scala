@@ -104,6 +104,8 @@ object IterativeWeightedSolvePipeline extends Serializable with Logging {
       DnaseKernelPipeline.featurize(trainWindows, Array(W_sequences), Array(kmerSize))
         .map(r => (r.features, DenseVector(r.labeledWindow.labels.map(_.toDouble))))
 
+    train.map(x => s"${x._1.toArray.mkString(",")}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"${conf.featurizedOutput}_${approxDim}_train")
+
     // initial ROC and ucPRC scores
     var roc = 0.8
     var prc = 0.8
@@ -120,6 +122,7 @@ object IterativeWeightedSolvePipeline extends Serializable with Logging {
     var posCount =  sampledTrainFeatures.filter(_._2(indexTf._2) == 0).count
 
     var mixtureWeight = negCount.toDouble / posCount.toDouble
+    println(s"mixture weight ${mixtureWeight}")
 
     while(true) {
       println(s"running for sample: ${posCount} positives and ${negCount} negatives. Current Metrics : ROC ${roc}, auPRC: ${prc}")
