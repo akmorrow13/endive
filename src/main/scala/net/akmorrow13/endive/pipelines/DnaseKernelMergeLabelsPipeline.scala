@@ -118,7 +118,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
           .setFragmentStartPosition(r.win.getRegion.start)
           .setFragmentEndPosition(r.win.getRegion.end)
           .build()
-      }), sequences).saveAsFasta(s"icml/${indexTfFiltered}_positives.fasta")
+      }).repartition(1), sequences).saveAsFasta(s"icml/${indexTfFiltered}_positives.fasta")
 
 
     val negativeCount = trainAll.map(_.labels(indexTf._2)).filter(_ == 0).count
@@ -135,8 +135,8 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
           .setFragmentStartPosition(r.win.getRegion.start)
           .setFragmentEndPosition(r.win.getRegion.end)
           .build()
-      }), sequences).saveAsFasta(s"icml/${indexTfFiltered}_negatives.fasta")
-
+      }).repartition(1), sequences).saveAsFasta(s"icml/${indexTfFiltered}_negatives.fasta")
+sys.exit(0)
     val train = negs.union(trainAll.filter(_.labels(indexTf._2) > 0))
     train.cache()
     train.count
