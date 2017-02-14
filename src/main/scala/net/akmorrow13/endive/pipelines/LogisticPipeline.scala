@@ -69,8 +69,8 @@ object LogisticPipeline extends Serializable  {
     val kmerSize = conf.kmerLength
     val approxDim = conf.approxDim
     val featuresName = conf.featuresOutput
-    val trainFeaturesName = featuresName + s"_${approxDim}_train"
-    val valFeaturesName = featuresName + s"_${approxDim}_eval"
+    val trainFeaturesName = featuresName + s"_train.features"
+    val valFeaturesName = featuresName + s"_val.features"
 
     // generate headers
     val headers = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",")
@@ -85,22 +85,16 @@ object LogisticPipeline extends Serializable  {
     val evalFiles = sc.textFile(valFeaturesName)
 
     val (trainFeatures, evalFeatures, trainLabels, evalLabels) = {
+      val trainFeatures = trainFiles.map(x => DenseVector(x.split(",").map(_.toDouble))).zipWithIndex
+      val trainLabels = sc.textFile(conf.labels + "_train").map(x => DenseVector(x.split(",").drop(1).map(_.toDouble))).zipWithIndex
 
-        var trainFeatures = trainFiles.map(x => DenseVector(x.split("\\|").map(r => r.split(","))))
-          .map(r => (DenseVector(r(0).map(_.toDouble)), DenseVector(r(1).map(_.toDouble))))
+      val evalFeatures = evalFiles.map(x => DenseVector(x.split(",").map(_.toDouble))).zipWithIndex
+      val evalLabels = sc.textFile(conf.labels + "_eval").map(x => DenseVector(x.split(",").drop(1).map(_.toDouble))).zipWithIndex
 
-        val trainPositives = trainFeatures.filter(_._2.sum > 0)
-        val trainNegatives = trainFeatures.filter(_._2.sum == 0).sample(false, 0.4)
+     val train: RDD[(DenseVector[Double], DenseVector[Double])] = trainFeatures.map(r => (r._2, r._1)).join(trainLabels.map(r => (r._2, r._1))).map(_._2)
+     val eval: RDD[(DenseVector[Double], DenseVector[Double])] = evalFeatures.map(r => (r._2, r._1)).join(evalLabels.map(r => (r._2, r._1))).map(_._2)
 
-        trainFeatures = trainPositives.union(trainNegatives)
-
-        val evalFeatures = evalFiles.map(x => DenseVector(x.split("\\|").map(r => r.split(","))))
-          .map(r => (DenseVector(r(0).map(_.toDouble)), DenseVector(r(1).map(_.toDouble))))
-
-      // configurable
-      val reducedLabels: RDD[DenseVector[Double]] = DnaseKernelMergeLabelsPipeline.reduceLabels(headerTfs, trainFeatures.map(_._2))
-
-      (trainFeatures.map(_._1), evalFeatures.map(_._1), reducedLabels, evalFeatures.map(_._2))
+      (train.map(_._1), eval.map(_._1), train.map(_._2), eval.map(_._2))
     }
 
     trainFeatures.cache()
