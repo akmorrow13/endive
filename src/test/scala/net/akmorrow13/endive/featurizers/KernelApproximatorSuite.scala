@@ -5,6 +5,7 @@ import java.io.File
 import breeze.linalg._
 import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveFunSuite
+import net.akmorrow13.endive.pipelines.DnaseKernelPipeline
 import org.apache.commons.math3.random.MersenneTwister
 import net.akmorrow13.endive.processing.Dataset
 
@@ -65,17 +66,16 @@ class KernelApproximatorSuite extends EndiveFunSuite with Serializable {
     assert(W.size == 128000)
     val pythonScriptOutput = breeze.linalg.csvread(new File(resourcePath("seq.features"))).toDenseVector
 
-    val infile = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq.100Lines")).filter(f => f(0) == 'A')
-    assert(infile.count == 98)
-    val train = infile.map(f => f.split(" ")).map(f => (f(2), f.last.toInt))
+    val sequence = sc.textFile(resourcePath("EGR1_withNegatives/EGR1_GM12878_Egr-1_HudsonAlpha_AC.seq.100Lines")).filter(f => f(0) == 'A').first
+      .split(" ")(2)
 
     val ngramSize = 8
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
+    val gaussian = new Gaussian(0, 1)
 
-    val trainApprox = train.map(f => (KernelApproximator.stringToVector(f._1), f._2))
-    //98 records after 2 lines at top for column names
-    assert(trainApprox.count == 98)
-    //verify that the two outputs are extremely similar given the same random matrix
-    assert(norm(trainApprox.first._1) - norm(pythonScriptOutput) < error)
+
+    val featurized = DnaseKernelPipeline.featurizeString(sequence, Array(W), Array(8))
+
+    assert(norm(featurized) - norm(pythonScriptOutput) < error)
   }
 }

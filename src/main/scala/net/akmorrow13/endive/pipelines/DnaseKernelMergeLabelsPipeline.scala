@@ -19,6 +19,7 @@ import net.akmorrow13.endive.featurizers.Kmer
 import breeze.linalg._
 import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveConf
+import net.akmorrow13.endive.featurizers.Kmer
 import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils._
 import com.github.fommil.netlib.BLAS
@@ -26,8 +27,10 @@ import nodes.akmorrow13.endive.featurizers.KernelApproximator
 import nodes.learning.{BlockLeastSquaresEstimator}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import org.bdgenomics.adam.rdd.contig._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
+import org.bdgenomics.formats.avro.{Contig, NucleotideContigFragment, Fragment}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
@@ -87,6 +90,9 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
 
 
     val indexTf = headers.zipWithIndex.filter(r => r._1.contains(conf.tfs)).head
+    println(indexTf)
+    val indexTfFiltered = indexTf._1.filter(_ != '|')
+    println(indexTfFiltered)
 
     // load in train and eval as LabeledWindows
     val trainAll = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
@@ -99,11 +105,38 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     })
     trainAll.cache()
     trainAll.count()
-    val positives = trainAll.map(_.labels(indexTf._2)).filter(_ > 0).count
-    val negatives = trainAll.map(_.labels(indexTf._2)).filter(_ == 0).count
-    val total = positives + negatives
-    println(s"count: ${total}=${positives}(+)+${negatives}(-)")
-    val negs = sc.parallelize(trainAll.filter(_.labels(indexTf._2) == 0).takeSample(false, positives.toInt))
+    val positives = trainAll.filter(_.labels(indexTf._2) > 0)
+    val positiveCount = positives.count
+
+    val sequences = DatasetCreationPipeline.getSequenceDictionary(conf.reference)
+    new NucleotideContigFragmentRDD(
+      positives.map(r => {
+        NucleotideContigFragment.newBuilder()
+          .setFragmentSequence(r.win.getSequence)
+          .setDescription(s"${r.win.getRegion.toString}")
+          .setContig(Contig.newBuilder().setContigName(r.win.getRegion.referenceName).build)
+          .setFragmentStartPosition(r.win.getRegion.start)
+          .setFragmentEndPosition(r.win.getRegion.end)
+          .build()
+      }), sequences).saveAsFasta(s"icml/${indexTfFiltered}_positives.fasta")
+
+
+    val negativeCount = trainAll.map(_.labels(indexTf._2)).filter(_ == 0).count
+    val total = positiveCount + negativeCount
+    println(s"count: ${total}=${positives}(+)+${negativeCount}(-)")
+    val negs = sc.parallelize(trainAll.filter(_.labels(indexTf._2) == 0).takeSample(false, positiveCount.toInt))
+
+    new NucleotideContigFragmentRDD(
+      negs.map(r => {
+        NucleotideContigFragment.newBuilder()
+          .setFragmentSequence(r.win.getSequence)
+          .setDescription(s"${r.win.getRegion.toString}")
+          .setContig(Contig.newBuilder().setContigName(r.win.getRegion.referenceName).build)
+          .setFragmentStartPosition(r.win.getRegion.start)
+          .setFragmentEndPosition(r.win.getRegion.end)
+          .build()
+      }), sequences).saveAsFasta(s"icml/${indexTfFiltered}_negatives.fasta")
+
     val train = negs.union(trainAll.filter(_.labels(indexTf._2) > 0))
     train.cache()
     train.count
@@ -120,6 +153,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
 
     // base model
 /*
+
     val baseFeatures = Kmer.extractKmers(train.map(_.win.getSequence), 6).map(r => DenseVector(r.toArray))
     val trainLabels = train.map(_.labels.map(_.toDouble)).map(DenseVector(_))
 
