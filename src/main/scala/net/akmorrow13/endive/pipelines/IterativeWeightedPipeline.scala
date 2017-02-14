@@ -91,28 +91,20 @@ object IterativeWeightedPipeline extends Serializable with Logging {
     val indexTf = headers.zipWithIndex.filter(r => r._1.contains(conf.tfs)).head
     println(indexTf)
 
-    implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
-    val gaussian = new Gaussian(0, 1)
+    val trainFiles = sc.textFile(trainFeaturesName)
+    val evalFiles = sc.textFile(valFeaturesName)
 
-    // generate random matrix
-    val W_sequences = DenseMatrix.rand(approxDim, kmerSize * alphabetSize, gaussian)
+    val (train, eval) = {
 
-    // generate approximation features
-    val trainWindows = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
+      val train = trainFiles.map(x => DenseVector(x.split("\\|").map(r => r.split(","))))
+        .map(r => (DenseVector(r(0).map(_.toDouble)), DenseVector(r(1).map(_.toDouble))))
 
-    val train =
-      DnaseKernelPipeline.featurize(trainWindows, Array(W_sequences), Array(kmerSize))
-        .map(r => (r.features, DenseVector(r.labeledWindow.labels.map(_.toDouble))))
+      val eval = evalFiles.map(x => DenseVector(x.split("\\|").map(r => r.split(","))))
+        .map(r => (DenseVector(r(0).map(_.toDouble)), DenseVector(r(1).map(_.toDouble))))
 
-    train.map(x => s"${x._1.toArray.mkString(",")}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"${conf.featurizedOutput}_${approxDim}_train")
-sys.exit(0)
-val evalWindows =  LabeledWindowLoader(s"${conf.getWindowLoc}_eval", sc).setName("_All data")
-    val eval =
-      DnaseKernelPipeline.featurize(evalWindows, Array(W_sequences), Array(kmerSize))
-        .map(r => (r.features, DenseVector(r.labeledWindow.labels.map(_.toDouble))))
+      (train, eval)
+    }
 
-    eval.map(x => s"${x._1.toArray.mkString(",")}|${x._2.toArray.mkString(",")}").saveAsTextFile(s"${conf.featurizedOutput}_${approxDim}_eval")
-sys.exit(0)
     // initial ROC and ucPRC scores
     var roc = 0.8
     var prc = 0.8
@@ -134,13 +126,13 @@ sys.exit(0)
     while(true) {
       println(s"running for sample: ${posCount} positives and ${negCount} negatives. Current Metrics : ROC ${roc}, auPRC: ${prc}")
 
-      var metrics = runModel(sampledTrainFeatures.map(_._1), sampledTrainFeatures.map(_._2), conf.lambda, indexTf._2, mixtureWeight)
+      var metrics = runModel(sampledTrainFeatures, eval, conf.lambda, indexTf._2, mixtureWeight)
 
       // while scores are low keep raising weight. once metrics are high enough, reset them and add in more negatives
       while (metrics._1 < roc && metrics._2 < prc) {
         mixtureWeight = mixtureWeight * 2
         println(s"raising mixture weight to ${mixtureWeight}")
-        metrics = runModel(sampledTrainFeatures.map(_._1), sampledTrainFeatures.map(_._2), conf.lambda, indexTf._2, mixtureWeight)
+        metrics = runModel(train, eval, conf.lambda, indexTf._2, mixtureWeight)
       }
 
       // found a good weight. continue
@@ -160,17 +152,27 @@ sys.exit(0)
 
   }
 
-  def runModel(train: RDD[DenseVector[Double]], labels: RDD[DenseVector[Double]], lambda: Double, idx: Int, mixtureWeight: Double): Tuple2[Double, Double] = {
+  def runModel(train: RDD[(DenseVector[Double],DenseVector[Double])],
+               eval: RDD[(DenseVector[Double],DenseVector[Double])],
+               lambda: Double, idx: Int, mixtureWeight: Double): Tuple2[Double, Double] = {
 
-    val model = new BlockWeightedLeastSquaresEstimator(4096, 1, lambda, mixtureWeight).fit(train, labels)
-    val allYTrain = model(train)
-    val zippedTrainResults: RDD[(Double, Double)] = allYTrain.zip(labels).map(r => (r._1(idx), r._2(idx)))
+    val model = new BlockWeightedLeastSquaresEstimator(4096, 1, lambda, mixtureWeight).fit(train.map(_._1), train.map(_._2))
+    val allYTrain = model(train.map(_._1))
+    val zippedTrainResults: RDD[(Double, Double)] = allYTrain.zip(train.map(_._2)).map(r => (r._1(idx), r._2(idx)))
 
-    // get metrics
-    val eval = new BinaryClassificationMetrics(zippedTrainResults)
-    val metrics = Metrics.getMetrics(eval)
-    println(s"weight: ${mixtureWeight}, ROC: ${metrics._1}, auPRC: ${metrics._1}")
-    return metrics
+    // get metrics for train
+    val trainEval = new BinaryClassificationMetrics(zippedTrainResults)
+    val trainMetrics = Metrics.getMetrics(trainEval)
+    println(s"Train: weight: ${mixtureWeight}, ROC: ${trainMetrics._1}, auPRC: ${trainMetrics._2}")
+
+    // get metrics for eval
+    val allYEval = model(eval.map(_._1))
+    val zippedEvalResults = allYEval.zip(eval.map(_._2)).map(r => (r._1(idx), r._2(idx)))
+    val evalEval = new BinaryClassificationMetrics(zippedEvalResults)
+    val evalMetrics = Metrics.getMetrics(evalEval)
+    println(s"Eval: weight: ${mixtureWeight}, ROC: ${evalMetrics._1}, auPRC: ${evalMetrics._2}")
+
+    return trainMetrics
   }
 
   /**
