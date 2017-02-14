@@ -198,7 +198,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
         })
 
     val randomFeaturized =
-      featurize(randomSequence(seqSize), Array(W_sequence), Array(kmerSize))
+      featurizeString(randomSequence(seqSize), Array(W_sequence), Array(kmerSize))
     val randomScore = model(randomFeaturized)
 
       // featurize motifs
@@ -301,7 +301,7 @@ object DnaseKernelPipeline extends Serializable with Logging {
    * @param Ws: random matrix
    * @param kmerSizes: length of all kmers to be created
    */
-  def featurize(l: String,
+  def featurizeString(l: String,
                 Ws: Array[DenseMatrix[Double]],
                 kmerSizes: Array[Int]): DenseVector[Double] = {
     require(Ws.length == kmerSizes.length, "W and kmers must be same length")
