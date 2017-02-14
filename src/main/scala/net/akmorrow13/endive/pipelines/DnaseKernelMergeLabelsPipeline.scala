@@ -15,6 +15,7 @@
  */
 package net.akmorrow13.endive.pipelines
 
+import net.akmorrow13.endive.featurizers.Kmer
 import breeze.linalg._
 import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveConf
@@ -74,7 +75,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
 
     // set parameters
     val seed = 0
-    val kmerSizes = Array(6, 15)
+    val kmerSizes = Array(8)
 //    val approxDim = conf.approxDim
     val dnaseSize = 10
     val seqSize = 200
@@ -104,6 +105,9 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     println(s"count: ${total}=${positives}(+)+${negatives}(-)")
     val negs = sc.parallelize(trainAll.filter(_.labels(indexTf._2) == 0).takeSample(false, positives.toInt))
     val train = negs.union(trainAll.filter(_.labels(indexTf._2) > 0))
+    train.cache()
+    train.count
+    trainAll.unpersist()
 //
 //    eval = eval.repartition(2).cache().map(r => {
 //      val mid = r.win.getRegion.length / 2 + r.win.getRegion.start
@@ -114,9 +118,9 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
 //    })
 //    eval.count()
 
-
     // base model
-    val baseFeatures = train.map(r => KernelApproximator.stringToVector(r.win.getSequence))
+/*
+    val baseFeatures = Kmer.extractKmers(train.map(_.win.getSequence), 6).map(r => DenseVector(r.toArray))
     val trainLabels = train.map(_.labels.map(_.toDouble)).map(DenseVector(_))
 
     val model = new BlockLeastSquaresEstimator(1024, 1, conf.lambda).fit(baseFeatures, trainLabels)
@@ -128,9 +132,10 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     val evalEval = new BinaryClassificationMetrics(zippedTrainResults.map(r => (r._1(indexTf._2), r._2(indexTf._2))))
     Metrics.printMetrics(evalEval, Some(s"Eval,${indexTf._1},${indexTf._2}"))
     // end base model
-
-
-    val approxDims = Array(256, 8192, 16384)
+*/
+    val trainLabels = train.map(_.labels.map(_.toDouble)).map(DenseVector(_))
+    
+    val approxDims = Array(4096)
     for (approxDim <- approxDims) {
 
       implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
