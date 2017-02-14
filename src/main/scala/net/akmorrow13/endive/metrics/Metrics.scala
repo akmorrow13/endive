@@ -25,6 +25,18 @@ import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 
 object Metrics {
 
+  def getMetrics(metrics: BinaryClassificationMetrics): Tuple2[Double, Double] = {
+    // AUPRC
+    val auPRC = metrics.areaUnderPR
+
+    // ROC Curve
+    val roc = metrics.roc
+
+    // AUROC
+    val auROC = metrics.areaUnderROC
+    return (auROC, auPRC)
+  }
+
   def printMetrics(metrics: BinaryClassificationMetrics, title: Option[String] = None) {
     // AUPRC
     val auPRC = metrics.areaUnderPR

@@ -29,7 +29,7 @@ import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.bdgenomics.adam.rdd.contig._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.formats.avro.{NucleotideContigFragment, Fragment}
+import org.bdgenomics.formats.avro.{Contig, NucleotideContigFragment, Fragment}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
 import pipelines.Logging
@@ -90,6 +90,8 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
 
     val indexTf = headers.zipWithIndex.filter(r => r._1.contains(conf.tfs)).head
     println(indexTf)
+    val indexTfFiltered: String = indexTf._1.filter(_ != '|')
+
 
     // load in train and eval as LabeledWindows
     val trainAll = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
@@ -111,6 +113,9 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
         NucleotideContigFragment.newBuilder()
           .setFragmentSequence(r.win.getSequence)
           .setDescription(s"${r.win.getRegion.toString}")
+          .setContig(Contig.newBuilder().setContigName(r.win.getRegion.referenceName).build)
+          .setFragmentStartPosition(r.win.getRegion.start)
+          .setFragmentEndPosition(r.win.getRegion.end)
           .build()
       }), sequences).saveAsFasta(s"icml/${indexTf._1}_positives.fasta")
 
