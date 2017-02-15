@@ -84,16 +84,18 @@ object SaveFilesToFasta extends Serializable {
     val headerTfs: Array[String] = headers.map(r => r.split('|')).map(r => r(1))
     println(s"headerTfs: ${headerTfs.head} ${headerTfs.length}")
 
-    val indexTf = headers.zipWithIndex.filter(r => r._1.contains(conf.tfs)).head
+    var indexTf = headers.zipWithIndex.filter(r => r._1.contains(conf.tfs)).head
+    indexTf = (indexTf._1.filter(_ != '|'), indexTf._2)
     println(indexTf)
 
     val eval = readSequences(s"${conf.windowLoc}deepsea_eval_reg_seq", sc)
       .map(r => (r._1,r._2,r._3(indexTf._2)))
       .repartition(1)
-    val test = readSequences(s"${conf.windowLoc}deepsea_eval_reg_seq", sc)
+    val test = readSequences(s"${conf.windowLoc}deepsea_test_chr8_9_reg_seq", sc)
       .map(r => (r._1,r._2,r._3(indexTf._2)))
       .repartition(1)
 
+println(eval.count, test.count)
     val sequences = DatasetCreationPipeline.getSequenceDictionary(conf.reference)
 
     val evalLoc = s"${conf.featuresOutput}${indexTf._1}_eval.fasta"
@@ -125,6 +127,8 @@ object SaveFilesToFasta extends Serializable {
                   rdd: RDD[(ReferenceRegion, String, Int)],
                   filePath: String,
                   labelPath: String) = {
+
+    println(s"saving data: ${rdd.count} records to ${filePath}")
 
     // save fasta
     new NucleotideContigFragmentRDD(

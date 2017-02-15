@@ -91,16 +91,21 @@ object LogisticPipeline extends Serializable  {
       val evalFeatures = evalFiles.map(x => DenseVector(x.split(",").map(_.toDouble))).zipWithIndex
       val evalLabels = sc.textFile(conf.labels + "_eval").map(x => DenseVector(x.split(",").drop(1).map(_.toDouble))).zipWithIndex
 
-     val train: RDD[(DenseVector[Double], DenseVector[Double])] = trainFeatures.map(r => (r._2, r._1)).join(trainLabels.map(r => (r._2, r._1))).map(_._2)
-     val eval: RDD[(DenseVector[Double], DenseVector[Double])] = evalFeatures.map(r => (r._2, r._1)).join(evalLabels.map(r => (r._2, r._1))).map(_._2)
+     var train: RDD[(DenseVector[Double], DenseVector[Double])] = trainFeatures.map(r => (r._2, r._1)).join(trainLabels.map(r => (r._2, r._1))).map(_._2)
+     val positives = train.filter(_._2(indexTf._2) == 1)    
+     val negatives = train.filter(_._2(indexTf._2) == 0).sample(false, 0.3)
+     train = positives.union(negatives)
+	.repartition(600)
 
+     val eval: RDD[(DenseVector[Double], DenseVector[Double])] = evalFeatures.map(r => (r._2, r._1)).join(evalLabels.map(r => (r._2, r._1))).map(_._2)
+	.repartition(4)
       (train.map(_._1), eval.map(_._1), train.map(_._2), eval.map(_._2))
     }
 
-    trainFeatures.cache()
-    evalFeatures.cache()
-    trainLabels.cache()
-    evalLabels.cache()
+    trainFeatures.setName("trainFeatures").cache()
+    evalFeatures.setName("evalFeatures").cache()
+    trainLabels.setName("trainlabels").cache()
+    evalLabels.setName("evalLabels").cache()
 
     println(s"train features: ${trainFeatures.count}, eval features:${evalFeatures.count}, " +
       s"train labels:  ${trainLabels.count}, eval labels: ${evalLabels.count}")
