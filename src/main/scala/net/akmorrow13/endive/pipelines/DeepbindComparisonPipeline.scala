@@ -96,12 +96,6 @@ object DeepbindComparisonPipeline extends Serializable with Logging {
     val positivesLoc = conf.windowLoc + ".positives.fasta"
     val negativesLoc = conf.windowLoc + ".negatives.fasta"
 
-    val trainLoc = conf.getWindowLoc
-
-    // generate headers
-    val headers: Array[String] = sc.textFile(conf.deepSeaDataPath + "headers.csv").first().split(",")
-    val labelHeaders = headers.zipWithIndex.filter(x => conf.deepSeaTfs.map(y => x._1 contains y).contains(true)).map(x => x._1)
-
     var (train, eval) = {
 
       val trainPositives = sc.loadFasta(positivesLoc, seqSize).rdd.map(r => (r, 1))

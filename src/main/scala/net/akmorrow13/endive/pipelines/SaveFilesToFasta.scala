@@ -84,8 +84,8 @@ object SaveFilesToFasta extends Serializable {
     val headerTfs: Array[String] = headers.map(r => r.split('|')).map(r => r(1))
     println(s"headerTfs: ${headerTfs.head} ${headerTfs.length}")
 
-    val indexTf = headers.zipWithIndex.filter(r => r._1.contains(conf.tfs)).head
-    println(indexTf)
+    var indexTf = headers.zipWithIndex.filter(r => r._1.contains(conf.tfs)).head
+    indexTf = (indexTf._1.filter(_ != '|'), indexTf._2)
 
     val eval = readSequences(s"${conf.windowLoc}deepsea_eval_reg_seq", sc)
       .map(r => (r._1,r._2,r._3(indexTf._2)))
@@ -105,7 +105,7 @@ object SaveFilesToFasta extends Serializable {
     saveToFasta(sc, sequences, eval, evalLoc, evalLabelLoc)
 
     // save test
-    saveToFasta(sc, sequences,test, testLoc, testLabelLoc)
+    saveToFasta(sc, sequences, test, testLoc, testLabelLoc)
 
   }
 
