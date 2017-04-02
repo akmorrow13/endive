@@ -22,16 +22,16 @@ import net.akmorrow13.endive.utils._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.log4j.{Level, Logger}
-import org.apache.parquet.filter2.dsl.Dsl.{BinaryColumn, _}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
-import org.bdgenomics.adam.models.{SequenceDictionary, SequenceRecord, ReferenceRegion}
-import org.bdgenomics.adam.util.{ReferenceContigMap, ReferenceFile, TwoBitFile}
+import org.bdgenomics.adam.models.{ReferenceRegion, SequenceDictionary}
+import org.bdgenomics.adam.util.TwoBitFile
+import org.bdgenomics.formats.avro.{Contig, NucleotideContigFragment}
 import org.bdgenomics.utils.io.LocalFileByteAccess
-import org.kohsuke.args4j.{Option => Args4jOption}
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.Yaml
-import net.akmorrow13.endive.processing._
+import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.rdd.contig.NucleotideContigFragmentRDD
 
 
 object DatasetCreationPipeline extends Serializable  {
@@ -72,7 +72,6 @@ object DatasetCreationPipeline extends Serializable  {
     val referencePath = conf.reference
     if (referencePath == null)
       throw new Exception("referencepath not defined")
-    val genes = conf.genes
     val aggregatedSequenceOutput = conf.aggregatedSequenceOutput
     if (aggregatedSequenceOutput == null)
       throw new Exception("aggregatedSequenceOutput not defined")
@@ -90,50 +89,189 @@ object DatasetCreationPipeline extends Serializable  {
     val fs: FileSystem = FileSystem.get(new Configuration())
     val labelStatus = fs.listStatus(new Path(labelsPath))
     println(s"first label file: ${labelStatus.head.getPath.getName}")
-    val dnaseStatus = fs.listStatus(new Path(dnasePath))
-    println(s"first dnase file: ${dnaseStatus.head.getPath.getName.split('.')(1)}")
 
+    val length = 200
+    val half = length/2
       for (i <- labelStatus) {
         val file: String = i.getPath.toString
         try {
-          val (train: RDD[(TranscriptionFactors.Value, CellTypes.Value, ReferenceRegion, Int)], cellTypes: Array[CellTypes.Value]) = Preprocess.loadLabels(sc, file)
-          train.setName("train").cache()
-          train.count
 
-	        val tf = train.first._1
-          println(s"celltypes for tf ${tf}:")
-          cellTypes.foreach(println)
+          val bed = sc.loadFeatures(file)
 
-          // extract sequences from reference over training regions
-          val sequences: RDD[LabeledWindow] = extractSequencesAndLabels(referencePath, train).cache()
-          // val sequences: RDD[LabeledWindow] = sc.emptyRDD[LabeledWindow]
-	        println("extracted sequences", sequences.count)
-          // Load DNase data of (cell type, peak record)
-	        val dnaseFiles = dnaseStatus.filter(r => {
-		        cellTypes.contains(r.getPath.getName.split('.')(1))
+          val labelBed = bed.rdd.cache()
+          println(s"positive peak count in ${file}: ${labelBed.count}")
+
+          // filter out peaks too short. take middle parts of peaks
+          val filteredByLength = labelBed.filter(r => (r.end-r.start) >= length).map(r => {
+            val mid = r.start + r.end / 2 + r.start
+            r.setStart(mid - half)
+            r.setEnd(mid+half)
+            ReferenceRegion(r.getContigName, r.start, r.end)
           })
 
-          // loading peak files
-          val dnase: RDD[(CellTypes.Value, PeakRecord)] = Preprocess.loadPeakFiles(sc, dnaseFiles.map(_.getPath.toString))
-              .cache()
 
-          val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
+          // get negative peaks
+          val collectedPeaks: Array[ReferenceRegion] = filteredByLength.collect()
 
-          val cellTypeInfo = new CellTypeSpecific(windowSize, stride, dnase, sc.emptyRDD[(CellTypes.Value, RNARecord)], sd)
+          println(s"positive peak count after filtering by length: ${collectedPeaks.length}")
 
-          val fullMatrix: RDD[LabeledWindow] = cellTypeInfo.joinWithDNase(sequences)
+          val collectedPeaksB = sc.broadcast(collectedPeaks)
+          val chrs = collectedPeaks.map(r => r.referenceName).distinct
 
-          // save data
-          val output =  s"${aggregatedSequenceOutput}/${tf}"
-          fullMatrix.map(_.toString).saveAsTextFile(output)
-          println(s"saved dataset for tf ${tf}")
+          println("chrs with data:")
+          chrs.foreach(println)
 
-        } catch {
-          case e: Exception => println(s"Directory ${file} could not be loaded")
+          val lengths = getSequenceDictionary(referencePath).records.filter(r => chrs.contains(r))
+
+          // get negatives by filtering out regions that overlap positive peaks
+          val negatives =
+            sc.parallelize(lengths).repartition(lengths.length).flatMap(r => {
+              List.range(1, r.length.toInt, length).map(i => ReferenceRegion(r.name, i.toLong, i+length))
+                  .filter(n => collectedPeaksB.value.filter(p => p.overlaps(n)).isEmpty)
+            }).map(r => (r, 0))
+
+          // all points as referenceRegions
+          val allPoints = negatives.union(filteredByLength.map(r => (r, 1)))
+
+          val testChrs = List("X", "Y")
+
+          // save bed file for train and test
+          val train = allPoints.filter(r => !testChrs.contains(r._1.referenceName))
+          val test = allPoints.filter(r => testChrs.contains(r._1.referenceName)).repartition(40)
+
+          train.map(r => s"${r._1.referenceName},${r._1.start},${r._1.end},${r._2}").saveAsTextFile(conf.getFeaturesOutput + "_train")
+          test.map(r => s"${r._1.referenceName},${r._1.start},${r._1.end},${r._2}").saveAsTextFile(conf.getFeaturesOutput + "_test")
+
+
+          // dataset 1: get sequences for test positives
+          val testFastaPositive = test.filter(_._2 == 1).mapPartitions { part =>
+            val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+            part.map { r =>
+              val sequence = reference.extract(r._1)
+              NucleotideContigFragment.newBuilder().setContig(Contig.newBuilder().setContigName(r._1.referenceName).build)
+                .setFragmentSequence(sequence)
+                .setFragmentStartPosition(r._1.start)
+                .setFragmentEndPosition(r._1.end)
+                .build()
+            }
+          }
+
+          // save test positives
+          new NucleotideContigFragmentRDD(testFastaPositive, bed.sequences).transform(rdd => rdd.repartition(1)).save(conf.getFeaturesOutput + "_positive_test.fasta")
+
+          // dataset 1: get sequences for test positives
+          val testFastaNegative = test.filter(_._2 == 0).mapPartitions { part =>
+            val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+            part.map { r =>
+              val sequence = reference.extract(r._1)
+              NucleotideContigFragment.newBuilder().setContig(Contig.newBuilder().setContigName(r._1.referenceName).build)
+                .setFragmentSequence(sequence)
+                .setFragmentStartPosition(r._1.start)
+                .setFragmentEndPosition(r._1.end)
+                .build()
+            }
+          }
+
+          // save test positives
+          new NucleotideContigFragmentRDD(testFastaNegative, bed.sequences).transform(rdd => rdd.repartition(1)).save(conf.getFeaturesOutput + "_negative_test.fasta")
+
+
+          // save files with train dist matching test up to 100000 points
+          val pointCount = train.count()
+          println(s" filtering total count from ${pointCount} to 100,000 ...")
+
+
+          val positiveTrain = train.filter(_._2 == 1).mapPartitions { part =>
+            val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+            part.map { r =>
+              val sequence = reference.extract(r._1)
+              NucleotideContigFragment.newBuilder().setContig(Contig.newBuilder().setContigName(r._1.referenceName).build)
+                .setFragmentSequence(sequence)
+                .setFragmentStartPosition(r._1.start)
+                .setFragmentEndPosition(r._1.end)
+                .build()
+            }
+          }
+
+          val negativeTrain = train.filter(_._2 == 0).mapPartitions { part =>
+            val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+            part.map { r =>
+              val sequence = reference.extract(r._1)
+              NucleotideContigFragment.newBuilder().setContig(Contig.newBuilder().setContigName(r._1.referenceName).build)
+                .setFragmentSequence(sequence)
+                .setFragmentStartPosition(r._1.start)
+                .setFragmentEndPosition(r._1.end)
+                .build()
+            }
+          }
+
+
+          val positiveCount = positiveTrain.count()
+          val negativeCount = negativeTrain.count()
+
+          println(s"positive train count: ${positiveCount}, negative train count: ${negativeCount}")
+
+
+          // calculate train skew and use this to save training set
+          val skew = positiveCount / negativeCount
+          println(s"skew of positives to negatives in train set: ${skew}")
+
+          // save positives for 10,000 points
+          var positiveSample = skew * 10000
+          var negativeSample = 10000-positiveSample
+          println(s"positives for 10000: ${positiveSample}, negatives: ${negativeSample}")
+
+          new NucleotideContigFragmentRDD(sc.parallelize(positiveTrain.takeSample(false, positiveSample.toInt), 1), bed.sequences)
+            .save(conf.getFeaturesOutput + s"_positive_skew_${skew}_10000_train.fasta")
+
+          new NucleotideContigFragmentRDD(sc.parallelize(negativeTrain.takeSample(false, negativeSample.toInt), 1), bed.sequences)
+            .save(conf.getFeaturesOutput + s"_negative_skew_${skew}_10000_train.fasta")
+
+
+          // save positives for 50,000 points
+          positiveSample = skew * 50000
+          negativeSample = 50000-positiveSample
+
+          println(s"positives for 50000: ${positiveSample}, ${negativeSample}")
+
+          new NucleotideContigFragmentRDD(sc.parallelize(positiveTrain.takeSample(false, positiveSample.toInt), 1), bed.sequences)
+            .save(conf.getFeaturesOutput + s"_positive_skew_${skew}_50000_train.fasta")
+
+          new NucleotideContigFragmentRDD(sc.parallelize(negativeTrain.takeSample(false, negativeSample.toInt), 1), bed.sequences)
+            .save(conf.getFeaturesOutput + s"_negative_skew_${skew}_50000_train.fasta")
+
+
+          // save positives for 100,000 points
+          positiveSample = skew * 100000
+          negativeSample = 100000-positiveSample
+
+          println(s"positives for 100000: ${positiveSample}, ${negativeSample}")
+
+          new NucleotideContigFragmentRDD(sc.parallelize(positiveTrain.takeSample(false, positiveSample.toInt), 1), bed.sequences)
+            .save(conf.getFeaturesOutput + s"_positive_skew_${skew}_100000_train.fasta")
+
+          new NucleotideContigFragmentRDD(sc.parallelize(negativeTrain.takeSample(false, negativeSample.toInt), 1), bed.sequences)
+            .save(conf.getFeaturesOutput + s"_negative_skew_${skew}_100000_train.fasta")
+
+
+
+
+          // data set 2: save files with train dist maxing out the number of positives
+
+          // save full positives train
+          new NucleotideContigFragmentRDD(positiveTrain, bed.sequences).transform(rdd => rdd.repartition(1)).save(conf.getFeaturesOutput + "_positive_full_100000_train.fasta")
+
+          negativeSample = 100000-positiveCount
+
+          new NucleotideContigFragmentRDD(sc.parallelize(negativeTrain.takeSample(false, negativeSample.toInt), 1), bed.sequences)
+            .save(conf.getFeaturesOutput + "_negative_full_100000_train.fasta")
+
         }
-      }
 
+        }
   }
+
+
 
   def getSequenceDictionary(referencePath: String): SequenceDictionary = {
     val reference = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))

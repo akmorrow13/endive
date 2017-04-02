@@ -20,7 +20,7 @@ import java.util.Random
 import breeze.linalg._
 import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveConf
-import net.akmorrow13.endive.featurizers.RandomDistribution
+import net.akmorrow13.endive.featurizers.{Kmer, RandomDistribution}
 import net.akmorrow13.endive.metrics.Metrics
 import net.akmorrow13.endive.processing._
 import net.akmorrow13.endive.utils._
@@ -96,10 +96,27 @@ object DeepbindComparisonPipeline extends Serializable with Logging {
     val positivesLoc = conf.windowLoc + ".positives.fasta"
     val negativesLoc = conf.windowLoc + ".negatives.fasta"
 
-    var (train, eval) = {
+    val (train, eval) = {
 
-      val trainPositives = sc.loadFasta(positivesLoc, seqSize).rdd.map(r => (r, 1))
-      val trainNegatives = sc.loadFasta(negativesLoc, seqSize).rdd.map(r => (r, 0))
+      val trainPositives = sc.loadFasta(positivesLoc, seqSize).rdd.map(r => (r, 1)).sample(false, 0.2)
+      val trainNegatives = sc.loadFasta(negativesLoc, seqSize).rdd.map(r => (r, 0)).sample(false, 0.2)
+
+      val posKmers = trainPositives.map(_._1.getFragmentSequence.sliding(kmerSize).toSeq)
+      val negKmers = trainNegatives.map(_._1.getFragmentSequence.sliding(kmerSize).toSeq)
+
+      val posStr: String = Kmer.countKmers(posKmers, kmerSize).map(r => DenseVector(r.toArray))
+        .reduce(_ + _).toArray.mkString(",")
+      val negStr = Kmer.countKmers(posKmers, kmerSize).map(r => DenseVector(r.toArray))
+        .reduce(_ + _).toArray.mkString(",")
+
+      var pw = new PrintWriter(new File(conf.featurizedOutput + "_positive_REST_kmers.csv"))
+      pw.write(posStr)
+      pw.close()
+
+      pw = new PrintWriter(new File(conf.featurizedOutput + "_negative_REST_kmers.csv"))
+      pw.write(negStr)
+      pw.close()
+      sys.exit(0)
 
       val tf = TranscriptionFactors.Any
       val cell = CellTypes.Any
@@ -110,7 +127,9 @@ object DeepbindComparisonPipeline extends Serializable with Logging {
           LabeledWindow(win, r._2)
         })
 
-      val eval = sc.loadFasta(testLoc, seqSize).rdd.zipWithIndex()
+      println(train.filter(_.label == 1).count)
+      println(train.filter(_.label == 0).count)
+      val eval = sc.loadFasta(testLoc, seqSize).rdd.zipWithIndex
             .map(r => {
               if (r._2 < 500) (r._1, 1)
               else (r._1, 0)
@@ -121,11 +140,12 @@ object DeepbindComparisonPipeline extends Serializable with Logging {
         })
 
       assert(eval.count == 1000)
-
+      println(train.first)
+      println(eval.first)
       (train.repartition(200), eval.repartition(3))
     }
 
-
+    println(train.count, eval.count)
     implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))
     val gaussian = new Gaussian(0, 1)
 
@@ -137,34 +157,48 @@ object DeepbindComparisonPipeline extends Serializable with Logging {
        (DnaseKernelPipeline.featurize(train, Array(W_sequence), Array(kmerSize)).map(_.features),
          DnaseKernelPipeline.featurize(eval, Array(W_sequence), Array(kmerSize)).map(_.features))
 
+    val pwTrain = new PrintWriter(new File(conf.featurizedOutput + "_train.csv"))
+    val trainStr = train.map(_.label).zip(trainFeatures).map(r => s"${r._1},${r._2.toArray.mkString(",")}").collect.mkString("\n")
+    pwTrain.write(trainStr)
+    pwTrain.close()
+
+    val pwEval = new PrintWriter(new File(conf.featurizedOutput + "_eval.csv"))
+    val evalStr = eval.map(_.label).zip(trainFeatures).map(r => s"${r._1},${r._2.toArray.mkString(",")}").collect.mkString("\n")
+    pwTrain.write(evalStr)
+    pwTrain.close()
+
+    sys.exit(0)
+
+
 
     val labelExtractor = ClassLabelIndicatorsFromIntLabels(2) andThen
       new Cacher[DenseVector[Double]]
 
     val trainLabels = labelExtractor(train.map(_.label)).get
+println(trainLabels.first )
     val evalLabels = labelExtractor(eval.map(_.label)).get
-
+print(evalLabels.first)
+/*
     trainFeatures.map(x => x.toArray.mkString(",")).zip(trainLabels).map(x => s"${x._1}|${x._2}").saveAsTextFile(s"${conf.featurizedOutput}_${approxDim}_train")
     evalFeatures.map(x => x.toArray.mkString(",")).zip(evalLabels).map(x => s"${x._1}|${x._2}").saveAsTextFile(s"${conf.featurizedOutput}_${approxDim}_eval")
+*/
+    val model = new BlockLeastSquaresEstimator(approxDim, 1, conf.lambda).fit(trainFeatures, trainLabels)
 
-    val model = new BlockLeastSquaresEstimator(approxDim, 2, conf.lambda).fit(trainFeatures, trainLabels)
+    val allYTrain = model(trainFeatures).map(x => x(1))
+    val allYEval = model(evalFeatures).map(x => x(1))
 
-    val allYTrain = model(trainFeatures)
-    val allYEval = model(evalFeatures)
-
-    val zippedTrainResults: RDD[(Double, Double)] = allYTrain.zip(trainLabels).map(r => (r._1(0), r._2(0)))
-    val zippedEvalResults: RDD[(Double, Double)] = allYEval.zip(evalLabels).map(r => (r._1(0), r._2(0)))
-
-
-    // save results as local file
-    zippedTrainResults.map(r => s"${r._1},${r._2}").repartition(1).saveAsTextFile(s"/icml/deepbind_tests/results/${conf.windowLoc}_trainScores.csv")
-    zippedEvalResults.map(r => s"${r._1},${r._2}").repartition(1).saveAsTextFile(s"/icml/deepbind_tests/results/${testLoc}_evalScores.csv")
+    val zippedTrainResults: RDD[(Double, Double)] = allYTrain.zip(trainLabels.map(x => if (x(1) == 1) 1 else 0))
+    val zippedEvalResults: RDD[(Double, Double)] = allYEval.zip(evalLabels.map(x => if (x(1) == 1) 1 else 0))
 
     val evalTrain= new BinaryClassificationMetrics(zippedTrainResults)
-    Metrics.printMetrics(evalTrain, Some(s"Eval metrics for ${testLoc}"))
+    Metrics.printMetrics(evalTrain, Some(s"Train metrics for ${testLoc}"))
 
     val evalEval = new BinaryClassificationMetrics(zippedEvalResults)
     Metrics.printMetrics(evalEval, Some(s"Eval metrics for ${testLoc}"))
+
+    // save results as local file
+    zippedTrainResults.map(r => s"${r._1},${r._2}").repartition(1).saveAsTextFile(s"icml/deepbind_tests/results/${conf.windowLoc}_trainScores.csv")
+    zippedEvalResults.map(r => s"${r._1},${r._2}").repartition(1).saveAsTextFile(s"icml/deepbind_tests/results/${testLoc}_evalScores.csv")
 
 
   }

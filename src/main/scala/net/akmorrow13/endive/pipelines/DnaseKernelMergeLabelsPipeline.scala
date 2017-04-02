@@ -15,6 +15,7 @@
  */
 package net.akmorrow13.endive.pipelines
 
+import net.akmorrow13.endive.featurizers.Kmer
 import breeze.linalg._
 import breeze.stats.distributions._
 import net.akmorrow13.endive.EndiveConf
@@ -90,8 +91,8 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
 
     val indexTf = headers.zipWithIndex.filter(r => r._1.contains(conf.tfs)).head
     println(indexTf)
-    val indexTfFiltered: String = indexTf._1.filter(_ != '|')
-
+    val indexTfFiltered = indexTf._1.filter(_ != '|')
+    println(indexTfFiltered)
 
     // load in train and eval as LabeledWindows
     val trainAll = LabeledWindowLoader(s"${conf.getWindowLoc}_train", sc).setName("_All data")
@@ -117,7 +118,7 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
           .setFragmentStartPosition(r.win.getRegion.start)
           .setFragmentEndPosition(r.win.getRegion.end)
           .build()
-      }), sequences).saveAsFasta(s"icml/${indexTf._1}_positives.fasta")
+      }).repartition(1), sequences).saveAsFasta(s"icml/${indexTfFiltered}_positives.fasta")
 
 
     val negativeCount = trainAll.map(_.labels(indexTf._2)).filter(_ == 0).count
@@ -130,10 +131,16 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
         NucleotideContigFragment.newBuilder()
           .setFragmentSequence(r.win.getSequence)
           .setDescription(s"${r.win.getRegion.toString}")
+          .setContig(Contig.newBuilder().setContigName(r.win.getRegion.referenceName).build)
+          .setFragmentStartPosition(r.win.getRegion.start)
+          .setFragmentEndPosition(r.win.getRegion.end)
           .build()
-      }), sequences).saveAsFasta(s"icml/${indexTf._1}_negatives.fasta")
-
+      }).repartition(1), sequences).saveAsFasta(s"icml/${indexTfFiltered}_negatives.fasta")
+sys.exit(0)
     val train = negs.union(trainAll.filter(_.labels(indexTf._2) > 0))
+    train.cache()
+    train.count
+    trainAll.unpersist()
 //
 //    eval = eval.repartition(2).cache().map(r => {
 //      val mid = r.win.getRegion.length / 2 + r.win.getRegion.start
@@ -144,8 +151,9 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
 //    })
 //    eval.count()
 
-
     // base model
+/*
+
     val baseFeatures = Kmer.extractKmers(train.map(_.win.getSequence), 6).map(r => DenseVector(r.toArray))
     val trainLabels = train.map(_.labels.map(_.toDouble)).map(DenseVector(_))
 
@@ -158,9 +166,10 @@ object DnaseKernelMergeLabelsPipeline extends Serializable with Logging {
     val evalEval = new BinaryClassificationMetrics(zippedTrainResults.map(r => (r._1(indexTf._2), r._2(indexTf._2))))
     Metrics.printMetrics(evalEval, Some(s"Eval,${indexTf._1},${indexTf._2}"))
     // end base model
-
-
-    val approxDims = Array(256, 8192, 16384)
+*/
+    val trainLabels = train.map(_.labels.map(_.toDouble)).map(DenseVector(_))
+    
+    val approxDims = Array(4096)
     for (approxDim <- approxDims) {
 
       implicit val randBasis: RandBasis = new RandBasis(new ThreadLocalRandomGenerator(new MersenneTwister(seed)))

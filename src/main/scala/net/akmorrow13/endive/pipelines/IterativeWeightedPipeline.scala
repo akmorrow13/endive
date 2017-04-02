@@ -38,7 +38,7 @@ import net.akmorrow13.endive.metrics.Metrics
 
 
 
-object IterativeWeightedSolvePipeline extends Serializable with Logging {
+object IterativeWeightedPipeline extends Serializable with Logging {
 
   /**
    * A very basic pipeline that *doesn't* featurize the data

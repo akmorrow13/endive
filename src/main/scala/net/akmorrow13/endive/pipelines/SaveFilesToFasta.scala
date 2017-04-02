@@ -90,10 +90,11 @@ object SaveFilesToFasta extends Serializable {
     val eval = readSequences(s"${conf.windowLoc}deepsea_eval_reg_seq", sc)
       .map(r => (r._1,r._2,r._3(indexTf._2)))
       .repartition(1)
-    val test = readSequences(s"${conf.windowLoc}deepsea_eval_reg_seq", sc)
+    val test = readSequences(s"${conf.windowLoc}deepsea_test_chr8_9_reg_seq", sc)
       .map(r => (r._1,r._2,r._3(indexTf._2)))
       .repartition(1)
 
+println(eval.count, test.count)
     val sequences = DatasetCreationPipeline.getSequenceDictionary(conf.reference)
 
     val evalLoc = s"${conf.featuresOutput}${indexTf._1}_eval.fasta"
@@ -125,6 +126,8 @@ object SaveFilesToFasta extends Serializable {
                   rdd: RDD[(ReferenceRegion, String, Int)],
                   filePath: String,
                   labelPath: String) = {
+
+    println(s"saving data: ${rdd.count} records to ${filePath}")
 
     // save fasta
     new NucleotideContigFragmentRDD(
