@@ -15,6 +15,8 @@
  */
 package net.akmorrow13.endive.pipelines
 
+import org.bdgenomics.adam.rdd.feature.FeatureRDD
+import org.bdgenomics.formats.avro.Feature
 import java.io.File
 import net.akmorrow13.endive.EndiveConf
 import org.apache.log4j.{Level, Logger}
@@ -62,6 +64,10 @@ object FindNovel extends Serializable  {
 
   def run(sc: SparkContext, conf: EndiveConf) {
 
+
+    val genes = sc.loadGtf(conf.genes).rdd.map(r => ReferenceRegion.unstranded(r)).collect
+    println("genes count", genes.length)
+
     //coverage, beds and gtf file
 
     val fileNames = Preprocess.getFileNamesFromDirectory(sc, conf.getFeaturesOutput)
@@ -86,31 +92,63 @@ object FindNovel extends Serializable  {
       }))
     }).reduce((r1, r2) => r1.transform(rdd => rdd.union(r2.rdd)))
 
+    val coveragePeaks = peaks.transform(rdd => rdd.map(r => {
+      r.setScore(1.0)
+      r
+    })).toCoverage
+
+    val bpPerBin = 1000
+
+    val tmp = coveragePeaks.flatten.rdd.keyBy(r => {
+          // key coverage by binning start site mod bpPerbin
+          // subtract region.start to shift mod to start of ReferenceRegion
+          val start = r.start - (r.start % bpPerBin)
+          ReferenceRegion(r.contigName, start, start + bpPerBin)
+        }).mapValues(r => r.count)
+        .reduceByKey(_ + _)
+        .map(r => {
+          // compute total coverage in bin
+		
+    	  Feature.newBuilder()
+    	  .setContigName(r._1.referenceName)
+          .setStart(r._1.start)
+     	  .setEnd(r._1.end)
+    	  .setScore(r._2)
+      	  .build()    
+    })
+    val aggregatedCoveragePeaks = FeatureRDD(tmp, coverage.sequences).toCoverage
+
+    val maxPeaks = aggregatedCoveragePeaks.transform(rdd => rdd.filter(_.count > 1))
+    println("maxPeaks", maxPeaks.rdd.count)
+
+    val genesB = sc.broadcast(genes)
+    // run join code here: right side should be peaks
+    val joined: RDD[(Coverage, Double)] = InnerShuffleRegionJoinAndGroupByLeft[Coverage, Coverage](coverage.sequences, 1000000, sc)
+      .partitionAndJoin(maxPeaks.rdd.keyBy(r => ReferenceRegion(r)), coverage.toCoverage.rdd.keyBy(r => ReferenceRegion(r)))
+      .map(r => (r._1, r._2.toArray.map(_.count).sum))
+      .filter(r => {
+        !genesB.value.filter(g => {
+          ReferenceRegion(r._1).distance(g).getOrElse(-100000000L) < 1000
+        }).isEmpty
+      }).cache()
+
+
+    println("after join and filtering by genes", joined.count, joined.first)
 
     // Query 1: Find sites where binding across cell types is most consistent
-    val populatedRegions = peaks.toCoverage.aggregatedCoverage(1000).rdd.sortBy(_.count, ascending = false).take(10)
+    val populatedRegions = joined.sortBy(_._1.count, ascending = false).take(10)
     println("most populated peak regions")
     populatedRegions.foreach(println)
 
-
-    // Query 2: Find regions where all celltypes have very low coverage (and overlap gene?)
-    val maxPeaks = peaks.toCoverage.aggregatedCoverage(1000).transform(rdd => rdd.filter(_.count > 1))
-    println("maxPeaks", maxPeaks.rdd.count)
-
-
-    // run join code here: right side should be peaks
-    val joined: RDD[(Coverage, Iterable[Coverage])] = InnerShuffleRegionJoinAndGroupByLeft[Coverage, Coverage](coverage.sequences, 1000000, sc)
-      .partitionAndJoin(maxPeaks.rdd.keyBy(r => ReferenceRegion(r)), coverage.toCoverage.rdd.keyBy(r => ReferenceRegion(r)))
-
     // filter out regions with ANY coverage
-    val noCoverage = joined.filter(_._2.isEmpty)
+    val noCoverage = joined.filter(_._2 < 100)
     println("areas with no coverage", noCoverage.count)
 
     noCoverage.sortBy(_._1.count, ascending = false).take(10).foreach(println)
 
     // Query 3: Find regions where all celltypes have very high coverage (and overlap gene?)
     // filter out regions with ANY coverage
-    val highCoverage = joined.map(r => (r._1, r._2.size)).sortBy(_._2, ascending=false)
+    val highCoverage = joined.sortBy(_._2, ascending=false)
     println("areas with high coverage", highCoverage.count)
 
     highCoverage.take(10).foreach(println)
