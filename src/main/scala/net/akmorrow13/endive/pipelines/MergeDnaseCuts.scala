@@ -80,12 +80,11 @@ object MergeDnaseCuts extends Serializable with Logging {
      dnase.rdd.cache()
      println(s"dnase before file filter, ${dnase.rdd.count}")
 
-     // pick only one file
-     val chosenFile = dnase.rdd.first.getAttributes
-      println(s"chosen file = ${chosenFile}")
+      val fileCount = dnase.rdd.map(_.getAttributes).distinct().count.toDouble
+
       dnase = dnase
-	     .transform(rdd => rdd.repartition(1000))
-	     .transform(rdd => rdd.filter(r => r.start >= 0 && r.getAttributes == chosenFile))
+	     .transform(rdd => rdd.repartition(200))
+	     .transform(rdd => rdd.filter(r => r.start >= 0))
 
       println(s"dnase before file filter, ${dnase.rdd.count}")
 
@@ -96,13 +95,17 @@ object MergeDnaseCuts extends Serializable with Logging {
 
       // group and save positive strand files
       val groupedPositives = dnase.transform(rdd => rdd.filter(r => !r.getReadNegativeStrand))
-	      .toCoverage()
+	      .toCoverage().transform(rdd => rdd.map(r => {
+        r.copy(count = r.count/fileCount)
+        }))
 
       groupedPositives.save(positiveFile, false)
 
     // group and save negative strand files
       val groupedNegatives = dnase.transform(rdd => rdd.filter(r => r.getReadNegativeStrand))
-	      .toCoverage()
+	      .toCoverage().transform(rdd => rdd.map(r => {
+        r.copy(count = r.count/fileCount)
+        }))
 
       groupedNegatives.save(negativeFile, false)
     }

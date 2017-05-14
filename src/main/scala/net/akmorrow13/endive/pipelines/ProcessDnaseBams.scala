@@ -71,25 +71,30 @@ object ProcessDnaseBams extends Serializable with Logging {
     val saved = fs.listStatus(new Path(positiveFolder)).map(_.getPath.toString)
 
     // read all bams in file and save positive coverage
-    val status: Array[FileStatus] = fs.listStatus(new Path(dnase)).filter(i => i.getPath.getName.endsWith(".bam"))
+    /*val status: Array[FileStatus] = fs.listStatus(new Path(dnase)).filter(i => i.getPath.getName.endsWith(".bam"))
+    status.foreach(println)
     val cellTypeFiles = status.map(f => (Dataset.filterCellTypeName(f.getPath.getName.split('.')(1)), f)).groupBy(_._1)
-
+    */
+    val dnaseFiles = dnase.split(',')
     // get sequence dicionary
     val sd = DatasetCreationPipeline.getSequenceDictionary(referencePath)
 
     // TODO: check if group exists
-    for (grp <- cellTypeFiles) {
-      val cellType = grp._1
-      println(s"processing Dnase for celltype ${cellType}")
+    //for (grp <- cellTypeFiles) {
+//      val cellType = grp._1
+//      println(s"processing Dnase for celltype ${cellType}")
+      val cellType = dnaseFiles.head.split('/').last.split('.')(1)
+      println(s"cellType: ${cellType}")
 
       var totalCuts: AlignmentRecordRDD = null
       val outputLocation = s"${output}/aligmentcuts_allFiles.DNASE.${cellType}.adam"
 
       if (!saved.contains(outputLocation)) {
-        for (i <- grp._2.map(_._2)) {
-          val filePath: String = i.getPath.toString
-          val fileName = i.getPath.getName
-          println(s"processing file ${fileName} from ${filePath}")
+//        for (i <- grp._2.map(_._2)) {
+          for(filePath <- dnaseFiles) {
+          //val filePath: String = i.getPath.toString
+          //val fileName = i.getPath.getName
+           println(s"processing from ${filePath}")
 
           // get positive strand coverage and key by region, cellType
           val alignments = sc.loadAlignments(filePath)
@@ -98,7 +103,7 @@ object ProcessDnaseBams extends Serializable with Logging {
           alignments.rdd.cache
 
           val cuts = alignments.transform(rdd => {
-            rdd.flatMap(r => Dnase.generateCuts(r, cellType, fileName))
+            rdd.flatMap(r => Dnase.generateCuts(r, cellType, filePath))
           })
 
           if (totalCuts == null ) {
@@ -119,7 +124,7 @@ object ProcessDnaseBams extends Serializable with Logging {
         println(s"dnase for ${cellType} exists. skipping")
       }
 
-    }
+    //}
 
 
 
